@@ -3,10 +3,10 @@
 #include "wbfs.h"
 
 #include <dirent.h>
-#include <sys/types.h>
-#include <sys/param.h>
-#include <sys/stat.h>
-#include <unistd.h>
+#include <sys/types.h> 
+#include <sys/param.h> 
+#include <sys/stat.h> 
+#include <unistd.h> 
 
 using namespace std;
 
@@ -24,7 +24,7 @@ void CMenu::_hideConfigAdv(bool instant)
 	m_btnMgr.hide(m_configLblPage, instant);
 	m_btnMgr.hide(m_configBtnPageM, instant);
 	m_btnMgr.hide(m_configBtnPageP, instant);
-	//
+	// 
 	m_btnMgr.hide(m_configAdvLblInstall, instant);
 	m_btnMgr.hide(m_configAdvBtnInstall, instant);
 	m_btnMgr.hide(m_configAdvLblTheme, instant);
@@ -50,7 +50,7 @@ void CMenu::_showConfigAdv(void)
 	m_btnMgr.show(m_configLblPage);
 	m_btnMgr.show(m_configBtnPageM);
 	m_btnMgr.show(m_configBtnPageP);
-	//
+	// 
 	m_btnMgr.show(m_configAdvLblCurTheme);
 	m_btnMgr.show(m_configAdvBtnCurThemeM);
 	m_btnMgr.show(m_configAdvBtnCurThemeP);
@@ -69,7 +69,7 @@ void CMenu::_showConfigAdv(void)
 	for (u32 i = 0; i < ARRAY_SIZE(m_configAdvLblUser); ++i)
 		if (m_configAdvLblUser[i] != -1u)
 			m_btnMgr.show(m_configAdvLblUser[i]);
-	//
+	// 
 	m_btnMgr.setText(m_configLblPage, wfmt(L"%i / %i", g_curPage, m_locked ? g_curPage : CMenu::_nbCfgPages));
 	m_btnMgr.setText(m_configAdvLblCurLanguage, m_curLanguage);
 	m_btnMgr.setText(m_configAdvLblCurTheme, m_cfg.getString("GENERAL", "theme"));
@@ -129,15 +129,13 @@ int CMenu::_configAdv(void)
 			m_btnMgr.down();
 		if (BTN_LEFT_PRESSED || BTN_MINUS_PRESSED || (BTN_A_PRESSED && m_btnMgr.selected(m_configBtnPageM)))
 		{
-			nextPage = m_locked ? 1 : loopNum(g_curPage - 1, CMenu::_nbCfgPages + 1);
-			if(nextPage <= 0) nextPage = CMenu::_nbCfgPages;
+			nextPage = max(1, m_locked ? 1 : g_curPage - 1);
 			if(BTN_LEFT_PRESSED || BTN_MINUS_PRESSED) m_btnMgr.click(m_configBtnPageM);
 			break;
 		}
-		if (BTN_RIGHT_PRESSED || BTN_PLUS_PRESSED || (BTN_A_PRESSED && m_btnMgr.selected(m_configBtnPageP)))
+		if (!m_locked && (BTN_RIGHT_PRESSED || BTN_PLUS_PRESSED || (BTN_A_PRESSED && m_btnMgr.selected(m_configBtnPageP))))
 		{
-			nextPage = m_locked ? 1 : loopNum(g_curPage + 1, CMenu::_nbCfgPages + 1);
-			if(nextPage <= 0) nextPage = 1;
+			nextPage = min(g_curPage + 1, CMenu::_nbCfgPages);
 			if(BTN_RIGHT_PRESSED || BTN_PLUS_PRESSED) m_btnMgr.click(m_configBtnPageP);
 			break;
 		}
@@ -213,30 +211,30 @@ void CMenu::_initConfigAdvMenu(CMenu::SThemeData &theme)
 {
 	_addUserLabels(theme, m_configAdvLblUser, ARRAY_SIZE(m_configAdvLblUser), "CONFIG_ADV");
 	m_configAdvBg = _texture(theme.texSet, "CONFIG_ADV/BG", "texture", theme.bg);
-	m_configAdvLblTheme = _addLabel(theme, "CONFIG_ADV/THEME", 40, 130, 290, 56, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_MIDDLE);
-	m_configAdvLblCurTheme = _addLabel(theme, "CONFIG_ADV/THEME_BTN", 386, 130, 158, 56, FTGX_JUSTIFY_CENTER | FTGX_ALIGN_MIDDLE, theme.btnTexC);
+	m_configAdvLblTheme = _addLabel(theme, "CONFIG_ADV/THEME", theme.lblFont, L"", 40, 130, 290, 56, theme.lblFontColor, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_MIDDLE);
+	m_configAdvLblCurTheme = _addLabel(theme, "CONFIG_ADV/THEME_BTN", theme.btnFont, L"", 386, 130, 158, 56, theme.btnFontColor, FTGX_JUSTIFY_CENTER | FTGX_ALIGN_MIDDLE, theme.btnTexC);
 	m_configAdvBtnCurThemeM = _addPicButton(theme, "CONFIG_ADV/THEME_MINUS", theme.btnTexMinus, theme.btnTexMinusS, 330, 130, 56, 56);
 	m_configAdvBtnCurThemeP = _addPicButton(theme, "CONFIG_ADV/THEME_PLUS", theme.btnTexPlus, theme.btnTexPlusS, 544, 130, 56, 56);
-	m_configAdvLblLanguage = _addLabel(theme, "CONFIG_ADV/LANGUAGE", 40, 190, 290, 56, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_MIDDLE);
-	m_configAdvLblCurLanguage = _addLabel(theme, "CONFIG_ADV/LANGUAGE_BTN", 386, 190, 158, 56, FTGX_JUSTIFY_CENTER | FTGX_ALIGN_MIDDLE, theme.btnTexC);
+	m_configAdvLblLanguage = _addLabel(theme, "CONFIG_ADV/LANGUAGE", theme.lblFont, L"", 40, 190, 290, 56, theme.lblFontColor, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_MIDDLE);
+	m_configAdvLblCurLanguage = _addLabel(theme, "CONFIG_ADV/LANGUAGE_BTN", theme.btnFont, L"", 386, 190, 158, 56, theme.btnFontColor, FTGX_JUSTIFY_CENTER | FTGX_ALIGN_MIDDLE, theme.btnTexC);
 	m_configAdvBtnCurLanguageM = _addPicButton(theme, "CONFIG_ADV/LANGUAGE_MINUS", theme.btnTexMinus, theme.btnTexMinusS, 330, 190, 56, 56);
 	m_configAdvBtnCurLanguageP = _addPicButton(theme, "CONFIG_ADV/LANGUAGE_PLUS", theme.btnTexPlus, theme.btnTexPlusS, 544, 190, 56, 56);
-	m_configAdvLblCFTheme = _addLabel(theme, "CONFIG_ADV/CUSTOMIZE_CF", 40, 250, 290, 56, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_MIDDLE);
-	m_configAdvBtnCFTheme = _addButton(theme, "CONFIG_ADV/CUSTOMIZE_CF_BTN", 330, 250, 270, 56);
-	m_configAdvLblInstall = _addLabel(theme, "CONFIG_ADV/INSTALL", 40, 310, 290, 56, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_MIDDLE);
-	m_configAdvBtnInstall = _addButton(theme, "CONFIG_ADV/INSTALL_BTN", 330, 310, 270, 56);
-	//
-	_setHideAnim(m_configAdvLblTheme, "CONFIG_ADV/THEME", 0, 0, 1.f, 0.f);
+	m_configAdvLblCFTheme = _addLabel(theme, "CONFIG_ADV/CUSTOMIZE_CF", theme.lblFont, L"", 40, 250, 290, 56, theme.lblFontColor, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_MIDDLE);
+	m_configAdvBtnCFTheme = _addButton(theme, "CONFIG_ADV/CUSTOMIZE_CF_BTN", theme.btnFont, L"", 330, 250, 270, 56, theme.btnFontColor);
+	m_configAdvLblInstall = _addLabel(theme, "CONFIG_ADV/INSTALL", theme.lblFont, L"", 40, 310, 290, 56, theme.lblFontColor, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_MIDDLE);
+	m_configAdvBtnInstall = _addButton(theme, "CONFIG_ADV/INSTALL_BTN", theme.btnFont, L"", 330, 310, 270, 56, theme.btnFontColor);
+	// 
+	_setHideAnim(m_configAdvLblTheme, "CONFIG_ADV/THEME", 100, 0, -2.f, 0.f);
 	_setHideAnim(m_configAdvLblCurTheme, "CONFIG_ADV/THEME_BTN", 0, 0, 1.f, -1.f);
 	_setHideAnim(m_configAdvBtnCurThemeM, "CONFIG_ADV/THEME_MINUS", 0, 0, 1.f, -1.f);
 	_setHideAnim(m_configAdvBtnCurThemeP, "CONFIG_ADV/THEME_PLUS", 0, 0, 1.f, -1.f);
-	_setHideAnim(m_configAdvLblLanguage, "CONFIG_ADV/LANGUAGE", 0, 0, 1.f, 0.f);
+	_setHideAnim(m_configAdvLblLanguage, "CONFIG_ADV/LANGUAGE", 100, 0, -2.f, 0.f);
 	_setHideAnim(m_configAdvLblCurLanguage, "CONFIG_ADV/LANGUAGE_BTN", 0, 0, 1.f, -1.f);
 	_setHideAnim(m_configAdvBtnCurLanguageM, "CONFIG_ADV/LANGUAGE_MINUS", 0, 0, 1.f, -1.f);
 	_setHideAnim(m_configAdvBtnCurLanguageP, "CONFIG_ADV/LANGUAGE_PLUS", 0, 0, 1.f, -1.f);
-	_setHideAnim(m_configAdvLblCFTheme, "CONFIG_ADV/CUSTOMIZE_CF", 0, 0, 1.f, 0.f);
+	_setHideAnim(m_configAdvLblCFTheme, "CONFIG_ADV/CUSTOMIZE_CF", 100, 0, -2.f, 0.f);
 	_setHideAnim(m_configAdvBtnCFTheme, "CONFIG_ADV/CUSTOMIZE_CF_BTN", 0, 0, 1.f, -1.f);
-	_setHideAnim(m_configAdvLblInstall, "CONFIG_ADV/INSTALL", 0, 0, 1.f, 0.f);
+	_setHideAnim(m_configAdvLblInstall, "CONFIG_ADV/INSTALL", 100, 0, -2.f, 0.f);
 	_setHideAnim(m_configAdvBtnInstall, "CONFIG_ADV/INSTALL_BTN", 0, 0, 1.f, -1.f);
 	_hideConfigAdv(true);
 	_textConfigAdv();

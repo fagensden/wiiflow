@@ -95,11 +95,11 @@ private:
 	float m_vpW;
 	float m_vpH;
 	float m_waitMessageDelay;
-	volatile bool m_showWaitMessage;
+	bool m_showWaitMessage;
 	volatile bool m_showingWaitMessages;
-	volatile bool m_useWiiLight;
+	bool m_useWiiLight;
 	safe_vector<STexture> m_waitMessages;
-	//
+	// 
 	static const int _stencilWidth;
 	static const int _stencilHeight;
 	static const float _jitter2[2][2];
@@ -112,8 +112,6 @@ private:
 	void _drawAASceneWithAlpha(float w, float h);
 	void _setViewPort(float x, float y, float w, float h);
 	static void _showWaitMessages(CVideo *m);
-protected:
-	lwp_t waitThread;
 private:
 	CVideo(const CVideo &);
 };

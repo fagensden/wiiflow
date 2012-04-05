@@ -7,9 +7,6 @@
 extern "C" {
 #endif
 
-#define MAX_FAT_PATH 1024
-//#define FILE_GECKO
-
 	extern bool geckoinit;
 
 	//use this just like printf();

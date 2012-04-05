@@ -14,7 +14,7 @@ static const int g_floatPrecision = 10;
 const string Config::emptyString;
 
 Config::Config(void) :
-	m_loaded(false), m_changed(false), m_domains(), m_filename(), m_iter()
+	m_loaded(false), m_changed(false), m_domains(), m_filename(), m_iter() 
 {
 }
 
@@ -149,7 +149,7 @@ const string &Config::prevDomain(const string &start) const
 bool Config::load(const char *filename)
 {
 	if (m_loaded && m_changed) save();
-
+	
 	ifstream file(filename, ios::in | ios::binary);
 	string line;
 	string domain("");
@@ -324,7 +324,7 @@ string Config::getString(const string &domain, const string &key, const string &
 {
 	if (domain.empty() || key.empty()) return defVal;
 	string &data = m_domains[upperCase(domain)][lowerCase(key)];
-	if (data.empty())
+	if (data.empty() || strncasecmp(data.c_str(), "usb:", 4) == 0)
 	{
 		data = defVal;
 		m_changed = true;
@@ -332,24 +332,10 @@ string Config::getString(const string &domain, const string &key, const string &
 	return data;
 }
 
-bool Config::getString2(const string &domain, const string &key, string &defVal)
-{
-	if (domain.empty() || key.empty()) return false;
-	string &data = m_domains[upperCase(domain)][lowerCase(key)];
-	if (data.empty())
-	{
-		data = defVal;
-		m_changed = true;
-	}
-	else defVal = data;
-
-	return !data.empty();
-}
-
 safe_vector<string> Config::getStrings(const string &domain, const string &key, char seperator, const string &defVal)
 {
 	safe_vector<string> retval;
-
+	
 	if (domain.empty() || key.empty())
 	{
 		if (defVal != std::string())
@@ -375,10 +361,10 @@ safe_vector<string> Config::getStrings(const string &domain, const string &key, 
 	{
 		// found a token, add it to the vector.
 		retval.push_back(data.substr(lastPos, pos - lastPos));
-
+	
 		// skip delimiters.  Note the "not_of"
 		lastPos = data.find_first_not_of(seperator, pos);
-
+	
 		// find next "non-delimiter"
 		pos = data.find_first_of(seperator, lastPos);
 	}

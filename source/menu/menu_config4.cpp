@@ -10,6 +10,11 @@ using namespace std;
 
 static const int g_curPage = 4;
 
+static inline int loopNum(int i, int s)
+{
+	return i < 0 ? (s - (-i % s)) % s : i % s;
+}
+
 int currentChannelIndex = -1;
 int amountOfChannels = -1;
 
@@ -28,7 +33,7 @@ void CMenu::_hideConfig4(bool instant)
 	m_btnMgr.hide(m_configLblPage, instant);
 	m_btnMgr.hide(m_configBtnPageM, instant);
 	m_btnMgr.hide(m_configBtnPageP, instant);
-	//
+	// 
 	m_btnMgr.hide(m_config4LblHome, instant);
 	m_btnMgr.hide(m_config4BtnHome, instant);
 	m_btnMgr.hide(m_config4LblSaveFavMode, instant);
@@ -52,7 +57,7 @@ void CMenu::_showConfig4(void)
 	m_btnMgr.show(m_configLblPage);
 	m_btnMgr.show(m_configBtnPageM);
 	m_btnMgr.show(m_configBtnPageP);
-	//
+	// 
 	m_btnMgr.show(m_config4LblHome);
 	m_btnMgr.show(m_config4BtnHome);
 	m_btnMgr.show(m_config4LblSaveFavMode);
@@ -67,10 +72,10 @@ void CMenu::_showConfig4(void)
 	for (u32 i = 0; i < ARRAY_SIZE(m_config4LblUser); ++i)
 		if (m_config4LblUser[i] != -1u)
 			m_btnMgr.show(m_config4LblUser[i]);
-
+ 
 	m_btnMgr.setText(m_configLblPage, wfmt(L"%i / %i", g_curPage, m_locked ? g_curPage : CMenu::_nbCfgPages));
 	int i;
-	i = min(max(0, m_cfg.getInt("GENERAL", "exit_to")), (int)ARRAY_SIZE(CMenu::_exitTo) - 1);
+	i = min(max(0, m_cfg.getInt("GENERAL", "exit_to", 0)), (int)ARRAY_SIZE(CMenu::_exitTo) - 1);
 	m_btnMgr.setText(m_config4BtnHome, _t(CMenu::_exitTo[i].id, CMenu::_exitTo[i].text));
 	m_btnMgr.setText(m_config4BtnSaveFavMode, m_cfg.getBool("GENERAL", "favorites_on_startup") ? _t("on", L"On") : _t("off", L"Off"));
 	m_btnMgr.setText(m_config4BtnCategoryOnBoot, m_cat.getBool("GENERAL", "category_on_start") ? _t("on", L"On") : _t("off", L"Off"));
@@ -122,15 +127,13 @@ int CMenu::_config4(void)
 			m_btnMgr.down();
 		if (BTN_LEFT_PRESSED || BTN_MINUS_PRESSED || (BTN_A_PRESSED && m_btnMgr.selected(m_configBtnPageM)))
 		{
-			nextPage = m_locked ? 1 : loopNum(g_curPage - 1, CMenu::_nbCfgPages + 1);
-			if(nextPage <= 0) nextPage = CMenu::_nbCfgPages;
+			nextPage = max(1, m_locked ? 1 : g_curPage - 1);
 			if(BTN_LEFT_PRESSED || BTN_MINUS_PRESSED) m_btnMgr.click(m_configBtnPageM);
 			break;
 		}
-		if (BTN_RIGHT_PRESSED || BTN_PLUS_PRESSED || (BTN_A_PRESSED && m_btnMgr.selected(m_configBtnPageP)))
+		if (!m_locked && (BTN_RIGHT_PRESSED || BTN_PLUS_PRESSED || (BTN_A_PRESSED && m_btnMgr.selected(m_configBtnPageP))))
 		{
-			nextPage = m_locked ? 1 : loopNum(g_curPage + 1, CMenu::_nbCfgPages + 1);
-			if(nextPage <= 0) nextPage = 1;
+			nextPage = min(g_curPage + 1, CMenu::_nbCfgPages);
 			if(BTN_RIGHT_PRESSED || BTN_PLUS_PRESSED) m_btnMgr.click(m_configBtnPageP);
 			break;
 		}
@@ -140,7 +143,7 @@ int CMenu::_config4(void)
 				break;
 			else if (m_btnMgr.selected(m_config4BtnHome))
 			{
-				int exit_to = (int)loopNum((u32)m_cfg.getInt("GENERAL", "exit_to") + 1, ARRAY_SIZE(CMenu::_exitTo));
+				int exit_to = (int)loopNum((u32)m_cfg.getInt("GENERAL", "exit_to", 0) + 1, ARRAY_SIZE(CMenu::_exitTo));
 				m_cfg.setInt("GENERAL", "exit_to", exit_to);
 				Sys_ExitTo(exit_to);
 				m_disable_exit = exit_to == 3;
@@ -153,7 +156,7 @@ int CMenu::_config4(void)
 			}
 			else if (m_btnMgr.selected(m_config4BtnCategoryOnBoot))
 			{
-				m_cat.setBool("GENERAL", "category_on_start", !m_cat.getBool("GENERAL", "category_on_start"));
+				m_cat.setBool("GENERAL", "category_on_start", !m_cat.getBool("GENERAL", "category_on_start", false));
 				_showConfig4();
 			}
 			else if (m_btnMgr.selected(m_config4BtnReturnToP))
@@ -185,24 +188,24 @@ void CMenu::_initConfig4Menu(CMenu::SThemeData &theme)
 {
 	_addUserLabels(theme, m_config4LblUser, ARRAY_SIZE(m_config4LblUser), "CONFIG4");
 	m_config4Bg = _texture(theme.texSet, "CONFIG4/BG", "texture", theme.bg);
-	m_config4LblHome = _addLabel(theme, "CONFIG4/WIIMENU", 40, 130, 340, 56, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_MIDDLE);
-	m_config4BtnHome = _addButton(theme, "CONFIG4/WIIMENU_BTN", 400, 130, 200, 56);
-	m_config4LblSaveFavMode = _addLabel(theme, "CONFIG4/SAVE_FAVMODE", 40, 190, 340, 56, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_MIDDLE);
-	m_config4BtnSaveFavMode = _addButton(theme, "CONFIG4/SAVE_FAVMODE_BTN", 400, 190, 200, 56);
-	m_config4LblCategoryOnBoot = _addLabel(theme, "CONFIG4/CAT_ON_START", 40, 250, 340, 56, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_MIDDLE);
-	m_config4BtnCategoryOnBoot = _addButton(theme, "CONFIG4/CAT_ON_START_BTN", 400, 250, 200, 56);
-	m_config4LblReturnTo = _addLabel(theme, "CONFIG4/RETURN_TO", 40, 310, 290, 56, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_MIDDLE);
-	m_config4LblReturnToVal = _addLabel(theme, "CONFIG4/RETURN_TO_BTN", 426, 310, 118, 56, FTGX_JUSTIFY_CENTER | FTGX_ALIGN_MIDDLE, theme.btnTexC);
+	m_config4LblHome = _addLabel(theme, "CONFIG4/WIIMENU", theme.lblFont, L"", 40, 130, 340, 56, theme.lblFontColor, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_MIDDLE);
+	m_config4BtnHome = _addButton(theme, "CONFIG4/WIIMENU_BTN", theme.btnFont, L"", 400, 130, 200, 56, theme.btnFontColor);
+	m_config4LblSaveFavMode = _addLabel(theme, "CONFIG4/SAVE_FAVMODE", theme.lblFont, L"", 40, 190, 340, 56, theme.lblFontColor, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_MIDDLE);
+	m_config4BtnSaveFavMode = _addButton(theme, "CONFIG4/SAVE_FAVMODE_BTN", theme.btnFont, L"", 400, 190, 200, 56, theme.btnFontColor);
+	m_config4LblCategoryOnBoot = _addLabel(theme, "CONFIG4/CAT_ON_START", theme.lblFont, L"", 40, 250, 340, 56, theme.lblFontColor, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_MIDDLE);
+	m_config4BtnCategoryOnBoot = _addButton(theme, "CONFIG4/CAT_ON_START_BTN", theme.btnFont, L"", 400, 250, 200, 56, theme.btnFontColor);
+	m_config4LblReturnTo = _addLabel(theme, "CONFIG4/RETURN_TO", theme.lblFont, L"", 40, 310, 290, 56, theme.lblFontColor, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_MIDDLE);
+	m_config4LblReturnToVal = _addLabel(theme, "CONFIG4/RETURN_TO_BTN", theme.btnFont, L"", 426, 310, 118, 56, theme.btnFontColor, FTGX_JUSTIFY_CENTER | FTGX_ALIGN_MIDDLE, theme.btnTexC);
 	m_config4BtnReturnToM = _addPicButton(theme, "CONFIG4/RETURN_TO_MINUS", theme.btnTexMinus, theme.btnTexMinusS, 370, 310, 56, 56);
 	m_config4BtnReturnToP = _addPicButton(theme, "CONFIG4/RETURN_TO_PLUS", theme.btnTexPlus, theme.btnTexPlusS, 544, 310, 56, 56);
 //
-	_setHideAnim(m_config4LblHome, "CONFIG4/WIIMENU", 0, 0, 1.f, 0.f);
-	_setHideAnim(m_config4BtnHome, "CONFIG4/WIIMENU_BTN", 0, 0, 1.f, 0.f);
-	_setHideAnim(m_config4LblSaveFavMode, "CONFIG4/SAVE_FAVMODE", 0, 0, 1.f, 0.f);
-	_setHideAnim(m_config4BtnSaveFavMode, "CONFIG4/SAVE_FAVMODE_BTN", 0, 0, 1.f, 0.f);
-	_setHideAnim(m_config4LblCategoryOnBoot, "CONFIG4/CAT_ON_START", 0, 0, 1.f, 0.f);
-	_setHideAnim(m_config4BtnCategoryOnBoot, "CONFIG4/CAT_ON_START_BTN", 0, 0, 1.f, 0.f);
-	_setHideAnim(m_config4LblReturnTo, "CONFIG4/RETURN_TO", 0, 0, 1.f, 0.f);
+	_setHideAnim(m_config4LblHome, "CONFIG4/WIIMENU", 100, 0, -2.f, 0.f);
+	_setHideAnim(m_config4BtnHome, "CONFIG4/WIIMENU_BTN", 0, 0, -2.f, 0.f);
+	_setHideAnim(m_config4LblSaveFavMode, "CONFIG4/SAVE_FAVMODE", 100, 0, -2.f, 0.f);
+	_setHideAnim(m_config4BtnSaveFavMode, "CONFIG4/SAVE_FAVMODE_BTN", 0, 0, -2.f, 0.f);
+	_setHideAnim(m_config4LblCategoryOnBoot, "CONFIG4/CAT_ON_START", 100, 0, -2.f, 0.f);
+	_setHideAnim(m_config4BtnCategoryOnBoot, "CONFIG4/CAT_ON_START_BTN", 0, 0, -2.f, 0.f);
+	_setHideAnim(m_config4LblReturnTo, "CONFIG4/RETURN_TO", 100, 0, -2.f, 0.f);
 	_setHideAnim(m_config4LblReturnToVal, "CONFIG4/RETURN_TO_BTN", 0, 0, 1.f, -1.f);
 	_setHideAnim(m_config4BtnReturnToM, "CONFIG4/RETURN_TO_MINUS", 0, 0, 1.f, -1.f);
 	_setHideAnim(m_config4BtnReturnToP, "CONFIG4/RETURN_TO_PLUS", 0, 0, 1.f, -1.f);

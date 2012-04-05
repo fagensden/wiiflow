@@ -36,7 +36,10 @@ FreeTypeGX::FreeTypeGX(uint8_t textureFormat, uint8_t positionFormat) {
 
 	this->textureFormat = textureFormat;
 	this->positionFormat = positionFormat;
-    reset();
+	xScale = 1.f;
+	yScale = 1.f;
+	xPos = 0.f;
+	yPos = 0.f;
 	this->ftFace = 0;
 }
 
@@ -265,41 +268,53 @@ uint16_t FreeTypeGX::cacheGlyphDataComplete() {
 
 /**
  * Loads the rendered bitmap into the relevant structure's data buffer.
- *
+ * 
  * This routine does a simple byte-wise copy of the glyph's rendered 8-bit grayscale bitmap into the structure's buffer.
  * Each byte is converted from the bitmap's intensity value into the a uint32_t RGBA value.
- *
- * @param bmp   A pointer to the most recently rendered glyph's bitmap.
- * @param charData      A pointer to an allocated ftgxCharData structure whose data represent that of the last rendered glyph.
- *
- * Optimized for RGBA8 use by Dimok.
+ * 
+ * @param bmp	A pointer to the most recently rendered glyph's bitmap.
+ * @param charData	A pointer to an allocated ftgxCharData structure whose data represent that of the last rendered glyph.
  */
-void FreeTypeGX::loadGlyphData(FT_Bitmap *bmp, ftgxCharData *charData)
-{
-	int length = charData->textureWidth * charData->textureHeight * 4;
-
-	uint8_t * glyphData = (uint8_t *) MEM2_alloc(length);
-	if(!glyphData) return;
-
-	memset(glyphData, 0x00, length);
-
-	uint8_t *src = (uint8_t *)bmp->buffer;
-	uint32_t offset;
-
-	for (int imagePosY = 0; imagePosY < bmp->rows; ++imagePosY)
-	{
-		for (int imagePosX = 0; imagePosX < bmp->width; ++imagePosX)
-		{
-			offset = ((((imagePosY >> 2) * (charData->textureWidth >> 2) + (imagePosX >> 2)) << 5) + ((imagePosY & 3) << 2) + (imagePosX & 3)) << 1;
-			glyphData[offset] = *src;
-			glyphData[offset+1] = *src;
-			glyphData[offset+32] = *src;
-			glyphData[offset+33] = *src;
-			++src;
+void FreeTypeGX::loadGlyphData(FT_Bitmap *bmp, ftgxCharData *charData) {
+	
+	uint32_t *glyphData = (uint32_t *)MEM2_alloc(charData->textureWidth * charData->textureHeight * 4);
+	if (glyphData == 0)
+		return;
+	memset(glyphData, 0x00, charData->textureWidth * charData->textureHeight * 4);
+	
+	for (uint16_t imagePosY = 0; imagePosY < bmp->rows; imagePosY++) {
+		for (uint16_t imagePosX = 0; imagePosX < bmp->width; imagePosX++) {
+			uint32_t pixel = (uint32_t) bmp->buffer[imagePosY * bmp->width + imagePosX];
+			glyphData[imagePosY * charData->textureWidth + imagePosX] = 0x00000000 | (pixel << 24) | (pixel << 16) | (pixel << 8) | pixel;
 		}
 	}
-	DCFlushRange(glyphData, length);
-	charData->glyphDataTexture = (uint32_t *) glyphData;
+	
+	switch(this->textureFormat) {
+		case GX_TF_I4:
+			charData->glyphDataTexture = Metaphrasis::convertBufferToI4(glyphData, charData->textureWidth, charData->textureHeight);
+			break;
+		case GX_TF_I8:
+			charData->glyphDataTexture = Metaphrasis::convertBufferToI8(glyphData, charData->textureWidth, charData->textureHeight);
+			break;
+		case GX_TF_IA4:
+			charData->glyphDataTexture = Metaphrasis::convertBufferToIA4(glyphData, charData->textureWidth, charData->textureHeight);
+			break;
+		case GX_TF_IA8:
+			charData->glyphDataTexture = Metaphrasis::convertBufferToIA8(glyphData, charData->textureWidth, charData->textureHeight);
+			break;
+		case GX_TF_RGB565:
+			charData->glyphDataTexture = Metaphrasis::convertBufferToRGB565(glyphData, charData->textureWidth, charData->textureHeight);
+			break;
+		case GX_TF_RGB5A3:
+			charData->glyphDataTexture = Metaphrasis::convertBufferToRGB5A3(glyphData, charData->textureWidth, charData->textureHeight);
+			break;
+		case GX_TF_RGBA8:
+		default:
+			charData->glyphDataTexture = Metaphrasis::convertBufferToRGBA8(glyphData, charData->textureWidth, charData->textureHeight);
+			break;
+	}
+	
+	SAFE_FREE(glyphData);
 }
 
 /**
@@ -576,9 +591,15 @@ ftgxDataOffset FreeTypeGX::getOffset(wchar_t const *text) {
  */
 void FreeTypeGX::copyTextureToFramebuffer(GXTexObj *texObj, uint8_t positionFormat, uint16_t texWidth, uint16_t texHeight, int16_t screenX, int16_t screenY, GXColor color) {
 
-	f32	f32TexWidth = texWidth,	f32TexHeight = texHeight;
+	f32	f32TexWidth = texWidth,
+		f32TexHeight = texHeight;
 	float x = (float)screenX + xPos;
 	float y = (float)screenY + yPos;
+
+//	Mtx model;
+//	guMtxIdentity(model);
+//	guMtxTransApply(model, model, screenX, screenY, 0.0f);
+//	GX_LoadPosMtxImm(model, GX_PNMTX0);
 
 	GX_LoadTexObj(texObj, GX_TEXMAP0);
 
@@ -644,8 +665,10 @@ void FreeTypeGX::copyTextureToFramebuffer(GXTexObj *texObj, uint8_t positionForm
  * @param color	Color to apply to the texture.
  */
 void FreeTypeGX::copyFeatureToFramebuffer(uint8_t positionFormat, uint16_t featureWidth, uint16_t featureHeight, int16_t screenX, int16_t screenY, GXColor color) {
-	f32	f32FeatureWidth = featureWidth,	f32FeatureHeight = featureHeight;
+	f32	f32FeatureWidth = featureWidth,
+		f32FeatureHeight = featureHeight;
 
+	return;
 	GX_Begin(GX_QUADS, GX_VTXFMT0, 4);
   	switch(positionFormat) {
 	  	case GX_POS_XY:

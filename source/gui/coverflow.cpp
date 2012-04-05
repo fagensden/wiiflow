@@ -16,42 +16,27 @@
 #include "wstringEx.hpp"
 #include "lockMutex.hpp"
 #include "fonts.h"
-#include "gecko.h"
+//#include "gecko.h"
 
 using namespace std;
 
 extern const u8 dvdskin_png[];
 extern const u8 dvdskin_red_png[];
 extern const u8 dvdskin_black_png[];
-extern const u8 dvdskin_yellow_png[];
-extern const u8 dvdskin_greenone_png[];
-extern const u8 dvdskin_greentwo_png[];
 extern const u8 nopic_png[];
 extern const u8 loading_png[];
 extern const u8 flatnopic_png[];
 extern const u8 flatloading_png[];
 
-static const int black_len = 15;
-static const char* black[black_len] = {"RZZJEL","RZNJ01","SEKJ99","SX3J01","SX3P01","R5WJA4","RUYJ99","S3HJ08","SJBJ01","CKBE88","CCPE01","SMMP01","MDUE01","APR","AFR"};
-
-static const int red_len = 2;
-static const char* red[red_len] = {"SMN","HBW"};
-
-static const int yellow_len = 2;
-static const char* yellow[yellow_len] = {"SIIE8P","SIIP8P"};
-
-static const int greenOne_len = 1;
-static const char* greenOne[greenOne_len] = {"SF8J01"};
-
-static const int greenTwo_len = 1;
-static const char* greenTwo[greenTwo_len] = {"PDUE01"};
+static lwp_t coverLoaderThread = LWP_THREAD_NULL;
+SmartBuf coverLoaderThreadStack;
 
 static inline int loopNum(int i, int s)
 {
 	return i < 0 ? (s - (-i % s)) % s : i % s;
 }
 
-CCoverFlow::CCover::CCover(void)
+CCoverFlow::CCover::CCover(void) 
 {
 	index = 0;
 	txtAngle = 0.f;
@@ -83,7 +68,7 @@ static inline wchar_t upperCaseWChar(wchar_t c)
 }
 
 CCoverFlow::CCoverFlow(void)
-{	// Main coverflow
+{
 	m_loNormal.camera = Vector3D(0.f, 1.5f, 5.f);
 	m_loNormal.cameraAim = Vector3D(0.f, 0.f, -1.f);
 	m_loNormal.leftScale = Vector3D(1.f, 1.f, 1.f);
@@ -125,7 +110,7 @@ CCoverFlow::CCoverFlow(void)
 	m_loNormal.bottomDeltaAngle = Vector3D(0.f, 0.f, 0.f);
 	m_loNormal.topAngle = Vector3D(0.f, 0.f, 0.f);
 	m_loNormal.bottomAngle = Vector3D(0.f, 0.f, 0.f);
-	//Selected game view
+	// 
 	m_loSelected.camera = Vector3D(0.f, 1.5f, 5.f);
 	m_loSelected.cameraAim = Vector3D(0.f, 0.f, -1.f);
 	m_loSelected.leftScale = Vector3D(1.f, 1.f, 1.f);
@@ -167,7 +152,7 @@ CCoverFlow::CCoverFlow(void)
 	m_loSelected.bottomDeltaAngle = Vector3D(0.f, 0.f, 0.f);
 	m_loSelected.topAngle = Vector3D(0.f, 0.f, 0.f);
 	m_loSelected.bottomAngle = Vector3D(0.f, 0.f, 0.f);
-	//
+	// 
 	m_mirrorAlpha = 0.2f;
 	m_txtMirrorAlpha = 0.2f;
 	m_delay = 0;
@@ -175,13 +160,14 @@ CCoverFlow::CCoverFlow(void)
 	m_jump = 0;
 	m_mutex = 0;
 	m_loadingCovers = false;
-	m_moved = true;
+	m_moved = false;
 	m_selected = false;
 	m_hideCover = false;
 	m_tickCount = 0;
+	m_hqCover = -1;
 	m_blurRadius = 3;
 	m_blurFactor = 1.f;
-	//
+	// 
 	m_mirrorBlur = false;
 	m_effectTex.width = 96;
 	m_effectTex.height = 72;
@@ -196,7 +182,7 @@ CCoverFlow::CCoverFlow(void)
 	m_lodBias = -0.3f;
 	m_aniso = GX_ANISO_1;
 	m_edgeLOD = false;
-	m_numBufCovers = 18;
+	m_numBufCovers = 100;
 	m_compressTextures = true;
 	m_compressCache = false;
 	m_deletePicsAfterCaching = false;
@@ -206,35 +192,40 @@ CCoverFlow::CCoverFlow(void)
 	m_range = m_rows * m_columns;
 	for(int chan = WPAD_MAX_WIIMOTES-1; chan >= 0; chan--)
 		m_mouse[chan] = -1;
+	sndCopyNum = 0;
 	m_soundVolume = 0xFF;
 	m_sorting = SORT_ALPHA;
-	//
+	// 
 	LWP_MutexInit(&m_mutex, 0);
-
-	coverLoaderThread = LWP_THREAD_NULL;
 }
 
 bool CCoverFlow::init(const SmartBuf &font, u32 font_size)
 {
-	m_font.fromBuffer(font, font_size, TITLEFONT_PT_SZ, TITLEFONT_PT_SZ + 4u, FONT_BOLD, 1u);
-	m_fontColor = m_fanartFontColor = CColor(0xFFFFFFFF);
-
-	bool wide = CONF_GetAspectRatio() == CONF_ASPECT_16_9;
-	guPerspective(m_projMtx, 45, wide ? 16.f / 9.f : 4.f / 3.f, .1f, 300.f);
-
+	// Load font
+	m_font.fromBuffer(font, font_size, TITLEFONT);
+	m_fontColor = CColor(0xFFFFFFFF);
+	m_fanartFontColor = CColor(0xFFFFFFFF);
+	// 
+	if (CONF_GetAspectRatio() == CONF_ASPECT_16_9)
+		guPerspective(m_projMtx, 45, 16.f / 9.f, .1f, 300.f);
+	else
+		guPerspective(m_projMtx, 45, 4.f / 3.f, .1f, 300.f);
 	return true;
 }
 
 void CCoverFlow::simulateOtherScreenFormat(bool s)
 {
-	bool wide = (CONF_GetAspectRatio() == CONF_ASPECT_16_9) != s;
-	guPerspective(m_projMtx, 45, wide ? 16.f / 9.f : 4.f / 3.f, .1f, 300.f);
+	if ((CONF_GetAspectRatio() == CONF_ASPECT_16_9) != s)
+		guPerspective(m_projMtx, 45, 16.f / 9.f, .1f, 300.f);
+	else
+		guPerspective(m_projMtx, 45, 4.f / 3.f, .1f, 300.f);
 }
 
 CCoverFlow::~CCoverFlow(void)
 {
 	clear();
-	SMART_FREE(m_sound);
+/* 	for(u8 i = 0; i < 4; i++) */
+		SMART_FREE(m_sound[0]);
 	SMART_FREE(m_hoverSound);
 	SMART_FREE(m_selectSound);
 	SMART_FREE(m_cancelSound);
@@ -273,7 +264,7 @@ void CCoverFlow::setBoxMode(bool box)
 void CCoverFlow::setBufferSize(u32 numCovers)
 {
 	if (!m_covers.empty()) return;
-	m_numBufCovers = min(max(3u, numCovers), 400u);
+	m_numBufCovers = min(max(3u, numCovers / 2u), 400u);
 }
 
 void CCoverFlow::setTextures(const string &loadingPic, const string &loadingPicFlat, const string &noCoverPic, const string &noCoverPicFlat)
@@ -287,7 +278,7 @@ void CCoverFlow::setTextures(const string &loadingPic, const string &loadingPicF
 
 void CCoverFlow::setFont(SFont font, const CColor &color)
 {
-	m_font = font;
+	if (!!font.data) m_font = font;
 	m_fontColor = color;
 	if (!m_covers.empty())
 	{
@@ -541,7 +532,8 @@ bool CCoverFlow::setSorting(Sorting sorting)
 
 void CCoverFlow::setSounds(const SmartGuiSound &sound, const SmartGuiSound &hoverSound, const SmartGuiSound &selectSound, const SmartGuiSound &cancelSound)
 {
-	m_sound = sound;
+	for(u8 i = 0; i < 4; i++)
+		m_sound[i] = sound;
 	m_hoverSound = hoverSound;
 	m_selectSound = selectSound;
 	m_cancelSound = cancelSound;
@@ -552,17 +544,22 @@ void CCoverFlow::setSoundVolume(u8 vol)
 	m_soundVolume = vol;
 }
 
-void CCoverFlow::stopSound(void)
+void CCoverFlow::_stopSound(SmartGuiSound snd)
 {
-	m_sound->Stop();
-	m_hoverSound->Stop();
-	m_selectSound->Stop();
-	m_cancelSound->Stop();
+	snd->Stop();
 }
 
-void CCoverFlow::playSound(SmartGuiSound snd)
+void CCoverFlow::_playSound(SmartGuiSound snd)
 {
-	snd->Play(m_soundVolume, snd->IsPlaying());
+	snd->Play(m_soundVolume);
+}
+
+void CCoverFlow::stopSound(void)
+{
+	for(u8 i = 0; i < 4; i++)
+		_stopSound(m_sound[i]);
+
+	_stopSound(m_hoverSound);
 }
 
 void CCoverFlow::applySettings(void)
@@ -585,6 +582,8 @@ void CCoverFlow::stopCoverLoader(bool empty)
 		LWP_JoinThread(coverLoaderThread, NULL);
 		coverLoaderThread = LWP_THREAD_NULL;
 
+		SMART_FREE(coverLoaderThreadStack);
+
 		if (empty)
 			for (u32 i = 0; i < m_items.size(); ++i)
 			{
@@ -599,8 +598,12 @@ void CCoverFlow::startCoverLoader(void)
 	if (m_covers.empty() || coverLoaderThread != LWP_THREAD_NULL || m_loadingCovers) return;
 
 	m_loadingCovers = true;
-	m_moved = true;
-	LWP_CreateThread(&coverLoaderThread, (void *(*)(void *))CCoverFlow::_coverLoader, (void *)this, 0, 8192, 40);
+
+	unsigned int stack_size = (unsigned int)32768;
+	SMART_FREE(coverLoaderThreadStack);
+	coverLoaderThreadStack = smartMem2Alloc(stack_size);
+	LWP_CreateThread(&coverLoaderThread, (void *(*)(void *))CCoverFlow::_coverLoader, (void *)this, coverLoaderThreadStack.get(), stack_size, 40);
+
 }
 
 void CCoverFlow::clear(void)
@@ -1107,7 +1110,7 @@ void CCoverFlow::_drawTitle(int i, bool mirror, bool rectangle)
 		GX_SetTevAlphaOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
 		GX_SetTevOrder(GX_TEVSTAGE0, GX_TEXCOORDNULL, GX_TEXMAP_NULL, GX_COLOR0A0);
 		GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_CLEAR);
-		//
+		// 
 		Mtx rotMtx;
 		guMtxIdentity(modelMtx);
 		guMtxScaleApply(modelMtx, modelMtx, 0.005f, 0.005f, 0.005f);
@@ -1162,7 +1165,7 @@ void CCoverFlow::_drawTitle(int i, bool mirror, bool rectangle)
 	GX_SetTevOp(GX_TEVSTAGE0, GX_MODULATE);
 	GX_SetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR0A0);
 	GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_CLEAR);
-	//
+	// 
 	guMtxIdentity(modelMtx);
 	guMtxRotAxisDeg(modelMtx, &rotAxis, m_covers[i].txtAngle);
 	guMtxTransApply(modelMtx, modelMtx, m_covers[i].txtPos.x, mirror ? -m_covers[i].txtPos.y : m_covers[i].txtPos.y, m_covers[i].txtPos.z);
@@ -1190,7 +1193,7 @@ void CCoverFlow::_drawCover(int i, bool mirror, CCoverFlow::DrawMode dm)
 		osc = _coverMovesA();
 		oscP = _coverMovesP();
 	}
-	//
+	// 
 	guMtxIdentity(modelMtx);
 	guMtxScaleApply(modelMtx, modelMtx, m_covers[i].scale.x, m_covers[i].scale.y, m_covers[i].scale.z);
 	if (dm == CCoverFlow::CFDR_SHADOW)
@@ -1270,16 +1273,6 @@ void CCoverFlow::_drawCoverFlat(int i, bool mirror, CCoverFlow::DrawMode dm)
 	GX_End();
 }
 
-static bool _checkCoverColor(u8 gameID[6], const char* checkID[], int len)
-{
-	for (int num = 0; num < len; num++)
-	{
-		if (strncmp((const char *)gameID, checkID[num], strlen(checkID[num])) == 0)
-			return true;
-	}
-	return false;
-}
-
 void CCoverFlow::_drawCoverBox(int i, bool mirror, CCoverFlow::DrawMode dm)
 {
 	GXTexObj texObj;
@@ -1306,34 +1299,24 @@ void CCoverFlow::_drawCoverBox(int i, bool mirror, CCoverFlow::DrawMode dm)
 			break;
 	}
 	if (dm == CCoverFlow::CFDR_NORMAL)
-	{
-		u32 casecolor = m_items[m_covers[i].index].hdr->hdr.casecolor;
+	{ 
 		// set dvd box texture, depending on game
-		if(casecolor == 0xFFFFFF)
-			GX_InitTexObj(&texObj, m_dvdSkin.data.get(), m_dvdSkin.width, m_dvdSkin.height, m_dvdSkin.format, GX_CLAMP, GX_CLAMP, GX_FALSE);
-		else if (casecolor == 0xFF0000)
+		if (m_items[m_covers[i].index].hdr->hdr.casecolor == 0xFF0000 ||
+			strncmp((char *) m_items[m_covers[i].index].hdr->hdr.id, "SMNE01", 6) == 0 || 
+			strncmp((char *) m_items[m_covers[i].index].hdr->hdr.id, "SMNP01", 6) == 0 || 
+			strncmp((char *) m_items[m_covers[i].index].hdr->hdr.id, "SMNJ01", 6) == 0 ||
+			strncmp((char *) m_items[m_covers[i].index].hdr->hdr.id, "SMNK01", 6) == 0 || 
+			strncmp((char *) m_items[m_covers[i].index].hdr->hdr.id, "SMNW01", 6) == 0)
+		{
 			GX_InitTexObj(&texObj, m_dvdSkin_Red.data.get(), m_dvdSkin_Red.width, m_dvdSkin_Red.height, m_dvdSkin_Red.format, GX_CLAMP, GX_CLAMP, GX_FALSE);
-		else if (casecolor == 0x000000 || casecolor == 0x181919)
+		} 
+		else if (m_items[m_covers[i].index].hdr->hdr.casecolor == 0x000000 ||
+				 strncmp((char *) m_items[m_covers[i].index].hdr->hdr.id, "RZZJEL", 6) == 0 || 
+				 strncmp((char *) m_items[m_covers[i].index].hdr->hdr.id, "RZNJ01", 6) == 0)
+		{
 			GX_InitTexObj(&texObj, m_dvdSkin_Black.data.get(), m_dvdSkin_Black.width, m_dvdSkin_Black.height, m_dvdSkin_Black.format, GX_CLAMP, GX_CLAMP, GX_FALSE);
-		else if (casecolor == 0xFCFF00)
-			GX_InitTexObj(&texObj, m_dvdSkin_Yellow.data.get(), m_dvdSkin_Yellow.width, m_dvdSkin_Yellow.height, m_dvdSkin_Yellow.format, GX_CLAMP, GX_CLAMP, GX_FALSE);
-		else if (casecolor == 0x01A300)
-			GX_InitTexObj(&texObj, m_dvdSkin_GreenOne.data.get(), m_dvdSkin_GreenOne.width, m_dvdSkin_GreenOne.height, m_dvdSkin_GreenOne.format, GX_CLAMP, GX_CLAMP, GX_FALSE);
-		else if (casecolor == 0x00E360)
-			GX_InitTexObj(&texObj, m_dvdSkin_GreenTwo.data.get(), m_dvdSkin_GreenTwo.width, m_dvdSkin_GreenTwo.height, m_dvdSkin_GreenTwo.format, GX_CLAMP, GX_CLAMP, GX_FALSE);
-		else if(_checkCoverColor(m_items[m_covers[i].index].hdr->hdr.id, red, red_len))
-			GX_InitTexObj(&texObj, m_dvdSkin_Red.data.get(), m_dvdSkin_Red.width, m_dvdSkin_Red.height, m_dvdSkin_Red.format, GX_CLAMP, GX_CLAMP, GX_FALSE);
-		else if(_checkCoverColor(m_items[m_covers[i].index].hdr->hdr.id, black, black_len))
-			GX_InitTexObj(&texObj, m_dvdSkin_Black.data.get(), m_dvdSkin_Black.width, m_dvdSkin_Black.height, m_dvdSkin_Black.format, GX_CLAMP, GX_CLAMP, GX_FALSE);
-		else if(_checkCoverColor(m_items[m_covers[i].index].hdr->hdr.id, yellow, yellow_len))
-			GX_InitTexObj(&texObj, m_dvdSkin_Yellow.data.get(), m_dvdSkin_Yellow.width, m_dvdSkin_Yellow.height, m_dvdSkin_Yellow.format, GX_CLAMP, GX_CLAMP, GX_FALSE);
-		else if(_checkCoverColor(m_items[m_covers[i].index].hdr->hdr.id, greenOne, greenOne_len))
-			GX_InitTexObj(&texObj, m_dvdSkin_GreenOne.data.get(), m_dvdSkin_GreenOne.width, m_dvdSkin_GreenOne.height, m_dvdSkin_GreenOne.format, GX_CLAMP, GX_CLAMP, GX_FALSE);
-		else if(_checkCoverColor(m_items[m_covers[i].index].hdr->hdr.id, greenTwo, greenTwo_len))
-			GX_InitTexObj(&texObj, m_dvdSkin_GreenTwo.data.get(), m_dvdSkin_GreenTwo.width, m_dvdSkin_GreenTwo.height, m_dvdSkin_GreenTwo.format, GX_CLAMP, GX_CLAMP, GX_FALSE);
-		else
-			GX_InitTexObj(&texObj, m_dvdSkin.data.get(), m_dvdSkin.width, m_dvdSkin.height, m_dvdSkin.format, GX_CLAMP, GX_CLAMP, GX_FALSE);
-
+		}
+		else GX_InitTexObj(&texObj, m_dvdSkin.data.get(), m_dvdSkin.width, m_dvdSkin.height, m_dvdSkin.format, GX_CLAMP, GX_CLAMP, GX_FALSE);	
 		GX_LoadTexObj(&texObj, GX_TEXMAP0);
 	}
 	GX_Begin(GX_QUADS, GX_VTXFMT0, g_boxMeshQSize);
@@ -1416,6 +1399,12 @@ dir_discHdr * CCoverFlow::getHdr(void) const
 	return m_items[loopNum(m_covers[m_range / 2].index + m_jump, m_items.size())].hdr;
 }
 
+dir_discHdr * CCoverFlow::getNextHdr(void) const
+{
+	if (m_covers.empty() || m_items.empty()) return NULL;
+	return m_items[loopNum(m_covers[m_range / 2].index + m_jump + 1, m_items.size())].hdr;
+}
+
 wstringEx CCoverFlow::getTitle(void) const
 {
 	if (m_covers.empty()) return L"";
@@ -1457,7 +1446,7 @@ bool CCoverFlow::select(void)
 	m_covers[m_range / 2].pos -= _coverMovesP();
 	m_cameraPos -= _cameraMoves();
 	_updateAllTargets();
-	playSound(m_selectSound);
+	_playSound(m_selectSound);
 	return true;
 }
 
@@ -1468,7 +1457,7 @@ void CCoverFlow::cancel(void)
 	LockMutex lock(m_mutex);
 	_unselect();
 	_updateAllTargets();
-	playSound(m_cancelSound);
+	_playSound(m_cancelSound);
 }
 
 void CCoverFlow::_updateAllTargets(bool instant)
@@ -1640,7 +1629,7 @@ void CCoverFlow::_updateTarget(int i, bool instant)
 				cvr.targetShadowColor.a = 0;
 			}
 		}
-	//
+	// 
 	if (instant)
 		_instantTarget(i);
 }
@@ -1736,9 +1725,6 @@ bool CCoverFlow::start(const char *id)
 	if (STexture::TE_OK != m_dvdSkin.fromPNG(dvdskin_png)) return false;
 	if (STexture::TE_OK != m_dvdSkin_Red.fromPNG(dvdskin_red_png)) return false;
 	if (STexture::TE_OK != m_dvdSkin_Black.fromPNG(dvdskin_black_png)) return false;
-	if (STexture::TE_OK != m_dvdSkin_Yellow.fromPNG(dvdskin_yellow_png)) return false;
-	if (STexture::TE_OK != m_dvdSkin_GreenOne.fromPNG(dvdskin_greenone_png)) return false;
-	if (STexture::TE_OK != m_dvdSkin_GreenTwo.fromPNG(dvdskin_greentwo_png)) return false;
 
 	if (m_box)
 	{
@@ -1756,7 +1742,7 @@ bool CCoverFlow::start(const char *id)
 		if (m_pngNoCoverFlat.empty() || STexture::TE_OK != m_noCoverTexture.fromPNGFile(m_pngNoCoverFlat.c_str(), GX_TF_CMPR, ALLOC_MEM2, 32, 512))
 			if (STexture::TE_OK != m_noCoverTexture.fromPNG(flatnopic_png, GX_TF_CMPR, ALLOC_MEM2, 32, 512)) return false;
 	}
-
+		
 	m_covers.clear();
 	m_covers.resize(m_range);
 	m_jump = 0;
@@ -1803,12 +1789,24 @@ void CCoverFlow::right(void)
 	LockMutex lock(m_mutex);
 	_right(m_minDelay, m_rows >= 3 ? m_rows - 2 : 1);
 }
+#include "gecko.h"
+void CCoverFlow::_playSound(void)
+{
+	if (m_soundVolume > 0)
+	{
+		sndCopyNum++;
+		if(sndCopyNum == 4) sndCopyNum = 0;
+		_playSound( m_sound[sndCopyNum] );
+		//gprintf("\n\nPlaying flipsound copy # %u\n\n", sndCopyNum);
+	}
+}
 
 void CCoverFlow::_left(int repeatDelay, u32 step)
 {
 	int prev, arrStep;
 
 	if (m_delay > 0) return;
+
 	m_moved = true;
 	m_delay = repeatDelay;
 	m_covers[m_range / 2].angle += _coverMovesA();
@@ -1839,7 +1837,7 @@ void CCoverFlow::_left(int repeatDelay, u32 step)
 		_updateAllTargets();
 		_instantTarget(0);
 	}
-	playSound(m_sound);
+	_playSound();
 	m_covers[m_range / 2].angle -= _coverMovesA();
 	m_covers[m_range / 2].pos -= _coverMovesP();
 }
@@ -1849,6 +1847,7 @@ void CCoverFlow::_right(int repeatDelay, u32 step)
 	int prev, arrStep;
 
 	if (m_delay > 0) return;
+
 	m_moved = true;
 	m_delay = repeatDelay;
 	m_covers[m_range / 2].angle += _coverMovesA();
@@ -1879,7 +1878,7 @@ void CCoverFlow::_right(int repeatDelay, u32 step)
 		_updateAllTargets();
 		_instantTarget(m_range - 1);
 	}
-	playSound(m_sound);
+	_playSound();
 	m_covers[m_range / 2].angle -= _coverMovesA();
 	m_covers[m_range / 2].pos -= _coverMovesP();
 }
@@ -1908,7 +1907,7 @@ void CCoverFlow::mouse(CVideo &vid, int chan, int x, int y)
 	if (m != m_mouse[chan])
 	{
 		if ((u32)m_mouse[chan] < m_range)
-			playSound(m_hoverSound);
+			_playSound(m_hoverSound);
 		_updateAllTargets();
 	}
 }
@@ -1930,9 +1929,10 @@ bool CCoverFlow::findId(const char *id, bool instant)
 {
 	LockMutex lock(m_mutex);
 	u32 i, curPos = _currentPos();
+
 	if (m_items.empty() || (instant && m_covers.empty()))
 		return false;
-	//
+	// 
 	for (i = 0; i < m_items.size(); ++i)
 		if (memcmp(&m_items[i].hdr->hdr.id, id, strlen(id)) == 0)
 			break;
@@ -2132,7 +2132,7 @@ void CCoverFlow::prevLetter(wchar_t *c)
 
 	_completeJump();
 	u32 curPos = _currentPos();
-
+	
 	while (!iswalnum(m_items[curPos].hdr->title[j]) && m_items[curPos].hdr->title[j+1] != L'\0') j++;
 	c[0] = upperCaseWChar(m_items[curPos].hdr->title[j]);
 
@@ -2274,7 +2274,7 @@ void CCoverFlow::prevID(wchar_t *c)
 	}
 
 	system[1] = '\0';
-	mbstowcs(c, system, 1);
+	mbstowcs(c, system, 1); 	
 
 	_updateAllTargets();
 }
@@ -2457,6 +2457,7 @@ bool CCoverFlow::_loadCoverTexPNG(u32 i, bool box, bool hq)
 	if (STexture::TE_OK != tex.fromPNGFile(path, textureFmt, ALLOC_MEM2, 32)) return false;
 
 	if (!m_loadingCovers) return false;
+
 	LWP_MutexLock(m_mutex);
 	m_items[i].texture = tex;
 	m_items[i].boxTexture = box;
@@ -2560,7 +2561,7 @@ CCoverFlow::CLRet CCoverFlow::_loadCoverTex(u32 i, bool box, bool hq)
 					u32 bufSize = fixGX_GetTexBufferSize(tex.width, tex.height, tex.format, tex.maxLOD > 0 ? GX_TRUE : GX_FALSE, tex.maxLOD);
 					if (!hq) CCoverFlow::_calcTexLQLOD(tex);
 					u32 texLen = fixGX_GetTexBufferSize(tex.width, tex.height, tex.format, tex.maxLOD > 0 ? GX_TRUE : GX_FALSE, tex.maxLOD);
-
+					
 					tex.data = smartMem2Alloc(texLen);
 					SmartBuf ptrTex = (header.zipped != 0) ? smartMem2Alloc(bufSize) : tex.data;
 
@@ -2606,40 +2607,47 @@ CCoverFlow::CLRet CCoverFlow::_loadCoverTex(u32 i, bool box, bool hq)
 
 int CCoverFlow::_coverLoader(CCoverFlow *cf)
 {
+	bool box = cf->m_box;
 	CCoverFlow::CLRet ret;
-	u32 firstItem;
-	bool update;
-	u32 i;
-
-	u32 bufferSize = cf->m_range + cf->m_numBufCovers;
-	if(bufferSize >= cf->m_items.size())
-		bufferSize = cf->m_items.size();
+	u32 bufferSize = cf->m_range + cf->m_numBufCovers * 2;
 
 	while (cf->m_loadingCovers)
 	{
-		update = cf->m_moved;
+		u32 i;
+		ret = CCoverFlow::CL_OK;
 		cf->m_moved = false;
-
-		for (u32 j = cf->m_items.size(); j >= bufferSize && cf->m_loadingCovers && !cf->m_moved && update; --j)
+		u32 numItems = cf->m_items.size();
+		u32 firstItem = cf->m_covers[cf->m_range / 2].index;
+		u32 lastVisible = bufferSize - 1;
+		int newHQCover = firstItem;
+		if ((u32)cf->m_hqCover < numItems && newHQCover != cf->m_hqCover)
 		{
-			firstItem = cf->m_covers[cf->m_range / 2].index;
-			i = loopNum((j & 1) ? firstItem - (j + 1) / 2 : firstItem + j / 2, cf->m_items.size());
+			cf->_dropHQLOD(cf->m_hqCover);
+			cf->m_hqCover = -1;
+		}
+		for (u32 j = numItems - 1; j > lastVisible; --j)
+		{
+			i = loopNum((j & 1) != 0 ? firstItem - (j + 1) / 2 : firstItem + j / 2, numItems);
 			LWP_MutexLock(cf->m_mutex);
 			SMART_FREE(cf->m_items[i].texture.data);
 			cf->m_items[i].state = CCoverFlow::STATE_Loading;
 			LWP_MutexUnlock(cf->m_mutex);
 		}
-		ret = CCoverFlow::CL_OK;
-		for (u32 j = 0; j <= bufferSize && cf->m_loadingCovers && !cf->m_moved && update && ret != CCoverFlow::CL_NOMEM; ++j)
+		for (u32 j = 0; j <= lastVisible; ++j)
 		{
-			firstItem = cf->m_covers[cf->m_range / 2].index;
-			i = loopNum((j & 1) ? firstItem - (j + 1) / 2 : firstItem + j / 2, cf->m_items.size());
-			if (cf->m_items[i].state != CCoverFlow::STATE_Loading)
+			if (!cf->m_loadingCovers || cf->m_moved || ret == CCoverFlow::CL_NOMEM)
+				break;
+			i = loopNum((j & 1) != 0 ? firstItem - (j + 1) / 2 : firstItem + j / 2, numItems);
+			if (cf->m_items[i].state != CCoverFlow::STATE_Loading && (i != (u32)newHQCover || newHQCover == cf->m_hqCover))
 				continue;
-
-			if ((ret = cf->_loadCoverTex(i, cf->m_box, i == (u32)firstItem)) == CCoverFlow::CL_ERROR)
-				if ((ret = cf->_loadCoverTex(i, !cf->m_box, i == (u32)firstItem)) == CCoverFlow::CL_ERROR)
+			cf->m_hqCover = newHQCover;
+			ret = cf->_loadCoverTex(i, box, i == (u32)newHQCover);
+			if (ret == CCoverFlow::CL_ERROR)
+			{
+				ret = cf->_loadCoverTex(i, !box, i == (u32)newHQCover);
+				if (ret == CCoverFlow::CL_ERROR && cf->m_loadingCovers)
 					cf->m_items[i].state = CCoverFlow::STATE_NoCover;
+			}
 		}
 		if (ret == CCoverFlow::CL_NOMEM && bufferSize > 3)
 			bufferSize -= 2;

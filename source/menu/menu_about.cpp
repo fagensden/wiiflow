@@ -15,7 +15,6 @@ void CMenu::_about(void)
 	int amount_of_skips = 0;
 	int thanks_x = 0, thanks_y = 0;
 	u32 thanks_w = 0, thanks_h = 0;
-
 	bool first = true;
 
 	m_btnMgr.reset(m_aboutLblInfo, true);
@@ -31,10 +30,10 @@ void CMenu::_about(void)
 		{
 			// Check dimensions in the loop, because the animation can have an effect
 			m_btnMgr.getDimensions(m_aboutLblInfo, thanks_x, thanks_y, thanks_w, thanks_h); // Get original dimensions
-		}
+		}	
 		if(first)
 		{
-			m_btnMgr.moveBy(m_aboutLblInfo, 0, -1);
+			m_btnMgr.moveBy(m_aboutLblInfo, 0, -(pixels_to_skip * 10));
 			amount_of_skips++;
 			first = false;
 		}
@@ -104,18 +103,19 @@ void CMenu::_showAbout(void)
 
 void CMenu::_initAboutMenu(CMenu::SThemeData &theme)
 {
+	STexture emptyTex;
 	_addUserLabels(theme, m_aboutLblUser, ARRAY_SIZE(m_aboutLblUser), "ABOUT");
 	m_aboutBg = _texture(theme.texSet, "ABOUT/BG", "texture", theme.bg);
-	m_aboutLblTitle = _addTitle(theme, "ABOUT/TITLE", 40, 25, 560, 75, FTGX_JUSTIFY_CENTER | FTGX_ALIGN_MIDDLE);
-	m_aboutLblInfo = _addText(theme, "ABOUT/INFO", 40, 120, 560, 280, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_TOP);
-	m_aboutBtnSystem = _addButton(theme, "ABOUT/SYSTEM_BTN", 20, 410, 200, 56);
-	m_aboutLblIOS = _addLabel(theme, "ABOUT/IOS", 240, 400, 360, 56, FTGX_JUSTIFY_RIGHT | FTGX_ALIGN_MIDDLE);
-	//
+	m_aboutLblTitle = _addLabel(theme, "ABOUT/TITLE", theme.titleFont, L"", 170, 25, 300, 75, theme.titleFontColor, FTGX_JUSTIFY_CENTER | FTGX_ALIGN_MIDDLE, emptyTex);
+	m_aboutLblInfo = _addLabel(theme, "ABOUT/INFO", theme.txtFont, L"", 40, 220, 560, 260, theme.txtFontColor, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_TOP, emptyTex);
+	m_aboutBtnSystem = _addButton(theme, "ABOUT/SYSTEM_BTN", theme.btnFont, L"", 20, 410, 200, 56, theme.btnFontColor);
+	m_aboutLblIOS = _addLabel(theme, "ABOUT/IOS", theme.txtFont, L"", 240, 400, 360, 56, theme.txtFontColor, FTGX_JUSTIFY_RIGHT | FTGX_ALIGN_MIDDLE);
+	// 
 	_setHideAnim(m_aboutLblTitle, "ABOUT/TITLE", 0, 100, 0.f, 0.f);
 	_setHideAnim(m_aboutLblInfo, "ABOUT/INFO", 0, -100, 0.f, 0.f);
-	_setHideAnim(m_aboutBtnSystem, "ABOUT/SYSTEM_BTN", 0, 0, 1.f, 0.f);
+	_setHideAnim(m_aboutBtnSystem, "ABOUT/SYSTEM_BTN", 0, 0, -2.f, 0.f);
 	_setHideAnim(m_aboutLblIOS, "ABOUT/IOS", 0, 100, 0.f, 0.f);
-	//
+	// 
 	_hideAbout(true);
 	_textAbout();
 }
@@ -123,7 +123,7 @@ void CMenu::_initAboutMenu(CMenu::SThemeData &theme)
 void CMenu::_textAbout(void)
 {
 	m_btnMgr.setText(m_aboutBtnSystem, _t("sys4", L"Update"));
-	m_btnMgr.setText(m_aboutLblTitle, wfmt(_fmt("appname", L"%s v%s r%s"), APP_NAME, APP_VERSION, SVN_REV));
+	m_btnMgr.setText(m_aboutLblTitle, wfmt(_fmt("appname", L"%s v%s r%s"), APP_NAME, APP_VERSION, SVN_REV), false);
 
 	wstringEx developers(wfmt(_fmt("about6", L"Current Developers:\n%s"), DEVELOPERS));
 	wstringEx pDevelopers(wfmt(_fmt("about7", L"Past Developers:\n%s"), PAST_DEVELOPERS));
@@ -139,14 +139,15 @@ void CMenu::_textAbout(void)
 	if(translator.size() > 3) thanks.append(translator);
 
 	m_btnMgr.setText(m_aboutLblInfo,
-			wfmt(L"%s\n\n%s\n\n%s\n\n%s\n\n%s\n\n%s\n\n%s",
+			wfmt(_fmt("about5", L"%s\n\n%s\n\n%s\n\n%s\n\n%s\n\n%s\n\n%s"),
 			developers.toUTF8().c_str(),
 			pDevelopers.toUTF8().c_str(),
 			origLoader.toUTF8().c_str(),
 			origGUI.toUTF8().c_str(),
 			codethx.toUTF8().c_str(),
 			sites.toUTF8().c_str(),
-			thanks.toUTF8().c_str())
+			thanks.toUTF8().c_str()),
+			false
 		);
 
 	Nand::Instance()->Disable_Emu();

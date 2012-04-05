@@ -109,7 +109,7 @@ wstringEx wfmt(const wstringEx &format, ...)
 	return ws;
 }
 
-string vectorToString(const safe_vector<string> &vect, const string &sep)
+string vectorToString(const safe_vector<string> &vect, string sep)
 {
 	string s;
 	for (u32 i = 0; i < vect.size(); ++i)
@@ -121,7 +121,7 @@ string vectorToString(const safe_vector<string> &vect, const string &sep)
 	return s;
 }
 
-wstringEx vectorToString(const safe_vector<wstringEx> &vect, const wchar_t &sep)
+wstringEx vectorToString(const safe_vector<wstringEx> &vect, char sep)
 {
 	wstringEx s;
 	for (u32 i = 0; i < vect.size(); ++i)
@@ -133,22 +133,17 @@ wstringEx vectorToString(const safe_vector<wstringEx> &vect, const wchar_t &sep)
 	return s;
 }
 
-safe_vector<string> stringToVector(const string &text, const string &sep)
+safe_vector<string> stringToVector(const string &text, char sep)
 {
 	safe_vector<string> v;
 	if (text.empty()) return v;
 	u32 count = 1;
-	string::size_type off = 0, i = 0;
-
-	while((i = text.find_first_of(sep, off)) != string::npos)
-	{
-		++count;
-		off = i + 1;
-	}
+	for (u32 i = 0; i < text.size(); ++i)
+		if (text[i] == sep)
+			++count;
 	v.reserve(count);
-
-	off = 0, i = 0;
-
+	string::size_type off = 0;
+	string::size_type i = 0;
 	do
 	{
 		i = text.find_first_of(sep, off);
@@ -158,26 +153,23 @@ safe_vector<string> stringToVector(const string &text, const string &sep)
 			v.push_back(ws);
 			off = i + 1;
 		}
-		else v.push_back(text.substr(off));
-	}while (i != string::npos);
+		else
+			v.push_back(text.substr(off));
+	} while (i != string::npos);
 	return v;
 }
 
-safe_vector<wstringEx> stringToVector(const wstringEx &text, const wstringEx &sep)
+safe_vector<wstringEx> stringToVector(const wstringEx &text, char sep)
 {
 	safe_vector<wstringEx> v;
 	if (text.empty()) return v;
 	u32 count = 1;
-	string::size_type off = 0, i = 0;
-
-	while((i = text.find_first_of(sep, off)) != wstringEx::npos)
-	{
-		++count;
-		off = i + 1;
-	}
+	for (u32 i = 0; i < text.size(); ++i)
+		if (text[i] == sep)
+			++count;
 	v.reserve(count);
-
-	off = 0, i = 0;
+	wstringEx::size_type off = 0;
+	wstringEx::size_type i = 0;
 	do
 	{
 		i = text.find_first_of(sep, off);
@@ -187,9 +179,63 @@ safe_vector<wstringEx> stringToVector(const wstringEx &text, const wstringEx &se
 			v.push_back(ws);
 			off = i + 1;
 		}
-		else v.push_back(text.substr(off));
+		else
+			v.push_back(text.substr(off));
 	} while (i != wstringEx::npos);
 	return v;
+}
+
+bool SFont::fromBuffer(const SmartBuf &buffer, u32 bufferSize, u32 size, u32 lspacing, u32 w, u32 idx, const char *)
+{
+	if (!buffer || !font) return false;
+
+	size = min(max(6u, size), 1000u);
+	lineSpacing = min(max(6u, lspacing), 1000u);
+	weight = min(w, 32u);
+	index = idx;
+
+	SMART_FREE(data);
+	data = smartMem2Alloc(bufferSize);
+	if(!data) return false;
+
+	memcpy(data.get(), buffer.get(), bufferSize);
+	dataSize = bufferSize;
+
+	font->loadFont(data.get(), dataSize, size, weight, index, false);
+
+	return true;
+}
+
+bool SFont::fromFile(const char *filename, u32 size, u32 lspacing, u32 w, u32 idx)
+{
+	if (!font) return false;
+	size = min(max(6u, size), 1000u);
+	weight = min(w, 32u);
+	index = idx = 0;
+
+	lineSpacing = min(max(6u, lspacing), 1000u);
+
+	FILE *file = fopen(filename, "rb");
+	if (file == NULL) return false;
+	fseek(file, 0, SEEK_END);
+	u32 fileSize = ftell(file);
+	fseek(file, 0, SEEK_SET);
+	if (fileSize == 0) return false;
+	
+	SMART_FREE(data);
+	data = smartMem2Alloc(fileSize);
+	if (!data)
+	{
+		SAFE_CLOSE(file);
+		return false;
+	}
+		
+	fread(data.get(), 1, fileSize, file);
+
+	dataSize = fileSize;
+
+	font->loadFont(data.get(), dataSize, size, weight, index, false);
+	return true;
 }
 
 void CText::setText(SFont font, const wstringEx &t)
@@ -201,9 +247,9 @@ void CText::setText(SFont font, const wstringEx &t)
 
 	firstLine = 0;
 	// Don't care about performance
-	safe_vector<wstringEx> lines = stringToVector(t, L"\n");
+	safe_vector<wstringEx> lines = stringToVector(t, L'\n');
 	m_lines.reserve(lines.size());
-	//
+	// 
 	for (u32 k = 0; k < lines.size(); ++k)
 	{
 		wstringEx &l = lines[k];
@@ -241,9 +287,9 @@ void CText::setText(SFont font, const wstringEx &t, u32 startline)
 
 	firstLine = startline;
 	// Don't care about performance
-	safe_vector<wstringEx> lines = stringToVector(t, L"\n");
+	safe_vector<wstringEx> lines = stringToVector(t, L'\n');
 	m_lines.reserve(lines.size());
-	//
+	// 
 	for (u32 k = 0; k < lines.size(); ++k)
 	{
 		wstringEx &l = lines[k];
@@ -298,11 +344,7 @@ void CText::setFrame(float width, u16 style, bool ignoreNewlines, bool instant)
 		for (u32 i = 0; i < words.size(); ++i)
 		{
 			float wordWidth = m_font.font->getWidth(words[i].text.c_str());
-			int spaceNum = 4;
-			while(words[i].text.find(L" ") != string::npos)
-				spaceNum++;
-
-			if (posX == 0.f || posX + (float)wordWidth + space * spaceNum <= width)
+			if (posX == 0.f || posX + (float)wordWidth + space * 2 <= width)
 			{
 				words[i].targetPos = Vector3D(posX, posY, 0.f);
 				posX += wordWidth + space;
@@ -327,7 +369,7 @@ void CText::setFrame(float width, u16 style, bool ignoreNewlines, bool instant)
 			posX = 9999999.f;
 	}
 	totalHeight = posY + m_font.lineSpacing;
-
+	
 	if ((style & (FTGX_JUSTIFY_CENTER | FTGX_JUSTIFY_RIGHT)) != 0)
 	{
 		posX -= space;
@@ -423,7 +465,7 @@ void Asciify( wchar_t *str )
 {
 	const wchar_t *ptr = str;
 	wchar_t *ctr = str;
-
+	
 	while(*ptr != '\0')
     {
 		switch(*ptr)
@@ -434,31 +476,7 @@ void Asciify( wchar_t *str )
 		}
 		*ctr = *ptr;
 		++ptr;
-		++ctr;
+		++ctr;	
 	}
 	*ctr = '\0';
-}
-
-void Asciify2( char *str ) //From Mod
-{
-	u8 i=0;
-	for( i=0; i < strlen(str); ++i )
-	{
-		if( str[i] < 0x20 || str[i] > 0x7F )
-			str[i] = '_';
-		else {
-			switch( str[i] )
-			{
-				case '*':
-				case '\"':
-				case ':':
-				case '|':
-				case '<':
-				case '>':
-				case '?':
-					str[i] = '_';
-				break;
-			}
-		}
-	}
 }

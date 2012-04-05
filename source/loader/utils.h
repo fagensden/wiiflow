@@ -7,14 +7,11 @@
 #define MB_SIZE		1048576.0
 #define GB_SIZE		1073741824.0
 
-#define MAX_FAT_PATH   1024
-
 /* Macros */
 #define round_up(x,n)	(-(-(x) & -(n)))
 
 #define ALIGN(x) (((x) + 3) & ~3)
 #define ALIGN32(x) (((x) + 31) & ~31)
-#define ALIGNED(x) __attribute__((aligned(x)))
 
 #define SMART_FREE(P)		{if(!!P)P.release();}
 #define SAFE_FREE(P)		{if(P != NULL){free(P);P = NULL;}}

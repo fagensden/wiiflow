@@ -24,7 +24,7 @@ typedef void  (*app_entry)(void (**init)(void (*report)(const char *fmt, ...)), 
 /* Variables */
 static u32 buffer[0x20] ATTRIBUTE_ALIGN(32);
 
-static bool maindolpatches(void *dst, int len, u8 vidMode, GXRModeObj *vmode, bool vipatch, bool countryString, u8 patchVidModes, int aspectRatio);
+static bool maindolpatches(void *dst, int len, u8 vidMode, GXRModeObj *vmode, bool vipatch, bool countryString, u8 patchVidModes);
 static bool Remove_001_Protection(void *Address, int Size);
 static bool PrinceOfPersiaPatch();
 
@@ -32,7 +32,7 @@ static void __noprint(const char *fmt, ...)
 {
 }
 
-s32 Apploader_Run(entry_point *entry, u8 vidMode, GXRModeObj *vmode, bool vipatch, bool countryString, u8 patchVidModes, int aspectRatio)
+s32 Apploader_Run(entry_point *entry, u8 vidMode, GXRModeObj *vmode, bool vipatch, bool countryString, u8 patchVidModes)
 {
 	void *dst = NULL;
 	int len = 0;
@@ -72,7 +72,7 @@ s32 Apploader_Run(entry_point *entry, u8 vidMode, GXRModeObj *vmode, bool vipatc
 	{
 		/* Read data from DVD */
 		WDVD_Read(dst, len, (u64)(offset << 2));
-		if(maindolpatches(dst, len, vidMode, vmode, vipatch, countryString, patchVidModes, aspectRatio))
+		if(maindolpatches(dst, len, vidMode, vmode, vipatch, countryString, patchVidModes))
 			hookpatched = true;
 	}
 
@@ -81,19 +81,16 @@ s32 Apploader_Run(entry_point *entry, u8 vidMode, GXRModeObj *vmode, bool vipatc
 		gprintf("Error: Could not patch the hook\n");
 		gprintf("Ocarina and debugger won't work\n");
 	}
-
+	
 	PrinceOfPersiaPatch();
 
 	/* Set entry point from apploader */
 	*entry = appldr_final();
 	
-	//IOSReloadBlock(IOS_GetVersion()); //Commented From Mod
-	//*(vu32 *)0x80003140 = *(vu32 *)0x80003188; // IOS Version Check
-	//*(vu32 *)0x80003180 = *(vu32 *)0x80000000; // Game ID Online Check
-	//*(vu32 *)0x80003184 = 0x80000000;
-
-	/* ERROR 002 fix (WiiPower) */
-	*(u32 *)0x80003140 = *(u32 *)0x80003188; //From Mod, Moved from Disc_BootPartition
+	IOSReloadBlock(IOS_GetVersion());
+	*(vu32 *)0x80003140 = *(vu32 *)0x80003188; // IOS Version Check
+	*(vu32 *)0x80003180 = *(vu32 *)0x80000000; // Game ID Online Check
+	*(vu32 *)0x80003184 = 0x80000000;
 
 	DCFlushRange((void*)0x80000000, 0x3f00);
 
@@ -224,7 +221,7 @@ bool NewSuperMarioBrosPatch(void *Address, int Size)
 			0x48, 0x12, 0xD7, 0x89, 0x7C, 0x7B, 0x1B, 0x78,
 			0x7C, 0x9C, 0x23, 0x78, 0x7C, 0xBD, 0x2B, 0x78};
 		u8 PatchData[4] = {0x4E, 0x80, 0x00, 0x20};
-
+	
 		void *Addr = Address;
 		void *Addr_end = Address+Size;
 		while (Addr <= Addr_end-sizeof(SearchPattern1))
@@ -241,14 +238,13 @@ bool NewSuperMarioBrosPatch(void *Address, int Size)
 	return false;
 }
 
-static bool maindolpatches(void *dst, int len, u8 vidMode, GXRModeObj *vmode, bool vipatch, bool countryString, u8 patchVidModes, int aspectRatio)
+static bool maindolpatches(void *dst, int len, u8 vidMode, GXRModeObj *vmode, bool vipatch, bool countryString, u8 patchVidModes)
 {
 	bool ret = false;
 
 	DCFlushRange(dst, len);
 
 	patchVideoModes(dst, len, vidMode, vmode, patchVidModes);
-	PatchAspectRatio(dst, len, aspectRatio);
 
 	if (hooktype != 0) ret = dogamehooks(dst, len, false);
 	if (vipatch) vidolpatcher(dst, len);
@@ -256,12 +252,12 @@ static bool maindolpatches(void *dst, int len, u8 vidMode, GXRModeObj *vmode, bo
 	if (countryString) PatchCountryStrings(dst, len); // Country Patch by WiiPower
 
 	Remove_001_Protection(dst, len);
-
+	
 	// NSMB Patch by WiiPower
 	NewSuperMarioBrosPatch(dst,len);
 
 	do_wip_code((u8 *) dst, len);
-
+	
 	DCFlushRange(dst, len);
 
 	return ret;
@@ -275,7 +271,7 @@ static bool Remove_001_Protection(void *Address, int Size)
 	u8 *Addr;
 
 	for (Addr = Address; Addr <= Addr_end - sizeof SearchPattern; Addr += 4)
-		if (memcmp(Addr, SearchPattern, sizeof SearchPattern) == 0)
+		if (memcmp(Addr, SearchPattern, sizeof SearchPattern) == 0) 
 		{
 			memcpy(Addr, PatchData, sizeof PatchData);
 			return true;

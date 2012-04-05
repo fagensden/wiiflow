@@ -16,6 +16,8 @@
 #include "cios.hpp"
 #include "nand.hpp"
 
+extern "C" { extern void __exception_setreload(int t);}
+
 CMenu *mainMenu;
 extern "C" void ShowError(const wstringEx &error){mainMenu->error(error); }
 extern "C" void HideWaitMessage() {mainMenu->_hideWaitMessage(true); }
@@ -26,9 +28,9 @@ int main(int argc, char **argv)
 	__exception_setreload(5);
 
 	SYS_SetArena1Hi(APPLOADER_START);
+	CVideo vid;
 
 	char *gameid = NULL;
-	string dolLoc; //(argv[0] != NULL ? argv[0] : "");
 
 	for (int i = 0; i < argc; i++)
 	{
@@ -48,6 +50,7 @@ int main(int argc, char **argv)
 	}
 	gprintf("Loading cIOS: %d\n", mainIOS);
 
+
 	ISFS_Initialize();
 
 	// Load Custom IOS
@@ -59,9 +62,9 @@ int main(int argc, char **argv)
 	gprintf("Loaded cIOS: %u has base %u\n", mainIOS, mainIOSBase);
 
 	// Init video
-	CVideo vid;
 	vid.init();
 	WIILIGHT_Init();
+
 	vid.waitMessage(0.2f);
 
 	// Init
@@ -70,7 +73,7 @@ int main(int argc, char **argv)
 
 	int ret = 0;
 
-	do
+	do 
 	{
 		Open_Inputs();
 
@@ -86,23 +89,19 @@ int main(int argc, char **argv)
 				if(DeviceHandler::Instance()->IsInserted(device))
 					deviceAvailable = true;
 		}
+		if(!deviceAvailable) Sys_Exit();
 
 		bool dipOK = Disc_Init() >= 0;
 
 		CMenu menu(vid);
-		menu.init(dolLoc);
+		menu.init();
 		mainMenu = &menu;
-		if(!deviceAvailable)
-		{
-			menu.error(L"Could not find a device to save configuration files on!");
-			break;
-		}
-		else if(!iosOK)
+		if (!iosOK)
 		{
 			menu.error(sfmt("d2x cIOS %i rev6 or later is required", mainIOS));
 			break;
 		}
-		else if(!dipOK)
+		else if (!dipOK)
 		{
 			menu.error(L"Could not initialize the DIP module!");
 			break;
@@ -122,7 +121,7 @@ int main(int argc, char **argv)
 		}
 
 	} while (ret == 1);
-
+	
 	WifiGecko_Close();
 
 	Nand::Instance()->Disable_Emu();

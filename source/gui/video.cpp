@@ -68,6 +68,9 @@ const float CVideo::_jitter8[8][2] = {
 const int CVideo::_stencilWidth = 128;
 const int CVideo::_stencilHeight = 128;
 
+static lwp_t waitThread = LWP_THREAD_NULL;
+SmartBuf waitThreadStack;
+
 extern "C"
 {
 	extern __typeof(malloc) __real_malloc;
@@ -78,7 +81,7 @@ CVideo::CVideo(void) :
 	m_rmode(NULL), m_frameBuf(), m_curFB(0), m_fifo(NULL),
 	m_yScale(0.0f), m_xfbHeight(0), m_wide(false),
 	m_width2D(640), m_height2D(480), m_x2D(0), m_y2D(0), m_aa(0), m_aaAlpha(false),
-	m_aaWidth(0), m_aaHeight(0), m_showWaitMessage(false), m_showingWaitMessages(false), waitThread(LWP_THREAD_NULL)
+	m_aaWidth(0), m_aaHeight(0), m_showWaitMessage(false), m_showingWaitMessages(false)
 {
 	memset(m_frameBuf, 0, sizeof m_frameBuf);
 }
@@ -320,13 +323,13 @@ void CVideo::drawAAScene(bool fs)
 
 	if (m_aa <= 0 || m_aa > 8)
 		return;
-	//
+	// 
 	for (aa = 0; aa < m_aa; ++aa)
 		if (!m_aaBuffer[aa])
 			break;
 	if (aa == 7)
 		aa = 6;
-	//
+	// 
 	GX_SetNumChans(0);
 	for (int i = 0; i < aa; ++i)
 	{
@@ -350,12 +353,12 @@ void CVideo::drawAAScene(bool fs)
 		GX_SetTevAlphaOp(GX_TEVSTAGE0 + i, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
 	}
 	GX_SetNumTevStages(aa);
-	//
+	// 
 	GX_SetAlphaUpdate(GX_TRUE);
 	GX_SetCullMode(GX_CULL_NONE);
 	GX_SetZMode(GX_DISABLE, GX_ALWAYS, GX_FALSE);
 	GX_SetBlendMode(GX_BM_NONE, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_CLEAR);
-	//
+	// 
 	GX_ClearVtxDesc();
 	GX_SetVtxDesc(GX_VA_POS, GX_DIRECT);
 	GX_SetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
@@ -393,7 +396,7 @@ void CVideo::shiftViewPort(float x, float y)
 }
 
 static inline u32 coordsI8(u32 x, u32 y, u32 w)
-{
+{ 
 	return (((y >> 2) * (w >> 3) + (x >> 3)) << 5) + ((y & 3) << 3) + (x & 7);
 }
 
@@ -451,7 +454,7 @@ void CVideo::_showWaitMessages(CVideo *m)
 	m->m_showingWaitMessages = true;
 	u32 frames = m->m_waitMessageDelay * 50;
 	u32 waitFrames = frames;
-
+	
 	u8 fadeStep = 2 * (u32) (255.f / (waitFrames * m->m_waitMessages.size()));
 	s8 fadeDirection = 1;
 	s16 currentLightLevel = 0;
@@ -473,7 +476,7 @@ void CVideo::_showWaitMessages(CVideo *m)
 		if (m->m_useWiiLight)
 		{
 			currentLightLevel += (fadeStep * fadeDirection);
-			if (currentLightLevel >= 255)
+			if (currentLightLevel >= 255) 
 			{
 				currentLightLevel = 255;
 				fadeDirection = -1;
@@ -485,13 +488,13 @@ void CVideo::_showWaitMessages(CVideo *m)
 			}
 			WIILIGHT_SetLevel(currentLightLevel);
 		}
-
+		
 		if (waitFrames == 0)
 		{
 			if (waitItr == m->m_waitMessages.end())
 				waitItr = m->m_waitMessages.begin();
-
-			while (!*waitItr->data)
+			
+			while (!*waitItr->data) 
 			{
 				gprintf("Skipping one image, because loaded data is not valid\n");
 				waitItr++;
@@ -499,10 +502,10 @@ void CVideo::_showWaitMessages(CVideo *m)
 				if (waitItr == m->m_waitMessages.end())
 					waitItr = m->m_waitMessages.begin();
 			}
-
+			
 			m->waitMessage(*waitItr);
 			waitItr++;
-
+			
 			waitFrames = frames;
 		}
 		waitFrames--;
@@ -534,7 +537,11 @@ void CVideo::CheckWaitThread(bool force)
 			LWP_ResumeThread(waitThread);
 
 		LWP_JoinThread(waitThread, NULL);
+
+		SMART_FREE(waitThreadStack);
 		waitThread = LWP_THREAD_NULL;
+
+		m_waitMessages.clear();
 	}
 }
 
@@ -573,13 +580,17 @@ void CVideo::waitMessage(const safe_vector<STexture> &tex, float delay, bool use
 		m_waitMessages = tex;
 		m_waitMessageDelay = delay;
 	}
-
+	
 	if (m_waitMessages.size() == 1)
 		waitMessage(m_waitMessages[0]);
 	else if (m_waitMessages.size() > 1)
 	{
 		m_showWaitMessage = true;
-		LWP_CreateThread(&waitThread, (void *(*)(void *))CVideo::_showWaitMessages, (void *)this, 0, 8192, 30);
+		unsigned int stack_size = (unsigned int)32768;  //Try 32768?
+		SMART_FREE(waitThreadStack);
+		waitThreadStack = SmartBuf((unsigned char *)__real_malloc(stack_size), SmartBuf::SRCALL_MALLOC);
+		waitThreadStack = smartMem2Alloc(stack_size);
+		LWP_CreateThread(&waitThread, (void *(*)(void *))CVideo::_showWaitMessages, (void *)this, waitThreadStack.get(), stack_size, 30);
 	}
 }
 

@@ -148,53 +148,47 @@ void WBFS_Ext_ClosePart(wbfs_t* part)
 
 s32 WBFS_Ext_RemoveGame(u8 *discid, char *gamepath)
 {
-	if(strlen(gamepath) + 1 >= MAX_FAT_PATH) return -1;
+	//split_create(&split, gamepath, 0, 0, true);
+	//split_close(&split);
 
-	int i = 1;
-	struct stat dummy;
+	DIR *dir_iter;
+	struct dirent *ent;
 	char file[MAX_FAT_PATH];
-	bzero(file, MAX_FAT_PATH);
-	snprintf(file, sizeof(file), "%s%i", gamepath, i);
 
-	remove(gamepath);
-		
-	while(stat(file, &dummy) == 0)
-	{
-		remove(file);
-		i++;
-
-		snprintf(file, sizeof(file), "%s%i", gamepath, i);
-	}
-
-	char *p = strrchr(gamepath, '/');
+	char folder[MAX_FAT_PATH];
+	STRCOPY(folder, gamepath);
+	char *p = strrchr(folder, '/');
 	if (p) *p = 0;
 
-	if(strlen(gamepath) > 11)
-		unlink(gamepath);
+	dir_iter = opendir(folder);
+	if (!dir_iter) return 0;
+	while ((ent = readdir(dir_iter)) != NULL)
+	{
+		if (ent->d_name[0] == '.') continue;
 
+		snprintf(file, sizeof(file), "%s/%s", folder, ent->d_name);
+		remove(file);
+		break;
+	}
+	closedir(dir_iter);
+	unlink(folder);
 	return 0;
 }
 
 s32 WBFS_Ext_AddGame(progress_callback_t spinner, void *spinner_data)
 {
+	struct discHdr header ATTRIBUTE_ALIGN(32);
+
 	char folder[MAX_FAT_PATH];
 	bzero(folder, MAX_FAT_PATH);
 
-	snprintf(folder, sizeof(folder), "%s%s", wbfs_fs_drive, wbfs_ext_dir);
-	makedir((char *)folder);
-
-	struct discHdr header ATTRIBUTE_ALIGN(32);
-	Disc_ReadHeader(&header);
-
-	char *illegal = "\"*/:<>?\\|", *cp, *cleantitle;
-	asprintf(&cleantitle, header.title);
-	for (cp = strpbrk(cleantitle, illegal); cp; cp = strpbrk(cp, illegal))
-		if(cp) *cp = '_';
-	
 	char gamepath[MAX_FAT_PATH];
 	bzero(gamepath, MAX_FAT_PATH);
-	snprintf(gamepath, sizeof(gamepath), "%s/%s [%s].wbfs", folder, cleantitle, header.id);
-	free(cleantitle);
+	
+	Disc_ReadHeader(&header);
+	snprintf(folder, sizeof(folder), "%s%s/%s [%s]", wbfs_fs_drive, wbfs_ext_dir, header.title, header.id);
+	makedir((char *)folder);
+	snprintf(gamepath, sizeof(gamepath), "%s/%s.wbfs", folder, header.id);
 
 	u64 size = (u64)143432*2*0x8000ULL;
 	u32 n_sector = size / 512;
@@ -228,7 +222,7 @@ s32 WBFS_Ext_AddGame(progress_callback_t spinner, void *spinner_data)
 
 	WBFS_Ext_ClosePart(part);
 	
-	if(ret < 0) WBFS_Ext_RemoveGame(header.id, gamepath);
+	if(ret < 0) WBFS_Ext_RemoveGame(NULL, gamepath);
 
 	return ret < 0 ? ret : 0;
 }

@@ -143,7 +143,8 @@ bool Banner::GetName(wchar_t *name, int language)
 
 const u8 *Banner::GetFile(char *name, u32 *size)
 {
-	return u8_get_file((const u8 *)(((u8 *) imet) + sizeof(IMET)), name, size);
+	const u8 *bnrArc = (const u8 *)(((u8 *) imet) + sizeof(IMET));
+	return u8_get_file(bnrArc, name, size);
 }
 
 Banner * Banner::GetBanner(u64 title, char *appname, bool isfs, bool imetOnly)
