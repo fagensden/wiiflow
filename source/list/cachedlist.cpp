@@ -2,53 +2,90 @@
 #include <typeinfo>
 
 template <class T>
-void CachedList<T>::Load(string path, string containing)													/* Load All */
+void CachedList<T>::Load(string path, string containing, string m_lastLanguage)													/* Load All */
 {
 	gprintf("\nLoading files containing %s in %s\n", containing.c_str(), path.c_str());
 	m_loaded = false;
 	m_database = sfmt("%s/%s.db", m_cacheDir.c_str(), (make_db_name(path)).c_str());
-	
-	gprintf("Database file: %s\n", m_database.c_str());
+
 	m_wbfsFS = strncasecmp(DeviceHandler::Instance()->PathToFSName(path.c_str()), "WBFS", 4) == 0;
 	
 	bool update_games = false;
 	bool update_homebrew = false;
-	if(!m_wbfsFS)
+	bool update_dml = false;
+	bool ditimes = false;
+	bool music = typeid(T) == typeid(std::string);
+	if(music)
+		gprintf("Loading music list from path: %s\n",path.c_str());
+	else if(!m_wbfsFS)
 	{
+		gprintf("Database file: %s\n", m_database.c_str());
+		
 		update_games = strcasestr(path.c_str(), "wbfs") != NULL && force_update[COVERFLOW_USB];
 		update_homebrew = strcasestr(path.c_str(), "apps") != NULL && force_update[COVERFLOW_HOMEBREW];
 
-		if(update_games || update_homebrew)
+		const char* partition = DeviceName[DeviceHandler::Instance()->PathToDriveType(path.c_str())];
+		update_dml = strcasestr(path.c_str(), sfmt(strncmp(partition, "sd", 2) != 0 ? m_DMLgameDir.c_str() : "%s:/games", partition).c_str()) != NULL && force_update[COVERFLOW_DML];
+
+		gprintf("update_games=%d update_homebrew=%d update_dml=%d\n", update_games, update_homebrew, update_dml);
+		if(update_games || update_homebrew || update_dml)
 			remove(m_database.c_str());
 
-		struct stat filestat, cache;
+		m_discinf = sfmt("%s/disc.info", path.c_str());
+		struct stat filestat, discinfo, cache;
 		gprintf("%s\n", path.c_str());
-		if(stat(path.c_str(), &filestat) == -1) return;
+		if(stat(path.c_str(), &filestat) == -1) return;			
 		
 		bool update_lang = m_lastLanguage != m_curLanguage;
 		bool noDB = stat(m_database.c_str(), &cache) == -1;
 		bool mtimes = filestat.st_mtime > cache.st_mtime;
+		if(strcasestr(m_discinf.c_str(), "wbfs") != NULL && stat(m_discinf.c_str(), &discinfo) != -1)		
+			ditimes = discinfo.st_mtime > cache.st_mtime;		
 
-		m_update = update_lang || noDB || mtimes;
-		if(m_update) gprintf("Cache is being updated because %s\n", update_lang ? "languages are different!" : noDB ? "a database was not found!" : "the WBFS folder was modified!");
+		m_update = update_lang || noDB || mtimes || ditimes;
+		if(m_update) gprintf("Cache of %s is being updated because ", path.c_str());
+		if(update_lang) gprintf("languages are different!\nOld language string: %s\nNew language string: %s\n", m_lastLanguage.c_str(), m_curLanguage.c_str());
+		if(noDB) gprintf("a database was not found!\n");
+		if(mtimes || ditimes) gprintf("the WBFS folder was modified!\n");
+	
+		if((strcasestr(path.c_str(), "wbfs") != NULL || strcasestr(path.c_str(), "games") != NULL) && m_extcheck && !m_update)
+		{
+			bool m_chupdate = false;
+	
+			DIR *dir = opendir(path.c_str());
+			struct dirent *entry;
+			while((entry = readdir(dir)) != NULL)
+			{
+				m_discinf = sfmt("%s/%s", path.c_str(), entry->d_name);
+				if(stat(m_discinf.c_str(), &discinfo) != -1)
+					m_chupdate = discinfo.st_mtime > cache.st_mtime;
+			
+				if(m_chupdate)
+					break;
+			}
+			m_update = m_chupdate;
+		}	
 	}
 
 	if(update_games) force_update[COVERFLOW_USB] = false;
 	if(update_homebrew) force_update[COVERFLOW_HOMEBREW] = false;
-
-	bool music = typeid(T) == typeid(std::string);
+	if(update_dml) force_update[COVERFLOW_DML] = false;
 
 	if(m_update || m_wbfsFS || music)
 	{
 		gprintf("Calling list to update filelist\n");
+		
 		safe_vector<string> pathlist;
 		list.GetPaths(pathlist, containing, path, m_wbfsFS);
-		list.GetHeaders(pathlist, *this, m_settingsDir, m_curLanguage);
+		list.GetHeaders(pathlist, *this, m_settingsDir, m_curLanguage, m_DMLgameDir);
 
 		path.append("/touch.db");
 		FILE *file = fopen(path.c_str(), "wb");
 		fclose(file);
 		remove(path.c_str());
+		
+		m_loaded = true;
+		m_update = false;		
 		
 		if(!music && pathlist.size() > 0)
 		{
@@ -57,15 +94,14 @@ void CachedList<T>::Load(string path, string containing)													/* Load All
 		}
 	}
 	else
+	{		
 		CCache<T>(*this, m_database, LOAD);
-
-	m_lastLanguage = m_curLanguage;
-	m_update = false;
-	m_loaded = true;
+		m_loaded = true;
+	}
 }
 
 template<>
-void CachedList<dir_discHdr>::LoadChannels(string path, u32 channelType)													/* Load All */
+void CachedList<dir_discHdr>::LoadChannels(string path, u32 channelType, string m_lastLanguage)													/* Load All */
 {
 	m_loaded = false;
 	m_update = true;
@@ -89,18 +125,18 @@ void CachedList<dir_discHdr>::LoadChannels(string path, u32 channelType)								
 
 		if(stat(newpath.c_str(), &filestat) == -1) return;
 
-		m_update = force_update[COVERFLOW_CHANNEL] || m_lastchannelLang != m_channelLang || stat(m_database.c_str(), &cache) == -1 || filestat.st_mtime > cache.st_mtime;
+		m_update = force_update[COVERFLOW_CHANNEL] || m_lastLanguage != m_curLanguage || stat(m_database.c_str(), &cache) == -1 || filestat.st_mtime > cache.st_mtime;
 	}
 
 	force_update[COVERFLOW_CHANNEL] = false;
 
 	if(m_update)
 	{
-		list.GetChannels(*this, m_settingsDir, channelType, m_channelLang);
+		gprintf("Updating channels\n");
+		list.GetChannels(*this, m_settingsDir, channelType, m_curLanguage);
 		
 		m_loaded = true;
 		m_update = false;
-		m_lastchannelLang = m_channelLang;
 
 		if(this->size() > 0 && emu) Save();
 	}

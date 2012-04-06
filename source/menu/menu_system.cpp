@@ -14,11 +14,20 @@ extern int mainIOS;
 int version_num = 0, num_versions = 0, i;
 int CMenu::_version[9] = {0, atoi(SVN_REV), atoi(SVN_REV), atoi(SVN_REV), atoi(SVN_REV), atoi(SVN_REV), atoi(SVN_REV), atoi(SVN_REV), atoi(SVN_REV)};
 
+const int pixels_to_skip = 10;
+
 void CMenu::_system()
 {
 	int msg = 0, newVer = atoi(SVN_REV);
 	lwp_t thread = LWP_THREAD_NULL;
 	wstringEx prevMsg;
+
+	int amount_of_skips = 0;
+	int update_x = 0, update_y = 0;
+	u32 update_w = 0, update_h = 0;
+	bool first = true;
+
+	m_btnMgr.reset(m_systemLblInfo, true);
 
 	SetupInput();
 	m_btnMgr.setText(m_systemBtnBack, _t("dl1", L"Cancel"));
@@ -28,6 +37,19 @@ void CMenu::_system()
 	while (true)
 	{
 		_mainLoopCommon(false, m_thrdWorking);
+
+		if (amount_of_skips == 0)
+		{
+			// Check dimensions in the loop, because the animation can have an effect
+			m_btnMgr.getDimensions(m_systemLblInfo, update_x, update_y, update_w, update_h); // Get original dimensions
+		}
+		if(first)
+		{
+			m_btnMgr.moveBy(m_systemLblInfo, 0, -(pixels_to_skip * 10));
+			amount_of_skips++;
+			first = false;
+		}
+
 		if (m_showtimer == -1)
 		{
 			m_showtimer = 120;
@@ -62,13 +84,25 @@ void CMenu::_system()
 				_showSystem();
 			}
 		}
-		if ((BTN_HOME_PRESSED || BTN_B_PRESSED || m_exit) && !m_thrdWorking)
+		if ((BTN_DOWN_PRESSED || BTN_DOWN_HELD) && !(m_thrdWorking && m_thrdStop))
+		{
+			if (update_h - (amount_of_skips * pixels_to_skip) > (m_vid.height2D() - (35 + update_y)))
+			{
+				m_btnMgr.moveBy(m_systemLblInfo, 0, -pixels_to_skip);
+				amount_of_skips++;
+			}
+		}
+		else if ((BTN_UP_PRESSED || BTN_UP_HELD) && !(m_thrdWorking && m_thrdStop))
+		{
+			if (amount_of_skips > 1)
+			{
+				m_btnMgr.moveBy(m_systemLblInfo, 0, pixels_to_skip);
+				amount_of_skips--;
+			}
+		}
+		else if ((BTN_HOME_PRESSED || BTN_B_PRESSED || m_exit) && !m_thrdWorking)
 			break;
-		else if (BTN_UP_PRESSED)
-			m_btnMgr.up();
-		else if (BTN_DOWN_PRESSED)
-			m_btnMgr.down();
-		if ((BTN_A_PRESSED) && !(m_thrdWorking && m_thrdStop))
+		else if ((BTN_A_PRESSED) && !(m_thrdWorking && m_thrdStop))
 		{
 			if ((m_btnMgr.selected(m_systemBtnDownload)) && !m_thrdWorking)
 			{
@@ -78,13 +112,14 @@ void CMenu::_system()
 				m_btnMgr.setProgress(m_downloadPBar, 0.f);
 				m_thrdStop = false;
 				m_thrdWorking = true;
-				gprintf("\nVersion to DL: %i\n", newIOS);
+				gprintf("\nVersion to DL: %i\n", newVer);
 
-				m_app_update_size = m_version.getInt("GENERAL", "app_zip_size", 0);
+				if(m_version.getInt("GENERAL", "version", 0) == newVer)
+					m_app_update_size = m_version.getInt("GENERAL", "app_zip_size", 0);
 				m_data_update_size = m_version.getInt("GENERAL", "data_zip_size", 0);
 
-				m_app_update_url = fmt("%s/r%i/%i.zip", m_version.getString("GENERAL", "update_url", "http://update.wiiflow.org").c_str(), newVer, newIOS);
-				m_data_update_url = fmt("%s/r%i/data.zip", m_version.getString("GENERAL", "update_url", "http://update.wiiflow.org").c_str(), newVer);
+				m_app_update_url = fmt("%s/Wiiflow_Mod_svn_r%i.zip", m_version.getString("GENERAL", "update_url", "http://open-wiiflow-mod.googlecode.com/files").c_str(), newVer);
+				m_data_update_url = fmt("%s/r%i/data.zip", m_version.getString("GENERAL", "update_url", "http://open-wiiflow-mod.googlecode.com/files").c_str(), newVer);
 
 				m_showtimer = 120;
 				LWP_CreateThread(&thread, (void *(*)(void *))CMenu::_versionDownloaderInit, (void *)this, 0, 8192, 40);
@@ -111,13 +146,14 @@ void CMenu::_system()
 				{
 					m_btnMgr.setText(m_systemLblVerSelectVal, wstringEx(sfmt("%i", CMenu::_version[i])));
 					newVer = CMenu::_version[i];
+					m_app_update_size = m_version.getInt(sfmt("VERSION%i", i - 1u), "app_zip_size", 0);
 					if (i > 1 && i != num_versions)
-						m_btnMgr.setText(m_systemLblInfo, m_version.getWString(sfmt("VERSION%i", i - 1u), "changes"));
+						m_btnMgr.setText(m_systemLblInfo, m_version.getWString(sfmt("VERSION%i", i - 1u), "changes"), false);
 					else 
 						if (i == num_versions)
-							m_btnMgr.setText(m_systemLblInfo, _t("sys7", L"Installed Version."));	
+							m_btnMgr.setText(m_systemLblInfo, _t("sys7", L"Installed Version."), false);
 						else
-							m_btnMgr.setText(m_systemLblInfo, m_version.getWString("GENERAL", "changes"));	
+							m_btnMgr.setText(m_systemLblInfo, m_version.getWString("GENERAL", "changes"), false);
 				}
 			}
 			else if (m_btnMgr.selected(m_systemBtnVerSelectP))
@@ -130,13 +166,14 @@ void CMenu::_system()
 				{
 					m_btnMgr.setText(m_systemLblVerSelectVal, wstringEx(sfmt("%i", CMenu::_version[i])));
 					newVer = CMenu::_version[i];
+					m_app_update_size = m_version.getInt(sfmt("VERSION%i", i - 1u), "app_zip_size", 0);
 					if (i > 1 && i != num_versions)
-						m_btnMgr.setText(m_systemLblInfo, m_version.getWString(sfmt("VERSION%i", i - 1u), "changes"));
+						m_btnMgr.setText(m_systemLblInfo, m_version.getWString(sfmt("VERSION%i", i - 1u), "changes"), false);
 					else 
 						if (i == num_versions)
-							m_btnMgr.setText(m_systemLblInfo, _t("sys7", L"Installed Version."));	
+							m_btnMgr.setText(m_systemLblInfo, _t("sys7", L"Installed Version."), false);
 						else
-							m_btnMgr.setText(m_systemLblInfo, m_version.getWString("GENERAL", "changes"));	
+							m_btnMgr.setText(m_systemLblInfo, m_version.getWString("GENERAL", "changes"), false);
 				}
 			}
 		}
@@ -202,7 +239,7 @@ void CMenu::_showSystem(void)
 	m_btnMgr.show(m_systemLblVersionTxt);
 	m_btnMgr.show(m_systemLblVersion);
 	m_btnMgr.show(m_systemBtnBack);
-	m_btnMgr.show(m_systemLblInfo);
+	m_btnMgr.show(m_systemLblInfo,false,true);
 	m_btnMgr.show(m_systemLblVerSelectVal);
 	m_btnMgr.show(m_systemBtnVerSelectM);
 	m_btnMgr.show(m_systemBtnVerSelectP);
@@ -219,16 +256,16 @@ void CMenu::_initSystemMenu(CMenu::SThemeData &theme)
 
 	_addUserLabels(theme, m_systemLblUser, ARRAY_SIZE(m_systemLblUser), "SYSTEM");		
 	m_systemBg = _texture(theme.texSet, "SYSTEM/BG", "texture", theme.bg);
-	m_systemLblTitle = _addLabel(theme, "SYSTEM/TITLE", theme.titleFont, L"", 20, 30, 600, 60, theme.titleFontColor, FTGX_JUSTIFY_CENTER | FTGX_ALIGN_MIDDLE);
-	m_systemLblVersionTxt = _addLabel(theme, "SYSTEM/VERSION_TXT", theme.lblFont, L"", 40, 80, 220, 56, theme.txtFontColor, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_MIDDLE);
-	m_systemLblVersion = _addLabel(theme, "SYSTEM/VERSION", theme.lblFont, L"", 260, 80, 200, 56, theme.titleFontColor, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_MIDDLE);
+	m_systemLblTitle = _addTitle(theme, "SYSTEM/TITLE", theme.titleFont, L"", 20, 30, 600, 60, theme.titleFontColor, FTGX_JUSTIFY_CENTER | FTGX_ALIGN_MIDDLE);
+	m_systemLblVersionTxt = _addLabel(theme, "SYSTEM/VERSION_TXT", theme.lblFont, L"", 40, 90, 220, 56, theme.lblFontColor, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_MIDDLE);
+	m_systemLblVersion = _addLabel(theme, "SYSTEM/VERSION", theme.lblFont, L"", 260, 90, 340, 56, theme.lblFontColor, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_MIDDLE);
 	m_systemBtnDownload = _addButton(theme, "SYSTEM/DOWNLOAD_BTN", theme.btnFont, L"", 20, 410, 200, 56, theme.btnFontColor);
 	m_systemBtnBack = _addButton(theme, "SYSTEM/BACK_BTN", theme.btnFont, L"", 420, 410, 200, 56, theme.btnFontColor); 
 
-	m_systemLblInfo = _addLabel(theme, "SYSTEM/INFO", theme.lblFont, L"", 40, 210, 560, 180, theme.txtFontColor, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_TOP);
-	m_systemLblVerSelectVal = _addLabel(theme, "SYSTEM/VER_SELECT_BTN", theme.btnFont, L"", 494, 80, 50, 56, theme.btnFontColor, FTGX_JUSTIFY_CENTER | FTGX_ALIGN_MIDDLE, theme.btnTexC);
-	m_systemBtnVerSelectM = _addPicButton(theme, "SYSTEM/VER_SELECT_MINUS", theme.btnTexMinus, theme.btnTexMinusS, 438, 80, 56, 56);
-	m_systemBtnVerSelectP = _addPicButton(theme, "SYSTEM/VER_SELECT_PLUS", theme.btnTexPlus, theme.btnTexPlusS, 544, 80, 56, 56);
+	m_systemLblInfo = _addText(theme, "SYSTEM/INFO", theme.txtFont, L"", 20, 300, 600, 280, theme.txtFontColor, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_TOP);
+	m_systemLblVerSelectVal = _addLabel(theme, "SYSTEM/VER_SELECT_BTN", theme.btnFont, L"", 296, 150, 50, 56, theme.btnFontColor, FTGX_JUSTIFY_CENTER | FTGX_ALIGN_MIDDLE, theme.btnTexC);
+	m_systemBtnVerSelectM = _addPicButton(theme, "SYSTEM/VER_SELECT_MINUS", theme.btnTexMinus, theme.btnTexMinusS, 240, 150, 56, 56);
+	m_systemBtnVerSelectP = _addPicButton(theme, "SYSTEM/VER_SELECT_PLUS", theme.btnTexPlus, theme.btnTexPlusS, 346, 150, 56, 56);
 	// 
 	_setHideAnim(m_systemLblTitle, "SYSTEM/TITLE", 0, 100, 0.f, 0.f);
 	_setHideAnim(m_systemBtnDownload, "SYSTEM/DOWNLOAD_BTN", 0, 0, -2.f, 0.f);
@@ -236,7 +273,7 @@ void CMenu::_initSystemMenu(CMenu::SThemeData &theme)
 	_setHideAnim(m_systemLblVersionTxt, "SYSTEM/VERSION_TXT", -100, 0, 0.f, 0.f);
 	_setHideAnim(m_systemLblVersion, "SYSTEM/VERSION", 200, 0, 0.f, 0.f);
 
-	_setHideAnim(m_systemLblInfo, "SYSTEM/INFO", 0, -180, 1.f, -1.f);
+	_setHideAnim(m_systemLblInfo, "SYSTEM/INFO", 0, 100, 0.f, 0.f);
 	_setHideAnim(m_systemLblVerSelectVal, "SYSTEM/VER_SELECT_BTN", 0, 0, 1.f, -1.f);
 	_setHideAnim(m_systemBtnVerSelectM, "SYSTEM/VER_SELECT_MINUS", 0, 0, 1.f, -1.f);
 	_setHideAnim(m_systemBtnVerSelectP, "SYSTEM/VER_SELECT_PLUS", 0, 0, 1.f, -1.f);
@@ -247,9 +284,9 @@ void CMenu::_initSystemMenu(CMenu::SThemeData &theme)
 
 void CMenu::_textSystem(void)
 {
-	m_btnMgr.setText(m_systemLblTitle, _t("sys1", L"System"));
+	m_btnMgr.setText(m_systemLblTitle, _t("sys1", L"Update WiiFlow"));
 	m_btnMgr.setText(m_systemLblVersionTxt, _t("sys2", L"WiiFlow Version:"));
-	m_btnMgr.setText(m_systemLblVersion, wfmt(L"v%s r%s", APP_VERSION, SVN_REV).c_str());
+	m_btnMgr.setText(m_systemLblVersion, wfmt(L"r%s", SVN_REV).c_str());
 	m_btnMgr.setText(m_systemBtnBack, _t("sys3", L"Cancel"));
 	m_btnMgr.setText(m_systemBtnDownload, _t("sys4", L"Upgrade"));
 	i = min((u32)version_num, ARRAY_SIZE(CMenu::_version) -1u);
@@ -261,11 +298,11 @@ void CMenu::_textSystem(void)
 	{
 		m_btnMgr.setText(m_systemLblVerSelectVal, wstringEx(sfmt("%i", CMenu::_version[i])));
 		if (i > 1 && i != num_versions)
-			m_btnMgr.setText(m_systemLblInfo, m_version.getWString(sfmt("VERSION%i", i - 1u), "changes"));
+			m_btnMgr.setText(m_systemLblInfo, m_version.getWString(sfmt("VERSION%i", i - 1u), "changes"), false);
 		else 
 			if (i == num_versions)
-				m_btnMgr.setText(m_systemLblInfo, _t("sys7", L"Installed Version."));	
+				m_btnMgr.setText(m_systemLblInfo, _t("sys7", L"Installed Version."), false);
 			else
-				m_btnMgr.setText(m_systemLblInfo, m_version.getWString("GENERAL", "changes"));		
+				m_btnMgr.setText(m_systemLblInfo, m_version.getWString("GENERAL", "changes"), false);
 	}
 }

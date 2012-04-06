@@ -59,7 +59,7 @@ u32 CMenu::_downloadCheatFileAsync(void *obj)
 	if (cheatfile.data != NULL && cheatfile.size > 65 && cheatfile.data[0] != '<')
 	{
 		FILE *file = fopen(fmt("%s/%s.txt", m->m_txtCheatDir.c_str(), id.c_str()), "wb");
-				
+
 		if (file != NULL)
 		{
 			fwrite(cheatfile.data, 1, cheatfile.size, file);
@@ -77,8 +77,10 @@ void CMenu::_CheatSettings()
 {
 	SetupInput();
 
+	string id = m_cf.getId();
+
 	m_cheatSettingsPage = 1;
-	int txtavailable = m_cheatfile.openTxtfile(fmt("%s/%s.txt", m_txtCheatDir.c_str(), m_cf.getId().c_str())); 
+	int txtavailable = m_cheatfile.openTxtfile(fmt("%s/%s.txt", m_txtCheatDir.c_str(), id.c_str())); 
 	
 	_showCheatSettings();
 	_textCheatSettings();
@@ -119,10 +121,10 @@ void CMenu::_CheatSettings()
 		}
 		else if ((WBTN_2_HELD && WBTN_1_PRESSED) || (WBTN_1_HELD && WBTN_2_PRESSED))
 		{
-			remove(fmt("%s/%s.gct", m_cheatDir.c_str(), m_cf.getId().c_str()));
-			remove(fmt("%s/%s.txt", m_txtCheatDir.c_str(), m_cf.getId().c_str()));
-			m_gcfg2.remove(m_cf.getId(), "cheat");
-			m_gcfg2.remove(m_cf.getId(), "hooktype");
+			remove(fmt("%s/%s.gct", m_cheatDir.c_str(), id.c_str()));
+			remove(fmt("%s/%s.txt", m_txtCheatDir.c_str(), id.c_str()));
+			m_gcfg2.remove(id, "cheat");
+			m_gcfg2.remove(id, "hooktype");
 			break;
 		}
 		else if (BTN_A_PRESSED)
@@ -152,17 +154,17 @@ void CMenu::_CheatSettings()
 					
 				if (selected)
 				{
-					m_cheatfile.createGCT(fmt("%s/%s.gct", m_cheatDir.c_str(), m_cf.getId().c_str())); 
-					m_gcfg2.setOptBool(m_cf.getId(), "cheat", 1);
-					m_gcfg2.setInt(m_cf.getId(), "hooktype", m_gcfg2.getInt(m_cf.getId(), "hooktype", 1));
+					m_cheatfile.createGCT(fmt("%s/%s.gct", m_cheatDir.c_str(), id.c_str())); 
+					m_gcfg2.setOptBool(id, "cheat", 1);
+					m_gcfg2.setInt(id, "hooktype", m_gcfg2.getInt(id, "hooktype", 1));
 				}
 				else
 				{
-					remove(fmt("%s/%s.gct", m_cheatDir.c_str(), m_cf.getId().c_str()));
-					m_gcfg2.remove(m_cf.getId(), "cheat");
-					m_gcfg2.remove(m_cf.getId(), "hooktype");
+					remove(fmt("%s/%s.gct", m_cheatDir.c_str(), id.c_str()));
+					m_gcfg2.remove(id, "cheat");
+					m_gcfg2.remove(id, "hooktype");
 				}
-				m_cheatfile.createTXT(fmt("%s/%s.txt", m_txtCheatDir.c_str(), m_cf.getId().c_str()));
+				m_cheatfile.createTXT(fmt("%s/%s.txt", m_txtCheatDir.c_str(), id.c_str()));
 				break;
 			}
 			else if (m_btnMgr.selected(m_cheatBtnDownload))
@@ -234,7 +236,7 @@ void CMenu::_CheatSettings()
 				}
 				_hideCheatDownload();
 				
-				txtavailable = m_cheatfile.openTxtfile(fmt("%s/%s.txt", m_txtCheatDir.c_str(), m_cf.getId().c_str()));
+				txtavailable = m_cheatfile.openTxtfile(fmt("%s/%s.txt", m_txtCheatDir.c_str(), id.c_str()));
 				_showCheatSettings();
 
 				if (txtavailable)
@@ -245,8 +247,9 @@ void CMenu::_CheatSettings()
 				if (m_cheatfile.getCnt() == 0)
 				{
 					// cheat code not found, show result
+					char type = id[0] == 'S' ? 'R' : id[0];
 					m_btnMgr.setText(m_cheatLblItem[0], _t("cheat4", L"Download not found."));
-					m_btnMgr.setText(m_cheatLblItem[1], sfmt(GECKOURL, m_cf.getId().c_str()));
+					m_btnMgr.setText(m_cheatLblItem[1], sfmt(GECKOURL, type, id.c_str()));
 					m_btnMgr.show(m_cheatLblItem[1]);
 				}
 			}
@@ -331,13 +334,13 @@ void CMenu::_initCheatSettingsMenu(CMenu::SThemeData &theme)
 	_addUserLabels(theme, m_cheatLblUser, ARRAY_SIZE(m_cheatLblUser), "CHEAT");
 	m_cheatBg = _texture(theme.texSet, "CHEAT/BG", "texture", theme.bg);
 	m_cheatLblTitle = _addLabel(theme, "CHEAT/TITLE", theme.titleFont, L"Cheats", 20, 30, 600, 60, theme.titleFontColor, FTGX_JUSTIFY_CENTER | FTGX_ALIGN_MIDDLE);
-	m_cheatBtnBack = _addButton(theme, "CHEAT/BACK_BTN", theme.btnFont, L"", 460, 410, 150, 56, theme.btnFontColor);
-	m_cheatBtnApply = _addButton(theme, "CHEAT/APPLY_BTN", theme.btnFont, L"", 240, 410, 150, 56, theme.btnFontColor);
-	m_cheatBtnDownload = _addButton(theme, "CHEAT/DOWNLOAD_BTN", theme.btnFont, L"", 240, 410, 200, 56, theme.btnFontColor);
+	m_cheatBtnBack = _addButton(theme, "CHEAT/BACK_BTN", theme.btnFont, L"", 460, 400, 150, 56, theme.btnFontColor);
+	m_cheatBtnApply = _addButton(theme, "CHEAT/APPLY_BTN", theme.btnFont, L"", 240, 400, 150, 56, theme.btnFontColor);
+	m_cheatBtnDownload = _addButton(theme, "CHEAT/DOWNLOAD_BTN", theme.btnFont, L"", 240, 400, 200, 56, theme.btnFontColor);
 
-	m_cheatLblPage = _addLabel(theme, "CHEAT/PAGE_BTN", theme.btnFont, L"", 76, 410, 80, 56, theme.btnFontColor, FTGX_JUSTIFY_CENTER | FTGX_ALIGN_MIDDLE, theme.btnTexC);
-	m_cheatBtnPageM = _addPicButton(theme, "CHEAT/PAGE_MINUS", theme.btnTexMinus, theme.btnTexMinusS, 20, 410, 56, 56);
-	m_cheatBtnPageP = _addPicButton(theme, "CHEAT/PAGE_PLUS", theme.btnTexPlus, theme.btnTexPlusS, 156, 410, 56, 56);
+	m_cheatLblPage = _addLabel(theme, "CHEAT/PAGE_BTN", theme.btnFont, L"", 76, 400, 100, 56, theme.btnFontColor, FTGX_JUSTIFY_CENTER | FTGX_ALIGN_MIDDLE, theme.btnTexC);
+	m_cheatBtnPageM = _addPicButton(theme, "CHEAT/PAGE_MINUS", theme.btnTexMinus, theme.btnTexMinusS, 20, 400, 56, 56);
+	m_cheatBtnPageP = _addPicButton(theme, "CHEAT/PAGE_PLUS", theme.btnTexPlus, theme.btnTexPlusS, 176, 400, 56, 56);
 
 	m_cheatLblItem[0] = _addLabel(theme, "CHEAT/ITEM_0", theme.lblFont, L"", 40, 100, 460, 56, theme.lblFontColor, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_MIDDLE);
 	m_cheatBtnItem[0] = _addButton(theme, "CHEAT/ITEM_0_BTN", theme.btnFont, L"", 500, 100, 120, 56, theme.btnFontColor);
@@ -348,13 +351,13 @@ void CMenu::_initCheatSettingsMenu(CMenu::SThemeData &theme)
 	m_cheatLblItem[3] = _addLabel(theme, "CHEAT/ITEM_3", theme.lblFont, L"", 40, 280, 460, 56, theme.lblFontColor, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_MIDDLE);
 	m_cheatBtnItem[3] = _addButton(theme, "CHEAT/ITEM_3_BTN", theme.btnFont, L"", 500, 280, 120, 56, theme.btnFontColor);
 
-	_setHideAnim(m_systemLblTitle, "CHEAT/TITLE", 0, 100, 0.f, 0.f);
-	_setHideAnim(m_cheatBtnApply, "CHEAT/APPLY_BTN", 0, 0, -2.f, 0.f);
-	_setHideAnim(m_cheatBtnBack, "CHEAT/BACK_BTN", 0, 0, -2.f, 0.f);
-	_setHideAnim(m_cheatBtnDownload, "CHEAT/DOWNLOAD_BTN", 0, 0, -2.f, 0.f);
-	_setHideAnim(m_cheatLblPage, "CHEAT/PAGE_BTN", 0, 200, 1.f, 0.f);
-	_setHideAnim(m_cheatBtnPageM, "CHEAT/PAGE_MINUS", 0, 200, 1.f, 0.f);
-	_setHideAnim(m_cheatBtnPageP, "CHEAT/PAGE_PLUS", 0, 200, 1.f, 0.f);
+	_setHideAnim(m_cheatLblTitle, "CHEAT/TITLE", 0, 100, 0.f, 0.f);
+	_setHideAnim(m_cheatBtnApply, "CHEAT/APPLY_BTN", 0, 0, 1.f, -1.f);
+	_setHideAnim(m_cheatBtnBack, "CHEAT/BACK_BTN", 0, 0, 1.f, -1.f);
+	_setHideAnim(m_cheatBtnDownload, "CHEAT/DOWNLOAD_BTN", 0, 0, 1.f, -1.f);
+	_setHideAnim(m_cheatLblPage, "CHEAT/PAGE_BTN", 0, 0, 1.f, -1.f);
+	_setHideAnim(m_cheatBtnPageM, "CHEAT/PAGE_MINUS", 0, 0, 1.f, -1.f);
+	_setHideAnim(m_cheatBtnPageP, "CHEAT/PAGE_PLUS", 0, 0, 1.f, -1.f);
 	
 	for (int i=0;i<CHEATSPERPAGE;++i) {
 		_setHideAnim(m_cheatLblItem[i], sfmt("CHEAT/ITEM_%i", i).c_str(), -200, 0, 1.f, 0.f);

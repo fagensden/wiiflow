@@ -94,7 +94,7 @@ void CMenu::_showAbout(void)
 	_setBg(m_aboutBg, m_aboutBg);
 	m_btnMgr.show(m_aboutLblTitle);
 	m_btnMgr.show(m_aboutLblIOS);
-	m_btnMgr.show(m_aboutLblInfo);
+	m_btnMgr.show(m_aboutLblInfo,false,true);
 	m_btnMgr.show(m_aboutBtnSystem);
 	for (u32 i = 0; i < ARRAY_SIZE(m_aboutLblUser); ++i)
 		if (m_aboutLblUser[i] != -1u)
@@ -106,13 +106,13 @@ void CMenu::_initAboutMenu(CMenu::SThemeData &theme)
 	STexture emptyTex;
 	_addUserLabels(theme, m_aboutLblUser, ARRAY_SIZE(m_aboutLblUser), "ABOUT");
 	m_aboutBg = _texture(theme.texSet, "ABOUT/BG", "texture", theme.bg);
-	m_aboutLblTitle = _addLabel(theme, "ABOUT/TITLE", theme.titleFont, L"", 170, 25, 300, 75, theme.titleFontColor, FTGX_JUSTIFY_CENTER | FTGX_ALIGN_MIDDLE, emptyTex);
-	m_aboutLblInfo = _addLabel(theme, "ABOUT/INFO", theme.txtFont, L"", 40, 220, 560, 260, theme.txtFontColor, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_TOP, emptyTex);
-	m_aboutBtnSystem = _addButton(theme, "ABOUT/SYSTEM_BTN", theme.btnFont, L"", 20, 410, 200, 56, theme.btnFontColor);
+	m_aboutLblTitle = _addTitle(theme, "ABOUT/TITLE", theme.titleFont, L"", 20, 30, 600, 75, theme.titleFontColor, FTGX_JUSTIFY_CENTER | FTGX_ALIGN_MIDDLE);
+	m_aboutLblInfo = _addText(theme, "ABOUT/INFO", theme.txtFont, L"", 20, 200, 600, 280, theme.txtFontColor, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_TOP);
+	m_aboutBtnSystem = _addButton(theme, "ABOUT/SYSTEM_BTN", theme.btnFont, L"", 20, 400, 200, 56, theme.btnFontColor);
 	m_aboutLblIOS = _addLabel(theme, "ABOUT/IOS", theme.txtFont, L"", 240, 400, 360, 56, theme.txtFontColor, FTGX_JUSTIFY_RIGHT | FTGX_ALIGN_MIDDLE);
 	// 
 	_setHideAnim(m_aboutLblTitle, "ABOUT/TITLE", 0, 100, 0.f, 0.f);
-	_setHideAnim(m_aboutLblInfo, "ABOUT/INFO", 0, -100, 0.f, 0.f);
+	_setHideAnim(m_aboutLblInfo, "ABOUT/INFO", 0, 100, 0.f, 0.f);
 	_setHideAnim(m_aboutBtnSystem, "ABOUT/SYSTEM_BTN", 0, 0, -2.f, 0.f);
 	_setHideAnim(m_aboutLblIOS, "ABOUT/IOS", 0, 100, 0.f, 0.f);
 	// 
@@ -123,9 +123,9 @@ void CMenu::_initAboutMenu(CMenu::SThemeData &theme)
 void CMenu::_textAbout(void)
 {
 	m_btnMgr.setText(m_aboutBtnSystem, _t("sys4", L"Update"));
-	m_btnMgr.setText(m_aboutLblTitle, wfmt(_fmt("appname", L"%s v%s r%s"), APP_NAME, APP_VERSION, SVN_REV), false);
+	m_btnMgr.setText(m_aboutLblTitle, wfmt(_fmt("appname", L"%s (%s-r%s)"), APP_NAME, APP_VERSION, SVN_REV), false);
 
-	wstringEx developers(wfmt(_fmt("about6", L"Current Developers:\n%s"), DEVELOPERS));
+	wstringEx developers(wfmt(_fmt("about6", L"\nCurrent Developers:\n%s"), DEVELOPERS));
 	wstringEx pDevelopers(wfmt(_fmt("about7", L"Past Developers:\n%s"), PAST_DEVELOPERS));
 
 	wstringEx origLoader(wfmt(_fmt("about1", L"Original Loader By:\n%s"), LOADER_AUTHOR));
@@ -139,7 +139,7 @@ void CMenu::_textAbout(void)
 	if(translator.size() > 3) thanks.append(translator);
 
 	m_btnMgr.setText(m_aboutLblInfo,
-			wfmt(_fmt("about5", L"%s\n\n%s\n\n%s\n\n%s\n\n%s\n\n%s\n\n%s"),
+			wfmt(L"%s\n\n%s\n\n%s\n\n%s\n\n%s\n\n%s\n\n%s",
 			developers.toUTF8().c_str(),
 			pDevelopers.toUTF8().c_str(),
 			origLoader.toUTF8().c_str(),
@@ -155,5 +155,6 @@ void CMenu::_textAbout(void)
 	if(iosInfo != NULL)
 		m_btnMgr.setText(m_aboutLblIOS, wfmt(_fmt("ios", L"IOS%i base %i v%i"), mainIOS, iosInfo->baseios, iosInfo->version), true);
 	SAFE_FREE(iosInfo);
-	Nand::Instance()->Enable_Emu();
+	if(m_current_view == COVERFLOW_CHANNEL && m_cfg.getInt("NAND", "emulation", 0) > 0)
+		Nand::Instance()->Enable_Emu();
 }

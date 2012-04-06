@@ -33,7 +33,8 @@ public:
 		g = (rgba8 & 0x0000FF00) >> 8;
 		b = rgba8 & 0x000000FF;
 	}
-	int intVal() { return a << 24 | r << 16 | g << 8 | b; }
+	//int intVal() { return a << 24 | r << 16 | g << 8 | b; }
+	int intVal() { return r << 16 | g << 8 | b; }
 	bool operator==(const CColor &c) const { return c.r == r && c.g == g && c.b == b && c.a == a; }
 	bool operator!=(const CColor &c) const { return c.r != r || c.g != g || c.b != b || c.a != a; }
 	void blend(const CColor &src);
@@ -64,11 +65,11 @@ public:
 	void prepareStencil(void);
 	void renderStencil(void);
 	int stencilVal(int x, int y);
-	void hideWaitMessage(bool force = false);
+	void hideWaitMessage();
 	void waitMessage(float delay);
 	void waitMessage(const safe_vector<STexture> &tex, float delay, bool useWiiLight = true);
 	void waitMessage(const STexture &tex);
-	void CheckWaitThread(bool force = false);
+	void CheckWaitThread();
 	s32 TakeScreenshot(const char *);
 	void shiftViewPort(float x, float y);
 private:

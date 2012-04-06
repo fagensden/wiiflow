@@ -44,7 +44,7 @@ typedef struct _GameXMLInfo
 	string Developer;
 	string Publisher;
 	unsigned int PublishDate;
-	safe_vector<string> Genres;
+	string Genres;
 	int RatingType;
 	string RatingValue;
 	safe_vector<string> RatingDescriptors;
@@ -99,7 +99,7 @@ class GameTDB
         //! year = (return >> 16), month = (return >> 8) & 0xFF, day = return & 0xFF
         unsigned int GetPublishDate(const char * id);
         //! Get the genre list of a game for a specific game id
-        bool GetGenres(const char * id, safe_vector<string> & genre);
+        bool GetGenres(const char * id, string & gen);
         //! Get the rating type for a specific game id
         //! The rating type can be converted to a string with GameTDB::RatingToString(rating)
         int GetRating(const char * id);
@@ -123,6 +123,7 @@ class GameTDB
         //! Get the box (case) color for a specific game id
         //! Returns the color in RGB (first 3 bytes)
         unsigned int GetCaseColor(const char * id);
+		int GetCaseVersions(const char * id);
         //! Get the complete game info in the GameXMLInfo struct
         bool GetGameXMLInfo(const char * id, GameXMLInfo * gameInfo);
         //! Convert a specific game rating to a string

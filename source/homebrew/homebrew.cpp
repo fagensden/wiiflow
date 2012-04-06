@@ -1,6 +1,5 @@
 #include <gccore.h>
 #include <ogcsys.h>
-//#include <malloc.h>
 #include <stdio.h>
 #include <string.h>
 #include <ogc/machine/processor.h>
@@ -24,6 +23,17 @@ static u32 homebrewsize = 0;
 static safe_vector<std::string> Arguments;
 
 bool bootHB;
+
+bool IsDollZ (u8 *buff)
+{
+  u8 dollz_stamp[] = {0x3C};
+  int dollz_offs = 0x100;
+
+  int ret = memcmp (&buff[dollz_offs], dollz_stamp, sizeof(dollz_stamp));
+  if (ret == 0) return true;
+  
+  return false;
+}
 
 void AddBootArgument(const char * argv)
 {
@@ -62,13 +72,17 @@ int LoadHomebrew(const char * filepath)
 	SmartBuf buffer = smartAnyAlloc(filesize);
 	if (!buffer)
 	{
-		fclose(file);
+		SAFE_CLOSE(file);
 		return -3;
 	}
-	
+
 	bool good_read = fread((u8 *)buffer.get(), 1, filesize, file) == filesize;
-	fclose(file);
-	if (!good_read) return -4;
+	if (!good_read)
+    { 
+	    SAFE_CLOSE(file);
+		return -4;
+	}
+	SAFE_CLOSE(file);
 
 	DCFlushRange((u8 *)buffer.get(), filesize);
 
@@ -118,18 +132,17 @@ int BootHomebrew()
 	if(homebrewsize == 0) return -1;
 
 	struct __argv args;
-	SetupARGV(&args);
+	if (!IsDollZ(homebrewbuffer))
+		SetupARGV(&args);
 
 	memcpy(BOOTER_ADDR, app_booter_bin, app_booter_bin_size);
 	DCFlushRange(BOOTER_ADDR, app_booter_bin_size);
 
 	entrypoint entry = (entrypoint) BOOTER_ADDR;
 
-	if (args.argvMagic == ARGV_MAGIC)
-	{
-		memmove(ARGS_ADDR, &args, sizeof(args));
-		DCFlushRange(ARGS_ADDR, sizeof(args) + args.length);
-	}
+	memmove(ARGS_ADDR, &args, sizeof(args));
+	DCFlushRange(ARGS_ADDR, sizeof(args) + args.length);
+
 	SYS_ResetSystem(SYS_SHUTDOWN, 0, 0);
 	entry();
 

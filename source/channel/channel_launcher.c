@@ -37,7 +37,7 @@ typedef struct _dolheader{
 
 u32 entryPoint;
 
-s32 BootChannel(u8 *data, u64 chantitle, u8 vidMode, bool vipatch, bool countryString, u8 patchVidMode)
+s32 BootChannel(u8 *data, u64 chantitle, u8 vidMode, bool vipatch, bool countryString, u8 patchVidMode, bool disableIOSreload, int aspectRatio)
 {
 	u32 ios;
 	Identify(chantitle, &ios);
@@ -50,33 +50,36 @@ s32 BootChannel(u8 *data, u64 chantitle, u8 vidMode, bool vipatch, bool countryS
 
 	/* Set time */
 	__Disc_SetTime();
-
+	
+	/* Set low memory */
 	__Disc_SetLowMem();
 
 	if (hooktype != 0)
 		ocarina_do_code();
 
-	PatchChannel(vidMode, vmode, vipatch, countryString, patchVidMode);
+	PatchChannel(vidMode, vmode, vipatch, countryString, patchVidMode, aspectRatio);
 
 	entrypoint appJump = (entrypoint)entryPoint;
 
-	IOSReloadBlock(IOS_GetVersion());
+	if (disableIOSreload)
+		IOSReloadBlock(IOS_GetVersion(), false);
+	else
+		IOSReloadBlock(IOS_GetVersion(), true);
 
 	/* Set an appropriate video mode */
 	__Disc_SetVMode();
 
-	// IOS Version Check
-	*(vu32*)0x80003140	= ((ios << 16)) | 0xFFFF;
-	*(vu32*)0x80003188	= ((ios << 16)) | 0xFFFF;
-	DCFlushRange((void *)0x80003140, 32);
-	DCFlushRange((void *)0x80003188, 32);
+    // IOS Version Check
+    *(vu32*)0x80003140 = ((ios << 16)) | 0xFFFF;
+    *(vu32*)0x80003188 = ((ios << 16)) | 0xFFFF;
+    DCFlushRange((void *)0x80003140, 4);
+    DCFlushRange((void *)0x80003188, 4);
 
-	// Game ID Online Check
-	*(vu32 *)0x80000000 = TITLE_LOWER(chantitle);
-	*(vu32 *)0x80003180 = TITLE_LOWER(chantitle);
-	DCFlushRange((void *)0x80000000, 32);
-	DCFlushRange((void *)0x80003180, 32);
-
+    // Game ID Online Check
+    memset((void *)0x80000000, 0, 6);
+    *(vu32 *)0x80000000 = TITLE_LOWER(chantitle);
+    DCFlushRange((void *)0x80000000, 6);
+	
 	/* Shutdown IOS subsystems */
 	SYS_ResetSystem(SYS_SHUTDOWN, 0, 0);
 
@@ -93,6 +96,7 @@ s32 BootChannel(u8 *data, u64 chantitle, u8 vidMode, bool vipatch, bool countryS
 				"mtlr %r3\n"
 				"lis %r3, 0x8000\n"
 				"ori %r3, %r3, 0x18A8\n"
+				"nop\n"
 				"mtctr %r3\n"
 				"bctr\n"
 			);
@@ -107,6 +111,7 @@ s32 BootChannel(u8 *data, u64 chantitle, u8 vidMode, bool vipatch, bool countryS
 			"mtlr %r3\n"
 			"lis %r3, 0x8000\n"
 			"ori %r3, %r3, 0x18A8\n"
+			"nop\n"
 			"mtctr %r3\n"
 			"bctr\n"
 			"returnpoint:\n"
@@ -135,14 +140,17 @@ u32 LoadChannel(u8 *buffer)
 	dolchunkcount = 0;
 	dolheader *dolfile = (dolheader *)buffer;
 
-	if(dolfile->bss_start)
-	{
-		ICInvalidateRange((void *)dolfile->bss_start, dolfile->bss_size);
-		memset((void *)dolfile->bss_start, 0, dolfile->bss_size);
-		DCFlushRange((void *)dolfile->bss_start, dolfile->bss_size);
-	}
+    if(dolfile->bss_start)
+    {
+            if(!(dolfile->bss_start & 0x80000000))
+                    dolfile->bss_start |= 0x80000000;
 
-	int i;
+            ICInvalidateRange((void *)dolfile->bss_start, dolfile->bss_size);
+            memset((void *)dolfile->bss_start, 0, dolfile->bss_size);
+            DCFlushRange((void *)dolfile->bss_start, dolfile->bss_size);
+    }
+   
+    int i;
 	for(i = 0; i < 18; i++)
 	{
 		if (!dolfile->section_size[i]) continue;
@@ -162,17 +170,18 @@ u32 LoadChannel(u8 *buffer)
 	return dolfile->entry_point;
 }
 
-void PatchChannel(u8 vidMode, GXRModeObj *vmode, bool vipatch, bool countryString, u8 patchVidModes)
+void PatchChannel(u8 vidMode, GXRModeObj *vmode, bool vipatch, bool countryString, u8 patchVidModes, int aspectRatio)
 {
-	int i;
 	bool hookpatched = false;
 
+    int i;
 	for (i=0;i < dolchunkcount;i++)
 	{		
 		patchVideoModes(dolchunkoffset[i], dolchunksize[i], vidMode, vmode, patchVidModes);
 		if (vipatch) vidolpatcher(dolchunkoffset[i], dolchunksize[i]);
 		if (configbytes[0] != 0xCD) langpatcher(dolchunkoffset[i], dolchunksize[i]);
 		if (countryString) PatchCountryStrings(dolchunkoffset[i], dolchunksize[i]);
+		if (aspectRatio != -1) PatchAspectRatio(dolchunkoffset[i], dolchunksize[i], aspectRatio);
 
 		if (hooktype != 0)
 			if (dogamehooks(dolchunkoffset[i], dolchunksize[i], true))
@@ -224,7 +233,7 @@ bool Identify(u64 titleid, u32 *ios)
 
 	if(!Identify_GenerateTik(&tikBuffer,&tikSize))
 	{
-		gprintf("Generating fake ticket...Failed!");
+		gprintf("Generating fake ticket...Failed!\n");
 		return false;
 	}
 
@@ -277,7 +286,7 @@ u8 * GetDol(u64 title, char *id, u32 bootcontent)
 	gprintf("Loading DOL: %s...", filepath);
 	u32 contentSize = 0;
 	u8 *data = ISFS_GetFile((u8 *) &filepath, &contentSize, -1);
-	if (data != NULL)
+	if (data != NULL && contentSize != 0)
 	{	
 		gprintf("Done!\n");
 	

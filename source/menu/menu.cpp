@@ -41,12 +41,67 @@ extern const u8 butright_png[];
 extern const u8 butsleft_png[];
 extern const u8 butscenter_png[];
 extern const u8 butsright_png[];
+extern const u8 buthleft_png[];
+extern const u8 buthcenter_png[];
+extern const u8 buthright_png[];
+extern const u8 buthsleft_png[];
+extern const u8 buthscenter_png[];
+extern const u8 buthsright_png[];
 extern const u8 pbarleft_png[];
 extern const u8 pbarcenter_png[];
 extern const u8 pbarright_png[];
 extern const u8 pbarlefts_png[];
 extern const u8 pbarcenters_png[];
 extern const u8 pbarrights_png[];
+extern const u8 butauon_png[];
+extern const u8 butauons_png[];
+extern const u8 butauoff_png[];
+extern const u8 butauoffs_png[];
+extern const u8 butenon_png[];
+extern const u8 butenons_png[];
+extern const u8 butenoff_png[];
+extern const u8 butenoffs_png[];
+extern const u8 butjaon_png[];
+extern const u8 butjaons_png[];
+extern const u8 butjaoff_png[];
+extern const u8 butjaoffs_png[];
+extern const u8 butfron_png[];
+extern const u8 butfrons_png[];
+extern const u8 butfroff_png[];
+extern const u8 butfroffs_png[];
+extern const u8 butdeon_png[];
+extern const u8 butdeons_png[];
+extern const u8 butdeoff_png[];
+extern const u8 butdeoffs_png[];
+extern const u8 buteson_png[];
+extern const u8 butesons_png[];
+extern const u8 butesoff_png[];
+extern const u8 butesoffs_png[];
+extern const u8 butiton_png[];
+extern const u8 butitons_png[];
+extern const u8 butitoff_png[];
+extern const u8 butitoffs_png[];
+extern const u8 butnlon_png[];
+extern const u8 butnlons_png[];
+extern const u8 butnloff_png[];
+extern const u8 butnloffs_png[];
+extern const u8 butpton_png[];
+extern const u8 butptons_png[];
+extern const u8 butptoff_png[];
+extern const u8 butptoffs_png[];
+extern const u8 butruon_png[];
+extern const u8 butruons_png[];
+extern const u8 butruoff_png[];
+extern const u8 butruoffs_png[];
+extern const u8 butkoon_png[];
+extern const u8 butkoons_png[];
+extern const u8 butkooff_png[];
+extern const u8 butkooffs_png[];
+extern const u8 butzhcnon_png[];
+extern const u8 butzhcnons_png[];
+extern const u8 butzhcnoff_png[];
+extern const u8 butzhcnoffs_png[];
+
 
 using namespace std;
 
@@ -186,21 +241,32 @@ void CMenu::init(void)
 			return;
 		}
 	}
-	Nand::Instance()->Init(m_cfg.getString("NAND", "path", "").c_str(),
-		m_cfg.getInt("NAND", "partition", -1),
-		m_cfg.getBool("NAND", "disable", true)
-		);
+
+	if(m_cfg.getBool("DML", "always_show_button", false))
+	{
+		gprintf("Force enabling DML view\n");
+		m_show_dml = true;
+	}
+	else
+		m_show_dml = MIOSisDML();
+	m_new_dml = m_cfg.getBool("DML", "dml_r52+", true);
+	m_DMLgameDir = sfmt("%%s:/%s", m_cfg.getString("DML", "dir_usb_games", "games").c_str());
+
+	m_cfg.getString("NAND", "path", "").c_str();
+	m_cfg.getInt("NAND", "partition", 0);
+	m_cfg.getBool("NAND", "disable", true);
 
 	_load_installed_cioses();
 
+	snprintf(m_app_update_drive, sizeof(m_app_update_drive), "%s:/", drive);
 	m_dataDir = sfmt("%s:/%s", drive, APPDATA_DIR);
 	gprintf("Data Directory: %s\n", m_dataDir.c_str());
-	
+
 	m_dol = sfmt("%s/boot.dol", m_appDir.c_str());
 	m_ver = sfmt("%s/versions", m_appDir.c_str());
 	m_app_update_zip = sfmt("%s/update.zip", m_appDir.c_str());
 	m_data_update_zip = sfmt("%s/update.zip", m_dataDir.c_str());
-	//
+
 	m_cacheDir = m_cfg.getString("GENERAL", "dir_cache", sfmt("%s/cache", m_dataDir.c_str()));
 	m_settingsDir = m_cfg.getString("GENERAL", "dir_settings", sfmt("%s/settings", m_dataDir.c_str()));
 	m_languagesDir = m_cfg.getString("GENERAL", "dir_languages", sfmt("%s/languages", m_dataDir.c_str()));
@@ -215,14 +281,13 @@ void CMenu::init(void)
 	m_cheatDir = m_cfg.getString("GENERAL", "dir_cheat", sfmt("%s/gct", m_txtCheatDir.c_str()));
 	m_wipDir = m_cfg.getString("GENERAL", "dir_wip", sfmt("%s/wip", m_txtCheatDir.c_str()));
 	m_listCacheDir = m_cfg.getString("GENERAL", "dir_list_cache", sfmt("%s/lists", m_cacheDir.c_str()));
-	//
 
 	DeviceHandler::SetWatchdog(m_cfg.getUInt("GENERAL", "watchdog_timeout", 10));
 
 	const char *domain = _domainFromView();
 	const char *checkDir = m_current_view == COVERFLOW_HOMEBREW ? HOMEBREW_DIR : GAMES_DIR;
-	
-	u8 partition = m_cfg.getInt(domain, "partition", -1);  //Auto find a valid partition and fix old ini partition settings.
+
+	u8 partition = m_cfg.getInt(domain, "partition", 0);  //Auto find a valid partition and fix old ini partition settings.
 	if(m_current_view != COVERFLOW_CHANNEL && (partition > USB8 || !DeviceHandler::Instance()->IsInserted(partition)))
 	{
 		m_cfg.remove(domain, "partition");
@@ -237,6 +302,7 @@ void CMenu::init(void)
 				&& ((m_current_view == COVERFLOW_USB && DeviceHandler::Instance()->GetFSType(i) == PART_FS_WBFS)
 				|| stat(sfmt(checkDir, DeviceName[i]).c_str(), &dummy) == 0))
 			{
+				gprintf("Setting Emu NAND to Partition: %i\n",currentPartition);
 				m_cfg.setInt(domain, "partition", i);
 				break;
 			}
@@ -260,8 +326,6 @@ void CMenu::init(void)
 	makedir((char *)m_cheatDir.c_str());
 	makedir((char *)m_wipDir.c_str());
 	makedir((char *)m_listCacheDir.c_str());
-
-	m_gameList.Init(m_listCacheDir, m_settingsDir, m_loc.getString(m_curLanguage, "gametdb_code", "EN"));
 
 	// INI files
 	m_cat.load(sfmt("%s/" CAT_FILENAME, m_settingsDir.c_str()).c_str());
@@ -310,6 +374,10 @@ void CMenu::init(void)
 		m_curLanguage = CMenu::_translations[0];
 		m_loc.load(sfmt("%s/%s.ini", m_languagesDir.c_str(), m_curLanguage.c_str()).c_str());
 	}
+	
+	bool extcheck = m_cfg.getBool("GENERAL", "extended_list_check", true);
+	
+	m_gameList.Init(m_listCacheDir, m_settingsDir, m_loc.getString(m_curLanguage, "gametdb_code", "EN"), m_DMLgameDir, extcheck);
 
 	m_aa = 3;
 
@@ -353,29 +421,34 @@ void CMenu::init(void)
 	m_category = m_cat.getInt(domain, "category", 0);
 	m_max_categories = m_cat.getInt(domain, "numcategories", 12);
 
-
-	safe_vector<string> gamercards = stringToVector(m_cfg.getString("GAMERCARD", "gamercards"), '|');
-	if (gamercards.size() == 0 && m_cfg.getBool("GAMERCARD", "wiinnertag_enable", false))
+	m_cfg.setString("GAMERCARD", "gamercards", "wiinnertag|dutag");
+	m_cfg.getString("GAMERCARD", "wiinnertag_url", WIINNERTAG_URL);
+	m_cfg.getString("GAMERCARD", "wiinnertag_key", "");
+	m_cfg.getString("GAMERCARD", "dutag_url", DUTAG_URL);
+	m_cfg.getString("GAMERCARD", "dutag_key", "");
+	if (m_cfg.getBool("GAMERCARD", "gamercards_enable", false))
 	{
-		gamercards.push_back("wiinnertag");
-		m_cfg.setString("GAMERCARD", "gamercards", "wiinnertag");
-		m_cfg.remove("GAMERCARD", "wiinnertag_enable");
-	}
+		safe_vector<string> gamercards = stringToVector(m_cfg.getString("GAMERCARD", "gamercards"), '|');
+		if (gamercards.size() == 0)
+		{
+			gamercards.push_back("wiinnertag");
+			gamercards.push_back("dutag");
+		}
 
-	for (safe_vector<string>::iterator itr = gamercards.begin(); itr != gamercards.end(); itr++)
-	{
-		register_card_provider(
-			m_cfg.getString("GAMERCARD", sfmt("%s_url", (*itr).c_str())).c_str(),
-			m_cfg.getString("GAMERCARD", sfmt("%s_key", (*itr).c_str())).c_str()
-		);
+		for (safe_vector<string>::iterator itr = gamercards.begin(); itr != gamercards.end(); itr++)
+		{
+			gprintf("Found gamercard provider: %s\n",(*itr).c_str());
+			register_card_provider(
+				m_cfg.getString("GAMERCARD", sfmt("%s_url", (*itr).c_str())).c_str(),
+				m_cfg.getString("GAMERCARD", sfmt("%s_key", (*itr).c_str())).c_str()
+			);
+		}
 	}
 }
 
 void CMenu::cleanup(bool ios_reload)
 {
 	m_cf.stopCoverLoader();
-
-	CheckGameSoundThread(true);
 
 	_stopSounds();
 	
@@ -444,12 +517,12 @@ void CMenu::_loadCFCfg(SThemeData &theme)
 	m_cf.setTextures(texLoading, texLoadingFlat, texNoCover, texNoCoverFlat);
 	// Font
 	m_cf.setFont(_font(theme.fontSet, domain, "font", TITLEFONT), m_theme.getColor(domain, "font_color", CColor(0xFFFFFFFF)));
-	// 
-	m_numCFVersions = min(max(2, m_theme.getInt("_COVERFLOW", "number_of_modes", 2)), 8);
+	// Coverflow Count
+	m_numCFVersions = min(max(2, m_theme.getInt("_COVERFLOW", "number_of_modes", 2)), 15);
 	for (u32 i = 1; i <= m_numCFVersions; ++i)
 		_loadCFLayout(i);
 
-	_loadCFLayout((m_cfg.getInt(_domainFromView(), "last_cf_mode" , 1) + (int)m_numCFVersions) % (int)m_numCFVersions);
+	_loadCFLayout(m_cfg.getInt(_domainFromView(), "last_cf_mode" , 1));
 }
 
 Vector3D CMenu::_getCFV3D(const string &domain, const string &key, const Vector3D &def, bool otherScrnFmt)
@@ -719,10 +792,13 @@ void CMenu::_buildMenus(void)
 	theme.lblFontColor = m_theme.getColor("GENERAL", "label_font_color", 0xD0BFDFFF);
 
 	theme.titleFont = _font(theme.fontSet, "GENERAL", "title_font", TITLEFONT);
-	theme.titleFontColor = m_theme.getColor("GENERAL", "title_font_color", 0xD0BFDFFF);
+	theme.titleFontColor = m_theme.getColor("GENERAL", "title_font_color", 0xFFFFFFFF);
 	
 	theme.txtFont = _font(theme.fontSet, "GENERAL", "text_font", TEXTFONT);
 	theme.txtFontColor = m_theme.getColor("GENERAL", "text_font_color", 0xFFFFFFFF);
+	
+	theme.selsbtnFontColor = m_theme.getColor("GENERAL", "selsbtn_font_color", 0xFA5882FF);
+	theme.selubtnFontColor = m_theme.getColor("GENERAL", "selubtn_font_color", 0xD0BFDFFF);
 	
 	// Default Sounds
 	theme.clickSound	= _sound(theme.soundSet, "GENERAL", "click_sound", click_wav, click_wav_size, string("default_btn_click"), false);
@@ -734,14 +810,136 @@ void CMenu::_buildMenus(void)
 	theme.btnTexL = _texture(theme.texSet, "GENERAL", "button_texture_left", theme.btnTexL); 
 	theme.btnTexR.fromPNG(butright_png);
 	theme.btnTexR = _texture(theme.texSet, "GENERAL", "button_texture_right", theme.btnTexR); 
-	theme.btnTexC.fromPNG(butcenter_png);
-	theme.btnTexC = _texture(theme.texSet, "GENERAL", "button_texture_center", theme.btnTexC); 
+	 theme.btnTexC.fromPNG(butcenter_png);
+	 theme.btnTexC = _texture(theme.texSet, "GENERAL", "button_texture_center", theme.btnTexC); 
 	theme.btnTexLS.fromPNG(butsleft_png);
 	theme.btnTexLS = _texture(theme.texSet, "GENERAL", "button_texture_left_selected", theme.btnTexLS); 
 	theme.btnTexRS.fromPNG(butsright_png);
 	theme.btnTexRS = _texture(theme.texSet, "GENERAL", "button_texture_right_selected", theme.btnTexRS); 
-	theme.btnTexCS.fromPNG(butscenter_png);
-	theme.btnTexCS = _texture(theme.texSet, "GENERAL", "button_texture_center_selected", theme.btnTexCS); 
+	 theme.btnTexCS.fromPNG(butscenter_png);
+	 theme.btnTexCS = _texture(theme.texSet, "GENERAL", "button_texture_center_selected", theme.btnTexCS); 
+
+	theme.btnTexLH.fromPNG(buthleft_png);
+	theme.btnTexLH = _texture(theme.texSet, "GENERAL", "button_texture_hlleft", theme.btnTexLH); 
+	theme.btnTexRH.fromPNG(buthright_png);
+	theme.btnTexRH = _texture(theme.texSet, "GENERAL", "button_texture_hlright", theme.btnTexRH); 
+	 theme.btnTexCH.fromPNG(buthcenter_png);
+	 theme.btnTexCH = _texture(theme.texSet, "GENERAL", "button_texture_hlcenter", theme.btnTexCH); 
+	theme.btnTexLSH.fromPNG(buthsleft_png);
+	theme.btnTexLSH = _texture(theme.texSet, "GENERAL", "button_texture_hlleft_selected", theme.btnTexLSH); 
+	theme.btnTexRSH.fromPNG(buthsright_png);
+	theme.btnTexRSH = _texture(theme.texSet, "GENERAL", "button_texture_hlright_selected", theme.btnTexRSH); 
+	 theme.btnTexCSH.fromPNG(buthscenter_png);
+	 theme.btnTexCSH = _texture(theme.texSet, "GENERAL", "button_texture_hlcenter_selected", theme.btnTexCSH); 
+
+	theme.btnAUOn.fromPNG(butauon_png);
+       	theme.btnAUOn = _texture(theme.texSet, "GENERAL", "button_au_on", theme.btnAUOn);
+	theme.btnAUOns.fromPNG(butauons_png);
+	theme.btnAUOns = _texture(theme.texSet, "GENERAL", "button_au_on_selected", theme.btnAUOns);
+	theme.btnAUOff.fromPNG(butauoff_png);
+	theme.btnAUOff = _texture(theme.texSet, "GENERAL", "button_au_off", theme.btnAUOff);
+	theme.btnAUOffs.fromPNG(butauoffs_png);
+	theme.btnAUOffs = _texture(theme.texSet, "GENERAL", "button_au_off_selected", theme.btnAUOffs);
+
+	theme.btnENOn.fromPNG(butenon_png);
+       	theme.btnENOn = _texture(theme.texSet, "GENERAL", "button_en_on", theme.btnENOn);
+	theme.btnENOns.fromPNG(butenons_png);
+	theme.btnENOns = _texture(theme.texSet, "GENERAL", "button_en_on_selected", theme.btnENOns);
+	theme.btnENOff.fromPNG(butenoff_png);
+	theme.btnENOff = _texture(theme.texSet, "GENERAL", "button_en_off", theme.btnENOff);
+	theme.btnENOffs.fromPNG(butenoffs_png);
+	theme.btnENOffs = _texture(theme.texSet, "GENERAL", "button_en_off_selected", theme.btnENOffs);
+
+	theme.btnJAOn.fromPNG(butjaon_png);
+       	theme.btnJAOn = _texture(theme.texSet, "GENERAL", "button_ja_on", theme.btnJAOn);
+	theme.btnJAOns.fromPNG(butjaons_png);
+	theme.btnJAOns = _texture(theme.texSet, "GENERAL", "button_ja_on_selected", theme.btnJAOns);
+	theme.btnJAOff.fromPNG(butjaoff_png);
+	theme.btnJAOff = _texture(theme.texSet, "GENERAL", "button_ja_off", theme.btnJAOff);
+	theme.btnJAOffs.fromPNG(butjaoffs_png);
+	theme.btnJAOffs = _texture(theme.texSet, "GENERAL", "button_ja_off_selected", theme.btnJAOffs);
+
+	theme.btnFROn.fromPNG(butfron_png);
+       	theme.btnFROn = _texture(theme.texSet, "GENERAL", "button_fr_on", theme.btnFROn);
+	theme.btnFROns.fromPNG(butfrons_png);
+	theme.btnFROns = _texture(theme.texSet, "GENERAL", "button_fr_on_selected", theme.btnFROns);
+	theme.btnFROff.fromPNG(butfroff_png);
+	theme.btnFROff = _texture(theme.texSet, "GENERAL", "button_fr_off", theme.btnFROff);
+	theme.btnFROffs.fromPNG(butfroffs_png);
+	theme.btnFROffs = _texture(theme.texSet, "GENERAL", "button_fr_off_selected", theme.btnFROffs);
+
+	theme.btnDEOn.fromPNG(butdeon_png);
+       	theme.btnDEOn = _texture(theme.texSet, "GENERAL", "button_de_on", theme.btnDEOn);
+	theme.btnDEOns.fromPNG(butdeons_png);
+	theme.btnDEOns = _texture(theme.texSet, "GENERAL", "button_de_on_selected", theme.btnDEOns);
+	theme.btnDEOff.fromPNG(butdeoff_png);
+	theme.btnDEOff = _texture(theme.texSet, "GENERAL", "button_de_off", theme.btnDEOff);
+	theme.btnDEOffs.fromPNG(butdeoffs_png);
+	theme.btnDEOffs = _texture(theme.texSet, "GENERAL", "button_de_off_selected", theme.btnDEOffs);
+
+	theme.btnESOn.fromPNG(buteson_png);
+       	theme.btnESOn = _texture(theme.texSet, "GENERAL", "button_es_on", theme.btnESOn);
+	theme.btnESOns.fromPNG(butesons_png);
+	theme.btnESOns = _texture(theme.texSet, "GENERAL", "button_es_on_selected", theme.btnESOns);
+	theme.btnESOff.fromPNG(butesoff_png);
+	theme.btnESOff = _texture(theme.texSet, "GENERAL", "button_es_off", theme.btnESOff);
+	theme.btnESOffs.fromPNG(butesoffs_png);
+	theme.btnESOffs = _texture(theme.texSet, "GENERAL", "button_es_off_selected", theme.btnESOffs);
+
+	theme.btnITOn.fromPNG(butiton_png);
+       	theme.btnITOn = _texture(theme.texSet, "GENERAL", "button_it_on", theme.btnITOn);
+	theme.btnITOns.fromPNG(butitons_png);
+	theme.btnITOns = _texture(theme.texSet, "GENERAL", "button_it_on_selected", theme.btnITOns);
+	theme.btnITOff.fromPNG(butitoff_png);
+	theme.btnITOff = _texture(theme.texSet, "GENERAL", "button_it_off", theme.btnITOff);
+	theme.btnITOffs.fromPNG(butitoffs_png);
+	theme.btnITOffs = _texture(theme.texSet, "GENERAL", "button_it_off_selected", theme.btnITOffs);
+
+	theme.btnNLOn.fromPNG(butnlon_png);
+       	theme.btnNLOn = _texture(theme.texSet, "GENERAL", "button_nl_on", theme.btnNLOn);
+	theme.btnNLOns.fromPNG(butnlons_png);
+	theme.btnNLOns = _texture(theme.texSet, "GENERAL", "button_nl_on_selected", theme.btnNLOns);
+	theme.btnNLOff.fromPNG(butnloff_png);
+	theme.btnNLOff = _texture(theme.texSet, "GENERAL", "button_nl_off", theme.btnNLOff);
+	theme.btnNLOffs.fromPNG(butnloffs_png);
+	theme.btnNLOffs = _texture(theme.texSet, "GENERAL", "button_nl_off_selected", theme.btnNLOffs);
+
+	theme.btnPTOn.fromPNG(butpton_png);
+       	theme.btnPTOn = _texture(theme.texSet, "GENERAL", "button_pt_on", theme.btnPTOn);
+	theme.btnPTOns.fromPNG(butptons_png);
+	theme.btnPTOns = _texture(theme.texSet, "GENERAL", "button_pt_on_selected", theme.btnPTOns);
+	theme.btnPTOff.fromPNG(butptoff_png);
+	theme.btnPTOff = _texture(theme.texSet, "GENERAL", "button_pt_off", theme.btnPTOff);
+	theme.btnPTOffs.fromPNG(butptoffs_png);
+	theme.btnPTOffs = _texture(theme.texSet, "GENERAL", "button_pt_off_selected", theme.btnPTOffs);
+
+	theme.btnRUOn.fromPNG(butruon_png);
+       	theme.btnRUOn = _texture(theme.texSet, "GENERAL", "button_ru_on", theme.btnRUOn);
+	theme.btnRUOns.fromPNG(butruons_png);
+	theme.btnRUOns = _texture(theme.texSet, "GENERAL", "button_ru_on_selected", theme.btnRUOns);
+	theme.btnRUOff.fromPNG(butruoff_png);
+	theme.btnRUOff = _texture(theme.texSet, "GENERAL", "button_ru_off", theme.btnRUOff);
+	theme.btnRUOffs.fromPNG(butruoffs_png);
+	theme.btnRUOffs = _texture(theme.texSet, "GENERAL", "button_ru_off_selected", theme.btnRUOffs);
+
+	theme.btnKOOn.fromPNG(butkoon_png);
+       	theme.btnKOOn = _texture(theme.texSet, "GENERAL", "button_ko_on", theme.btnKOOn);
+	theme.btnKOOns.fromPNG(butkoons_png);
+	theme.btnKOOns = _texture(theme.texSet, "GENERAL", "button_ko_on_selected", theme.btnKOOns);
+	theme.btnKOOff.fromPNG(butkooff_png);
+	theme.btnKOOff = _texture(theme.texSet, "GENERAL", "button_ko_off", theme.btnKOOff);
+	theme.btnKOOffs.fromPNG(butkooffs_png);
+	theme.btnKOOffs = _texture(theme.texSet, "GENERAL", "button_ko_off_selected", theme.btnKOOffs);
+
+	theme.btnZHCNOn.fromPNG(butzhcnon_png);
+       	theme.btnZHCNOn = _texture(theme.texSet, "GENERAL", "button_zhcn_on", theme.btnZHCNOn);
+	theme.btnZHCNOns.fromPNG(butzhcnons_png);
+	theme.btnZHCNOns = _texture(theme.texSet, "GENERAL", "button_zhcn_on_selected", theme.btnZHCNOns);
+	theme.btnZHCNOff.fromPNG(butzhcnoff_png);
+	theme.btnZHCNOff = _texture(theme.texSet, "GENERAL", "button_zhcn_off", theme.btnZHCNOff);
+	theme.btnZHCNOffs.fromPNG(butzhcnoffs_png);
+	theme.btnZHCNOffs = _texture(theme.texSet, "GENERAL", "button_zhcn_off_selected", theme.btnZHCNOffs);
+
 	theme.pbarTexL.fromPNG(pbarleft_png);
 	theme.pbarTexL = _texture(theme.texSet, "GENERAL", "progressbar_texture_left", theme.pbarTexL); 
 	theme.pbarTexR.fromPNG(pbarright_png);
@@ -996,6 +1194,37 @@ u32 CMenu::_addButton(CMenu::SThemeData &theme, const char *domain, SFont font, 
 	return m_btnMgr.addButton(font, text, x, y, width, height, c, btnTexSet, clickSound, hoverSound);
 }
 
+u32 CMenu::_addSelButton(CMenu::SThemeData &theme, const char *domain, SFont font, const wstringEx &text, int x, int y, u32 width, u32 height, const CColor &color)
+{
+	SButtonTextureSet btnTexSet;
+	CColor c(color);
+
+	c = m_theme.getColor(domain, "color", c);
+	x = m_theme.getInt(domain, "x", x);
+	y = m_theme.getInt(domain, "y", y);
+	width = m_theme.getInt(domain, "width", width);
+	height = m_theme.getInt(domain, "height", height);
+	btnTexSet.left = _texture(theme.texSet, domain, "texture_left", theme.btnTexLH);
+	btnTexSet.right = _texture(theme.texSet, domain, "texture_right", theme.btnTexRH);
+	btnTexSet.center = _texture(theme.texSet, domain, "texture_center", theme.btnTexCH);
+	btnTexSet.leftSel = _texture(theme.texSet, domain, "texture_left_selected", theme.btnTexLSH);
+	btnTexSet.rightSel = _texture(theme.texSet, domain, "texture_right_selected", theme.btnTexRSH);
+	btnTexSet.centerSel = _texture(theme.texSet, domain, "texture_center_selected", theme.btnTexCSH);
+	
+	font = _font(theme.fontSet, domain, "font", BUTTONFONT);
+
+	SmartGuiSound clickSound = _sound(theme.soundSet, domain, "click_sound", theme.clickSound->GetName());
+	SmartGuiSound hoverSound = _sound(theme.soundSet, domain, "hover_sound", theme.hoverSound->GetName());
+	
+	u16 btnPos = _textStyle(domain, "elmstyle", FTGX_JUSTIFY_LEFT | FTGX_ALIGN_TOP);
+	if (btnPos & FTGX_JUSTIFY_RIGHT)
+		x = m_vid.width() - x - width;
+	if (btnPos & FTGX_ALIGN_BOTTOM)
+		y = m_vid.height() - y - height;
+	
+	return m_btnMgr.addButton(font, text, x, y, width, height, c, btnTexSet, clickSound, hoverSound);
+}
+
 u32 CMenu::_addPicButton(CMenu::SThemeData &theme, const char *domain, STexture &texNormal, STexture &texSelected, int x, int y, u32 width, u32 height)
 {
 	x = m_theme.getInt(domain, "x", x);
@@ -1014,6 +1243,48 @@ u32 CMenu::_addPicButton(CMenu::SThemeData &theme, const char *domain, STexture 
 		y = m_vid.height() - y - height;
 
 	return m_btnMgr.addPicButton(tex1, tex2, x, y, width, height, clickSound, hoverSound);
+}
+
+u32 CMenu::_addTitle(CMenu::SThemeData &theme, const char *domain, SFont font, const wstringEx &text, int x, int y, u32 width, u32 height, const CColor &color, u16 style)
+{
+	CColor c(color);
+
+	c = m_theme.getColor(domain, "color", c);
+	x = m_theme.getInt(domain, "x", x);
+	y = m_theme.getInt(domain, "y", y);
+	width = m_theme.getInt(domain, "width", width);
+	height = m_theme.getInt(domain, "height", height);
+	font = _font(theme.fontSet, domain, "font", TITLEFONT);
+	style = _textStyle(domain, "style", style);
+
+	u16 btnPos = _textStyle(domain, "elmstyle", FTGX_JUSTIFY_LEFT | FTGX_ALIGN_TOP);
+	if (btnPos & FTGX_JUSTIFY_RIGHT)
+		x = m_vid.width() - x - width;
+	if (btnPos & FTGX_ALIGN_BOTTOM)
+		y = m_vid.height() - y - height;
+
+	return m_btnMgr.addLabel(font, text, x, y, width, height, c, style);
+}
+
+u32 CMenu::_addText(CMenu::SThemeData &theme, const char *domain, SFont font, const wstringEx &text, int x, int y, u32 width, u32 height, const CColor &color, u16 style)
+{
+	CColor c(color);
+
+	c = m_theme.getColor(domain, "color", c);
+	x = m_theme.getInt(domain, "x", x);
+	y = m_theme.getInt(domain, "y", y);
+	width = m_theme.getInt(domain, "width", width);
+	height = m_theme.getInt(domain, "height", height);
+	font = _font(theme.fontSet, domain, "font", TEXTFONT);
+	style = _textStyle(domain, "style", style);
+
+	u16 btnPos = _textStyle(domain, "elmstyle", FTGX_JUSTIFY_LEFT | FTGX_ALIGN_TOP);
+	if (btnPos & FTGX_JUSTIFY_RIGHT)
+		x = m_vid.width() - x - width;
+	if (btnPos & FTGX_ALIGN_BOTTOM)
+		y = m_vid.height() - y - height;
+
+	return m_btnMgr.addLabel(font, text, x, y, width, height, c, style);
 }
 
 u32 CMenu::_addLabel(CMenu::SThemeData &theme, const char *domain, SFont font, const wstringEx &text, int x, int y, u32 width, u32 height, const CColor &color, u16 style)
@@ -1135,6 +1406,7 @@ void CMenu::_initCF(void)
 {
 	Config m_dump;
 	const char *domain = _domainFromView();
+	const char *catviews = m_cat.getString("GENERAL", "categories", "").c_str();
 
 	m_cf.clear();
 	m_cf.reserve(m_gameList.size());
@@ -1150,23 +1422,40 @@ void CMenu::_initCF(void)
 			strncpy((char *) m_gameList[i].hdr.id, "JODI", 6);
 
 		string id = string((const char *)m_gameList[i].hdr.id, m_current_view == COVERFLOW_CHANNEL ?  4 : 6);
-		
+		string idcats = m_cat.getString("CATEGORIES", id, "").c_str();
+		if (idcats.length() == 12) 
+		{
+			idcats.append("00000000");
+			m_cat.setString("CATEGORIES", id, idcats);
+		}		
 		if ((!m_favorites || m_gcfg1.getBool("FAVORITES", id, false)) && (!m_locked || !m_gcfg1.getBool("ADULTONLY", id, false)) && !m_gcfg1.getBool("HIDDEN", id, false))
 		{
-			if (m_category != 0)
+			if (catviews[0] == '0')
 			{
-				const char *categories = m_cat.getString("CATEGORIES", id, "").c_str();
-				if (strlen(categories) != 12 || categories[m_category] == '0') 
-					continue;
+				const char *idcats = m_cat.getString("CATEGORIES", id, "").c_str();
+				if (strlen(idcats) != 20) continue;
+				else
+				{
+					bool idinacat=0;
+					for (u32 j = 1; j<20; ++j) if (catviews[j] == '1' && idcats[j] == '1') idinacat=1;
+					if (!idinacat) continue;
+				}
 			}
-
 			int playcount = m_gcfg1.getInt("PLAYCOUNT", id, 0);
 			unsigned int lastPlayed = m_gcfg1.getUInt("LASTPLAYED", id, 0);
 
 			if(m_gamelistdump)
 				m_dump.setWString(domain, id, m_gameList[i].title);
 
-			m_cf.addItem(&m_gameList[i], sfmt("%s/%s.png", m_picDir.c_str(), id.c_str()).c_str(), sfmt("%s/%s.png", m_boxPicDir.c_str(), id.c_str()).c_str(), playcount, lastPlayed);
+			if (m_current_view != COVERFLOW_HOMEBREW)
+				m_cf.addItem(&m_gameList[i], sfmt("%s/%s.png", m_picDir.c_str(), id.c_str()).c_str(), sfmt("%s/%s.png", m_boxPicDir.c_str(), id.c_str()).c_str(), playcount, lastPlayed);
+			else {
+				string s = sfmt("%s", m_gameList[i].path);
+			  	string f = s.substr(0, s.find_last_of("/"));
+			  
+				m_cf.addItem(&m_gameList[i], sfmt("%s/icon.png", f.c_str()).c_str(), sfmt("%s/%s.png", m_boxPicDir.c_str(), id.c_str()).c_str(), playcount, lastPlayed);
+			}
+
 		}
 	}
 	m_gcfg1.unload();
@@ -1248,7 +1537,7 @@ void CMenu::_mainLoopCommon(bool withCF, bool blockReboot, bool adjusting)
 		}
 		Sys_Test();
 	}
-
+	
 	if (withCF && m_gameSelected && m_gamesound_changed && (m_gameSoundHdr == NULL) && !m_gameSound.IsPlaying() && MusicPlayer::Instance()->GetVolume() == 0)
 	{
 		m_gameSound.Play(m_bnrSndVol);
@@ -1440,7 +1729,7 @@ const wstringEx CMenu::_fmt(const char *key, const wchar_t *def)
 
 bool CMenu::_loadChannelList(void)
 {
-	currentPartition = m_cfg.getInt("NAND", "partition", -1);
+	currentPartition = m_cfg.getInt("NAND", "partition", 0);
 	static u8 lastPartition = currentPartition;
 
 	bool disable_emu = m_cfg.getBool("NAND", "disable", true);
@@ -1523,7 +1812,12 @@ bool CMenu::_loadChannelList(void)
 	string nandpath = sfmt("%s:%s", DeviceName[currentPartition], path.empty() ? "/" : path.c_str());
 	gprintf("nandpath = %s\n", nandpath.c_str());
 
-	if(!failed) m_gameList.LoadChannels(disable_emu ? "" : nandpath, 0);
+	if(!failed) 
+	{
+		m_gameList.LoadChannels(disable_emu ? "" : nandpath, 0, m_cfg.getString("NAND", "lastlanguage", "EN").c_str());
+		m_cfg.setString("NAND", "lastlanguage", m_loc.getString(m_curLanguage, "gametdb_code", "EN"));
+		m_cfg.save();
+	}
 	
 	lastPartition = currentPartition;
 	last_emu_state = disable_emu;
@@ -1535,10 +1829,11 @@ bool CMenu::_loadList(void)
 {
 	m_cf.clear();
 	m_gameList.clear();
-
-	gprintf("Loading items of ");
+	Nand::Instance()->Disable_Emu();
 
 	if(m_cfg.getBool(_domainFromView(), "update_cache")) m_gameList.Update(m_current_view);
+
+	gprintf("Loading items of ");
 
 	bool retval;
 	switch(m_current_view)
@@ -1550,6 +1845,10 @@ bool CMenu::_loadList(void)
 		case COVERFLOW_HOMEBREW:
 			gprintf("homebrew view from ");
 			retval = _loadHomebrewList();
+			break;
+		case COVERFLOW_DML:
+			gprintf("dml view from ");
+			retval = _loadDmlList();
 			break;
 		default:
 			gprintf("usb view from ");
@@ -1570,7 +1869,9 @@ bool CMenu::_loadGameList(void)
 
 	gprintf("%s\n", DeviceName[currentPartition]);
 	DeviceHandler::Instance()->Open_WBFS(currentPartition);
-	m_gameList.Load(sfmt(GAMES_DIR, DeviceName[currentPartition]), ".wbfs|.iso");
+	m_gameList.Load(sfmt(GAMES_DIR, DeviceName[currentPartition]), ".wbfs|.iso", m_cfg.getString("GAMES", "lastlanguage", "EN").c_str());
+	m_cfg.setString("GAMES", "lastlanguage", m_loc.getString(m_curLanguage, "gametdb_code", "EN"));
+	m_cfg.save();
 	return m_gameList.size() > 0 ? true : false;
 }
 
@@ -1582,8 +1883,26 @@ bool CMenu::_loadHomebrewList()
 
 	gprintf("%s\n", DeviceName[currentPartition]);
 	DeviceHandler::Instance()->Open_WBFS(currentPartition);
+	m_gameList.Load(sfmt(HOMEBREW_DIR, DeviceName[currentPartition]), ".dol|.elf", m_cfg.getString("HOMEBREW", "lastlanguage", "EN").c_str());
+	m_cfg.setString("HOMEBREW", "lastlanguage", m_loc.getString(m_curLanguage, "gametdb_code", "EN"));
+	m_cfg.save();
+	return m_gameList.size() > 0 ? true : false;
+}
 
-	m_gameList.Load(sfmt(HOMEBREW_DIR, DeviceName[currentPartition]), ".dol|.elf");
+bool CMenu::_loadDmlList()
+{
+	currentPartition = m_cfg.getInt("DML", "partition", 0);
+	if(!DeviceHandler::Instance()->IsInserted(currentPartition))
+		return false;
+
+	gprintf("%s\n", DeviceName[currentPartition]);
+	DeviceHandler::Instance()->Open_WBFS(currentPartition);
+	if(currentPartition != SD)
+		m_gameList.Load(sfmt(m_DMLgameDir.c_str(), DeviceName[currentPartition]), ".iso", m_cfg.getString("DML", "lastlanguage", "EN").c_str());
+	else
+		m_gameList.Load(sfmt(DML_DIR, DeviceName[currentPartition]), ".iso", m_cfg.getString("DML", "lastlanguage", "EN").c_str());
+	m_cfg.setString("DML", "lastlanguage", m_loc.getString(m_curLanguage, "gametdb_code", "EN"));
+	m_cfg.save();
 	return m_gameList.size() > 0 ? true : false;
 }
 
@@ -1656,9 +1975,9 @@ void CMenu::_load_installed_cioses()
 		}
 }
 
-void CMenu::_hideWaitMessage(bool force)
+void CMenu::_hideWaitMessage()
 {
-	m_vid.hideWaitMessage(force);
+	m_vid.hideWaitMessage();
 }
 
 void CMenu::_showWaitMessage()
@@ -1743,6 +2062,8 @@ const char *CMenu::_domainFromView()
 			return "NAND";
 		case COVERFLOW_HOMEBREW:
 			return "HOMEBREW";
+		case COVERFLOW_DML:
+			return "DML";
 		default:
 			return "GAMES";
 	}
@@ -1751,10 +2072,12 @@ const char *CMenu::_domainFromView()
 
 void CMenu::UpdateCache(u32 view)
 {
+	gprintf("UpdateCache(%ld)\n", view);
 	if(view == COVERFLOW_MAX)
 	{
 		UpdateCache(COVERFLOW_USB);
 		UpdateCache(COVERFLOW_HOMEBREW);
+		UpdateCache(COVERFLOW_DML);
 		UpdateCache(COVERFLOW_CHANNEL);
 		return;
 	}
@@ -1764,11 +2087,60 @@ void CMenu::UpdateCache(u32 view)
 	{
 		case COVERFLOW_CHANNEL:
 			domain = "NAND";
+			break;
 		case COVERFLOW_HOMEBREW:
 			domain = "HOMEBREW";
+			break;
+		case COVERFLOW_DML:
+			domain = "DML";
+			break;
 		default:
 			domain = "GAMES";
 	}
 
 	m_cfg.setBool(domain, "update_cache", true);
+}
+
+bool CMenu::MIOSisDML()
+{
+	u32 size = 0;
+	u8 *appfile = ISFS_GetFile((u8*)"/title/00000001/00000101/content/0000000c.app", &size, 0);
+	if(appfile)
+	{
+		for(u32 i=0; i < size; ++i) 
+		{
+			if(*(u32*)(appfile+i) == 0x44494F53)
+			{
+				gprintf("DML is installed as MIOS\n");
+				SAFE_FREE(appfile);
+				return true;
+			}
+		}
+	}
+
+	SAFE_FREE(appfile);
+	gprintf("DML is not installed as MIOS\n");
+	return false;
+}
+
+void CMenu::RemoveCover( char * id )
+{
+	FILE *fp = fopen(fmt("%s/%s.png", m_boxPicDir.c_str(), id), "rb");		
+	if (fp != 0)
+	{
+		SAFE_CLOSE(fp);
+		remove(fmt("%s/%s.png", m_boxPicDir.c_str(), id));
+	}
+	fp = fopen(fmt("%s/%s.png", m_picDir.c_str(), id), "rb");		
+	if (fp != 0)
+	{
+		SAFE_CLOSE(fp);
+		remove(fmt("%s/%s.png", m_picDir.c_str(), id));
+	}
+	fp = fopen(fmt("%s/%s.wfc", m_cacheDir.c_str(), id), "rb");		
+	if (fp != 0)
+	{
+		SAFE_CLOSE(fp);
+		remove(fmt("%s/%s.wfc", m_cacheDir.c_str(), id));
+	}	
 }

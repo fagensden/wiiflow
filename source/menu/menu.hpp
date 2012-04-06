@@ -1,7 +1,8 @@
 #ifndef __MENU_HPP
 #define __MENU_HPP
 //#define SHOWMEM 1
-#include <wiiuse/wpad.h>
+//#define SHOWMEMGECKO
+#include "wiiuse/wpad.h"
 #include <ogc/pad.h>
 
 #include "safe_vector.hpp"
@@ -20,6 +21,7 @@
 #include "gct.h"
 #include "DeviceHandler.hpp"
 #include "musicplayer.h"
+#include "loader/gc_disc.hpp" 
 
 //Also in wbfs.h
 #define PART_FS_WBFS 0
@@ -79,12 +81,14 @@ private:
 	std::string m_curChanId;
 
 	u8 m_numCFVersions;
-	// 
+
 	std::string m_themeDataDir;
 	std::string m_appDir;
 	std::string m_dataDir;
 	std::string m_picDir;
 	std::string m_boxPicDir;
+	std::string m_cpicDir;
+	std::string m_boxcPicDir;
 	std::string m_cacheDir;
 	std::string m_themeDir;
 	std::string m_musicDir;
@@ -97,7 +101,9 @@ private:
 	std::string m_settingsDir;
 	std::string m_languagesDir;
 	std::string m_listCacheDir;
+	std::string m_DMLgameDir;
 	/* Updates */
+	char m_app_update_drive[6];
 	const char* m_app_update_url;
 	const char* m_data_update_url;
 	std::string m_dol;
@@ -145,11 +151,18 @@ private:
 #ifdef SHOWMEM
 	u32 m_mem2FreeSize;
 #endif
+#ifdef SHOWMEMGECKO
+	unsigned int mem1old;
+	unsigned int mem1;
+	unsigned int mem2old;
+	unsigned int mem2;
+#endif
 	u32 m_mainLblNotice;
 	u32 m_mainBtnNext;
 	u32 m_mainBtnPrev;
 	u32 m_mainBtnQuit;
 	u32 m_mainBtnDVD;
+	u32 m_mainBtnDML;
 	u32 m_mainBtnUsb;
 	u32 m_mainBtnChannel;
 	u32 m_mainBtnHomebrew;
@@ -157,6 +170,9 @@ private:
 	u32 m_mainBtnInit2;
 	u32 m_mainLblInit;
 	u32 m_mainLblUser[6];
+	bool m_show_dml;
+	bool m_new_dml;
+	bool m_GameTDBLoaded;
 //Main Config menus
 	u32 m_configLblPage;
 	u32 m_configBtnPageM;
@@ -172,8 +188,10 @@ private:
 	u32 m_configLblPartition;
 	u32 m_configBtnPartitionP;
 	u32 m_configBtnPartitionM;
-	u32 m_configBtnEmulation;
+	u32 m_configLblEmulationVal;
 	u32 m_configLblEmulation;
+	u32 m_configBtnEmulationM;
+	u32 m_configBtnEmulationP;
 	u32 m_configLblUser[4];
 	u32 m_configAdvLblTheme;
 	u32 m_configAdvLblCurTheme;
@@ -196,6 +214,16 @@ private:
 	u32 m_config3LblVideo;
 	u32 m_config3BtnVideoP;
 	u32 m_config3BtnVideoM;
+
+	u32 m_config3LblDMLGameLanguage;
+	u32 m_config3LblDMLLanguage;
+	u32 m_config3BtnDMLLanguageP;
+	u32 m_config3BtnDMLLanguageM;
+	u32 m_config3LblDMLGameVideo;
+	u32 m_config3LblDMLVideo;
+	u32 m_config3BtnDMLVideoP;
+	u32 m_config3BtnDMLVideoM;
+
 	u32 m_config3LblOcarina;
 	u32 m_config3BtnOcarina;
 	u32 m_config3LblAsyncNet;
@@ -247,6 +275,34 @@ private:
 	u32 m_configScreenBtnTVYP;
 	u32 m_configScreenLblUser[4];
 //Download menu
+	enum CoverPrio
+	{
+		C_TYPE_PRIOA = (1<<0),
+		C_TYPE_PRIOB = (1<<1),
+		C_TYPE_EN =    (1<<2),
+		C_TYPE_JA =    (1<<3),
+		C_TYPE_FR =    (1<<4),
+		C_TYPE_DE =    (1<<5),
+		C_TYPE_ES =    (1<<6),
+		C_TYPE_IT =    (1<<7),
+		C_TYPE_NL =    (1<<8),
+		C_TYPE_PT =    (1<<9),
+		C_TYPE_RU =    (1<<10),
+		C_TYPE_KO =    (1<<11),
+		C_TYPE_ZHCN =  (1<<12),
+		C_TYPE_AU =    (1<<13),
+		C_TYPE_ONOR =  (1<<14),
+		C_TYPE_ONCU =  (1<<15),
+		
+	};
+	enum CoverType
+	{
+		BOX = 1,
+		CBOX,
+		FLAT,
+		CFLAT,
+	};
+	u32 m_downloadPrioVal;
 	u32 m_downloadLblTitle;
 	u32 m_downloadPBar;
 	u32 m_downloadBtnCancel;
@@ -258,7 +314,55 @@ private:
 	u32 m_downloadLblCovers;
 	u32 m_downloadLblGameTDB;
 	u32 m_downloadLblUser[4];
+	u32 m_downloadLblCoverPrio;
+	u32 m_downloadLblPrio;
+	u32 m_downloadBtnPrioM;
+	u32 m_downloadBtnPrioP;
 	u32 m_downloadBtnVersion;
+	u32 m_downloadLblCoverSet;
+	u32 m_downloadBtnCoverSet;
+	u32 m_downloadLblSetTitle;
+	u32 m_downloadLblRegion;
+	enum Regions
+	{
+		EN = 1,
+		JA,
+		FR,
+		DE,		
+		ES,
+		IT,
+		NL,
+		PT,
+		RU,
+		KO,
+		ZHCN,
+		AU,
+	};
+	u32 m_downloadBtnEN;
+	u32 m_downloadBtnJA;
+	u32 m_downloadBtnFR;
+	u32 m_downloadBtnDE;
+	u32 m_downloadBtnES;
+	u32 m_downloadBtnIT;
+	u32 m_downloadBtnNL;
+	u32 m_downloadBtnPT;
+	u32 m_downloadBtnRU;
+	u32 m_downloadBtnKO;
+	u32 m_downloadBtnZHCN;
+	u32 m_downloadBtnAU;
+	u32 m_downloadBtnENs;
+	u32 m_downloadBtnJAs;
+	u32 m_downloadBtnFRs;
+	u32 m_downloadBtnDEs;
+	u32 m_downloadBtnESs;
+	u32 m_downloadBtnITs;
+	u32 m_downloadBtnNLs;
+	u32 m_downloadBtnPTs;
+	u32 m_downloadBtnRUs;
+	u32 m_downloadBtnKOs;
+	u32 m_downloadBtnZHCNs;
+	u32 m_downloadBtnAUs;
+	u32 m_downloadBtnBack;
 	static s8 _versionDownloaderInit(CMenu *m);
 	static s8 _versionTxtDownloaderInit(CMenu *m);
 	s8 _versionDownloader();
@@ -323,6 +427,38 @@ private:
 	u32 m_gameSettingsLblVideo;
 	u32 m_gameSettingsBtnVideoP;
 	u32 m_gameSettingsBtnVideoM;
+	
+	u32 m_gameSettingsLblDMLGameVideo;
+	u32 m_gameSettingsLblDMLVideo;
+	u32 m_gameSettingsBtnDMLVideoP;
+	u32 m_gameSettingsBtnDMLVideoM;
+
+	u32 m_gameSettingsLblGClanguageVal;
+	u32 m_gameSettingsLblGClanguage;
+	u32 m_gameSettingsBtnGClanguageP;
+	u32 m_gameSettingsBtnGClanguageM;
+	
+	u32 m_gameSettingsLblIOSreloadBlock;
+	u32 m_gameSettingsBtnIOSreloadBlock;
+	
+	u32 m_gameSettingsLblAspectRatio;
+	u32 m_gameSettingsLblAspectRatioVal;
+	u32 m_gameSettingsBtnAspectRatioP;
+	u32 m_gameSettingsBtnAspectRatioM;
+
+	u32 m_gameSettingsLblNMM;
+	u32 m_gameSettingsLblNMM_Val;
+	u32 m_gameSettingsBtnNMM_P;
+	u32 m_gameSettingsBtnNMM_M;
+
+	u32 m_gameSettingsLblNoDVD;
+	u32 m_gameSettingsLblNoDVD_Val;
+	u32 m_gameSettingsBtnNoDVD_P;
+	u32 m_gameSettingsBtnNoDVD_M;
+
+	u32 m_gameSettingsLblCustom;
+	u32 m_gameSettingsBtnCustom;
+
 	u32 m_gameSettingsLblOcarina;
 	u32 m_gameSettingsBtnOcarina;
 	u32 m_gameSettingsLblVipatch;
@@ -340,7 +476,9 @@ private:
 	u32 m_gameSettingsLblHooktypeVal;
 	u32 m_gameSettingsBtnHooktypeM;
 	u32 m_gameSettingsBtnHooktypeP;
-	u32 m_gameSettingsBtnEmulation;
+	u32 m_gameSettingsLblEmulationVal;
+	u32 m_gameSettingsBtnEmulationP;
+	u32 m_gameSettingsBtnEmulationM;
 	u32 m_gameSettingsLblEmulation;
 	u32 m_gameSettingsLblDebugger;
 	u32 m_gameSettingsLblDebuggerV;
@@ -354,6 +492,10 @@ private:
 	u32 m_gameSettingsBtnCategory[12];
 	u32 m_gameCategoryPage;
 	u32 m_gameSettingsPage;
+ 	u32 m_gameSettingsLblGameIOS;
+ 	u32 m_gameSettingsLblIOS;
+ 	u32 m_gameSettingsBtnIOSP;
+ 	u32 m_gameSettingsBtnIOSM;
 // System Menu
 	u32 m_systemBtnBack;
 	u32 m_systemLblTitle;
@@ -400,8 +542,14 @@ private:
 	STexture m_controlsreq[4];
 	STexture m_controls[4];
 // Category menu
-	u32 m_categoryBtn[12];
+	u32 m_categoryLblPage;
+	u32 m_categoryBtnPageM;
+	u32 m_categoryBtnPageP;
 	u32 m_categoryBtnBack;
+	u32 m_categoryLblTitle;
+	u32 m_categoryLblCat[20];
+	u32 m_categoryBtnCat[20];
+	u32 m_categoryBtnCats[20];
 	u32 m_categoryLblUser[4];
 	u8 m_max_categories;
 	u8 m_category;
@@ -514,7 +662,7 @@ private:
 	bool m_video_playing;
 
 private:
-	enum WBFS_OP { WO_ADD_GAME, WO_REMOVE_GAME, WO_FORMAT };
+	enum WBFS_OP { WO_ADD_GAME, WO_REMOVE_GAME, WO_FORMAT, WO_COPY_GAME };
 	typedef std::pair<std::string, u32> FontDesc;
 	typedef std::map<FontDesc, SFont> FontSet;
 	typedef std::map<std::string, STexture> TexSet;
@@ -532,6 +680,8 @@ private:
 		CColor lblFontColor;
 		CColor txtFontColor;
 		CColor titleFontColor;
+		CColor selubtnFontColor;
+		CColor selsbtnFontColor;
 		STexture bg;
 		STexture btnTexL;
 		STexture btnTexR;
@@ -539,6 +689,61 @@ private:
 		STexture btnTexLS;
 		STexture btnTexRS;
 		STexture btnTexCS;
+		STexture btnTexLH;
+		STexture btnTexRH;
+		STexture btnTexCH;
+		STexture btnTexLSH;
+		STexture btnTexRSH;
+		STexture btnTexCSH;
+		STexture btnAUOn;
+		STexture btnAUOns;
+		STexture btnAUOff;
+		STexture btnAUOffs;
+		STexture btnENOn;
+		STexture btnENOns;
+		STexture btnENOff;
+		STexture btnENOffs;
+		STexture btnJAOn;
+		STexture btnJAOns;
+		STexture btnJAOff;
+		STexture btnJAOffs;
+		STexture btnFROn;
+		STexture btnFROns;
+		STexture btnFROff;
+		STexture btnFROffs;
+		STexture btnDEOn;
+		STexture btnDEOns;
+		STexture btnDEOff;
+		STexture btnDEOffs;
+		STexture btnESOn;
+		STexture btnESOns;
+		STexture btnESOff;
+		STexture btnESOffs;
+		STexture btnITOn;
+		STexture btnITOns;
+		STexture btnITOff;
+		STexture btnITOffs;
+		STexture btnNLOn;
+		STexture btnNLOns;
+		STexture btnNLOff;
+		STexture btnNLOffs;
+		STexture btnPTOn;
+		STexture btnPTOns;
+		STexture btnPTOff;
+		STexture btnPTOffs;
+		STexture btnRUOn;
+		STexture btnRUOns;
+		STexture btnRUOff;
+		STexture btnRUOffs;
+		STexture btnKOOn;
+		STexture btnKOOns;
+		STexture btnKOOff;
+		STexture btnKOOffs;
+		STexture btnZHCNOn;
+		STexture btnZHCNOns;
+		STexture btnZHCNOff;
+		STexture btnZHCNOffs;
+
 		STexture pbarTexL;
 		STexture pbarTexR;
 		STexture pbarTexC;
@@ -568,6 +773,7 @@ private:
 	bool _loadChannelList(void);
 	bool _loadList(void);
 	bool _loadHomebrewList(void);
+	bool _loadDmlList(void);
 	bool _loadGameList(void);
 	void _initCF(void);
 	// 
@@ -623,6 +829,7 @@ private:
 	void _hideConfigSnd(bool instant = false);
 	void _hideGame(bool instant = false);
 	void _hideDownload(bool instant = false);
+	void _hideSettings(bool instant = false);
 	void _hideCode(bool instant = false);
 	void _hideAbout(bool instant = false);
 	void _hideWBFS(bool instant = false);
@@ -641,8 +848,10 @@ private:
 	void _showConfig4(void);
 	void _showConfigAdv(void);
 	void _showConfigSnd(void);
+	void _enableNandEmu(bool fromconfig);
 	void _showGame(void);
 	void _showDownload(void);
+	void _showSettings();
 	void _showCode(void);
 	void _showAbout(void);
 	void _showCategorySettings(void);
@@ -675,7 +884,7 @@ private:
 	void _gameinfo(void);
 	void _gameSettings(void);
 	void _CheatSettings();
-	void _CategorySettings();
+	void _CategorySettings(bool fromGameSet=false);
 	//
 	void _mainLoopCommon(bool withCF = false, bool blockReboot = false, bool adjusting = false);
 	// 
@@ -691,6 +900,7 @@ private:
 	void _launchGame(dir_discHdr *hdr, bool dvd);
 	void _launchChannel(dir_discHdr *hdr);
 	void _launchHomebrew(const char *filepath, safe_vector<std::string> arguments);
+	void _launchGC(dir_discHdr *hdr, bool DML);
 	void _setAA(int aa);
 	void _loadCFCfg(SThemeData &theme);
 	void _loadCFLayout(int version, bool forceAA = false, bool otherScrnFmt = false);
@@ -703,18 +913,23 @@ private:
 	void _cleanupDefaultFont();
 	const char *_domainFromView(void);
 	void UpdateCache(u32 view = COVERFLOW_MAX);
+	bool MIOSisDML();
+	void RemoveCover( char * id );
 	SFont _font(CMenu::FontSet &fontSet, const char *domain, const char *key, u32 fontSize, u32 lineSpacing, u32 weight, u32 index, const char *genKey);
 	STexture _texture(TexSet &texSet, const char *domain, const char *key, STexture def);
 	safe_vector<STexture> _textures(TexSet &texSet, const char *domain, const char *key);
 	void _showWaitMessage();
 public:
-	void _hideWaitMessage(bool force = false);
+	void _hideWaitMessage();
 private:
 	SmartGuiSound _sound(CMenu::SoundSet &soundSet, const char *domain, const char *key, const u8 * snd, u32 len, string name, bool isAllocated);
 	SmartGuiSound _sound(CMenu::SoundSet &soundSet, const char *domain, const char *key, string name);
 	u16 _textStyle(const char *domain, const char *key, u16 def);
 	u32 _addButton(SThemeData &theme, const char *domain, SFont font, const wstringEx &text, int x, int y, u32 width, u32 height, const CColor &color);
+	u32 _addSelButton(SThemeData &theme, const char *domain, SFont font, const wstringEx &text, int x, int y, u32 width, u32 height, const CColor &color);
 	u32 _addPicButton(SThemeData &theme, const char *domain, STexture &texNormal, STexture &texSelected, int x, int y, u32 width, u32 height);
+	u32 _addTitle(SThemeData &theme, const char *domain, SFont font, const wstringEx &text, int x, int y, u32 width, u32 height, const CColor &color, u16 style);
+	u32 _addText(SThemeData &theme, const char *domain, SFont font, const wstringEx &text, int x, int y, u32 width, u32 height, const CColor &color, u16 style);
 	u32 _addLabel(SThemeData &theme, const char *domain, SFont font, const wstringEx &text, int x, int y, u32 width, u32 height, const CColor &color, u16 style);
 	u32 _addLabel(SThemeData &theme, const char *domain, SFont font, const wstringEx &text, int x, int y, u32 width, u32 height, const CColor &color, u16 style, STexture &bg);
 	u32 _addProgressBar(SThemeData &theme, const char *domain, int x, int y, u32 width, u32 height);
@@ -743,26 +958,42 @@ private:
 	void LoadView(void);
 	void _getGrabStatus(void);
 	static void _addDiscProgress(int status, int total, void *user_data);
-	static int _gameInstaller(void *obj);
+	static void _Messenger(int message, int info, char *cinfo, void *user_data);
+	static int _gameInstaller(void *obj);	
+	static int _GCgameInstaller(void *obj);
+	static int _GCcopyGame(void *obj);
+	float m_progress; 
 	wstringEx _optBoolToString(int b);
 	void _stopSounds(void);
-	//
+
 	static u32 _downloadCheatFileAsync(void *obj);
-	// 
+
 	void _playGameSound(void);
-	void CheckGameSoundThread(bool force = false);
-	void CheckThreads(bool force = false);
+	void CheckGameSoundThread(void);
+	void CheckThreads(void);
 	static void _gameSoundThread(CMenu *m);
-	//
+
 	static void _load_installed_cioses();
 	//
 	struct SOption { const char id[10]; const wchar_t text[16]; };
 	static const string _translations[23];
 	static const SOption _languages[11];
 	static const SOption _videoModes[7];
+	
+	static const SOption _GlobalDMLvideoModes[6];
+	static const SOption _GlobalGClanguages[7];
+	static const SOption _DMLvideoModes[7];
+	static const SOption _GClanguages[8];
+
+	static const SOption _NandEmu[3];
+	static const SOption _SaveEmu[5];
+	static const SOption _GlobalSaveEmu[4];
+	static const SOption _AspectRatio[3];
+	static const SOption _NMM[4];
+	static const SOption _NoDVD[3];
 	static const SOption _vidModePatch[4];
 	static const SOption _hooktype[8];
-	static const SOption _exitTo[5];
+	static const SOption _exitTo[6];
 	static std::map<u8, u8> _installed_cios;
 	typedef std::map<u8, u8>::iterator CIOSItr;
 	static int _version[9];

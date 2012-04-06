@@ -30,6 +30,7 @@
 #include "video.hpp"
 #include "gecko.h"
 #include "defines.h"
+#include "text.hpp"
 
 #define NAME_OFFSET_DB  "gametdb_offsets.bin"
 #define MAXREADSIZE     1024*1024   // Cache size only for parsing the offsets: 1MB
@@ -477,8 +478,11 @@ bool GameTDB::FindTitle(char * data, string & title, string langCode)
     {
         return false;
     }
-
-    title = the_title;
+	
+	char tmp[64];
+	strncpy(tmp, the_title, sizeof(tmp) - 1);
+	tmp[sizeof(tmp) - 1] = '\0';
+	title=tmp;
 	return true;
 }
 
@@ -636,8 +640,10 @@ unsigned int GameTDB::GetPublishDate(const char * id)
     return ((year & 0xFFFF) << 16 | (month & 0xFF) << 8 | (day & 0xFF));
 }
 
-bool GameTDB::GetGenres(const char * id, safe_vector<string> & genre)
+bool GameTDB::GetGenres(const char * id, string & gen)
 {
+	safe_vector<string> genre;
+
     if(!id) return false;
 
     char * data = GetGameNode(id);
@@ -677,6 +683,8 @@ bool GameTDB::GetGenres(const char * id, safe_vector<string> & genre)
     genre[genre_num].push_back('\0');
 
     delete [] data;
+	
+	gen = vectorToString(genre, ", ");
 
     return true;
 }
@@ -951,8 +959,11 @@ unsigned int GameTDB::FindCaseColor(char * data)
 {
 	unsigned int color = -1;
 	
-    char * ColorNode = GetNodeText(data, "<case color=\"", "\"/>");
-    if(!ColorNode) return color;
+    char * ColorNode = GetNodeText(data, "<case color=\"", "\"");
+    if(!ColorNode)		
+		return color;
+	if(strlen(ColorNode) == 0)
+		return color;
 
 	char format[8];
 	sprintf(format, "0x%s", ColorNode);
@@ -962,16 +973,48 @@ unsigned int GameTDB::FindCaseColor(char * data)
 
 unsigned int GameTDB::GetCaseColor(const char * id)
 {
-    unsigned int color = -1;
-    if(!id) return color;
+	unsigned int color = -1;
+    if(!id)
+		return color;
 
     char * data = GetGameNode(id);
-    if(!data) return color;
+    if(!data)
+		return color;
+
 
     color = FindCaseColor(data);
 	
+	if( color != 0xffffffff )
+		gprintf("GameTDB: Found alternate color(%x) for: %s\n", color, id);
+	
 	delete [] data;
 	return color;
+}
+
+int GameTDB::GetCaseVersions(const char * id)
+{
+    int altcase = -1;
+
+    if(!id)
+        return altcase;
+
+    char * data = GetGameNode(id);
+    if(!data)
+	{
+		gprintf("GameTDB: GameNode for %s not found\n", id);
+		return altcase;
+	}
+
+    char * PlayersNode = GetNodeText(data, "case versions=\"", "\"");
+    if(!PlayersNode)
+    {
+        delete [] data;
+        return altcase;
+    }
+
+    altcase = atoi(PlayersNode);
+
+    return altcase;
 }
 
 bool GameTDB::GetGameXMLInfo(const char * id, GameXMLInfo * gameInfo)

@@ -15,17 +15,21 @@
 #include "wifi_gecko.h"
 #include "cios.hpp"
 #include "nand.hpp"
+#include "defines.h"
+#include "svnrev.h"
 
 extern "C" { extern void __exception_setreload(int t);}
 
 CMenu *mainMenu;
 extern "C" void ShowError(const wstringEx &error){mainMenu->error(error); }
-extern "C" void HideWaitMessage() {mainMenu->_hideWaitMessage(true); }
+extern "C" void HideWaitMessage() {mainMenu->_hideWaitMessage(); }
 
 int main(int argc, char **argv)
 {
 	geckoinit = InitGecko();
 	__exception_setreload(5);
+	
+	gprintf(" \nWelcome to %s (%s-r%s)!\nThis is the debug output.\n", APP_NAME, APP_VERSION, SVN_REV);
 
 	SYS_SetArena1Hi(APPLOADER_START);
 	CVideo vid;
@@ -48,35 +52,34 @@ int main(int argc, char **argv)
 					gameid = NULL;
 		}
 	}
-	gprintf("Loading cIOS: %d\n", mainIOS);
-
-
-	ISFS_Initialize();
+	gprintf("Loading cIOS: %d\n", mainIOS);	
 
 	// Load Custom IOS
 	bool iosOK = loadIOS(mainIOS, false);
 	MEM2_init(52);
-
+	
+	ISFS_Initialize();
+	
 	u8 mainIOSBase = 0;
 	iosOK = iosOK && cIOSInfo::D2X(mainIOS, &mainIOSBase);
 	gprintf("Loaded cIOS: %u has base %u\n", mainIOS, mainIOSBase);
-
+	
+	Open_Inputs(); //init wiimote early
+	
 	// Init video
 	vid.init();
 	WIILIGHT_Init();
-
+	
 	vid.waitMessage(0.2f);
-
+	
 	// Init
 	Sys_Init();
 	Sys_ExitTo(EXIT_TO_HBC);
-
+	
 	int ret = 0;
-
+	
 	do 
 	{
-		Open_Inputs();
-
 		bool deviceAvailable = false;
 
 		u8 timeout = 0;
@@ -95,6 +98,9 @@ int main(int argc, char **argv)
 
 		CMenu menu(vid);
 		menu.init();
+		
+		//Open_Inputs(); //we should init inputs as last point
+		
 		mainMenu = &menu;
 		if (!iosOK)
 		{
@@ -116,10 +122,10 @@ int main(int argc, char **argv)
 		vid.cleanup();
 		if (bootHB)
 		{
-			IOS_ReloadIOS(58);
+			//IOS_ReloadIOS(58);
 			BootHomebrew();
 		}
-
+		Open_Inputs(); //reinit wiimote
 	} while (ret == 1);
 	
 	WifiGecko_Close();

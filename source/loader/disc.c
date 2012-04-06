@@ -4,7 +4,7 @@
 #include <ogcsys.h>
 #include <unistd.h>
 #include <ogc/lwp_watchdog.h>
-#include <wiiuse/wpad.h>
+#include "wiiuse/wpad.h"
 #include <ogc/machine/processor.h>
 
 #include "apploader.h"
@@ -44,29 +44,35 @@ extern void __exception_closeall();
 
 static u8	Tmd_Buffer[0x49e4 + 0x1C] ALIGNED(32);
 
+
 void __Disc_SetLowMem()
 {
-	*(vu32 *)0x80000060 = 0x38A00040; // Dev Debugger Hook
+	/* Setup low memory */
+	*(vu32 *)0x80000060 = 0x38A00040;
 	*(vu32 *)0x800000E4 = 0x80431A80;
 	*(vu32 *)0x800000EC = 0x81800000; // Dev Debugger Monitor Address
 	*(vu32 *)0x800000F0 = 0x01800000; // Simulated Memory Size
 	*(vu32 *)0xCD00643C = 0x00000000; // 32Mhz on Bus
 
-	*Sys_Magic	= 0x0d15ea5e;
-	*Version	= 1;
-	*Arena_L	= 0x00000000;
-	*BI2		= 0x817E5480;
-	*Bus_Speed	= 0x0E7BE2C0;
-	*CPU_Speed	= 0x2B73A840;
+	/* Copy disc ID (online check) */
+	memcpy((void *)0x80003180, (void *)0x80000000, 4);
 
-	*(vu32 *)0x800030F0 = 0x0000001C; // Dol Args
-	*(vu32 *)0x8000318C = 0x00000000; // Launch Code
-	*(vu32 *)0x80003190 = 0x00000000; // Return Code
+	// Patch in info missing from apploader reads
+	*Sys_Magic      = 0x0d15ea5e;
+	*Version        = 1;
+	*Arena_L        = 0x00000000;
+	*BI2            = 0x817E5480;
+	*Bus_Speed      = 0x0E7BE2C0;
+	*CPU_Speed      = 0x2B73A840;
 
-	*(vu32 *)0x80003140 = *(vu32 *)0x80003188; // IOS Version Check
-	*(vu32 *)0x80003180 = *(vu32 *)0x80000000; // Game ID Online Check
+	// From NeoGamme R4 (WiiPower)
+	*(vu32 *)0x800030F0 = 0x0000001C;
+	*(vu32 *)0x8000318C = 0x00000000;
+	*(vu32 *)0x80003190 = 0x00000000;
+	
+	// Fix for Sam & Max (WiiPower)
 	*(vu32 *)0x80003184 = 0x80000000;
-
+	
 	/* Flush cache */
 	DCFlushRange((void *)0x80000000, 0x3F00);
 }
@@ -247,7 +253,12 @@ s32 Disc_Open(void)
 	memset(diskid, 0, 32);
 
 	/* Read disc ID */
-	return WDVD_ReadDiskId(diskid);
+	ret = WDVD_ReadDiskId(diskid);
+
+	/* Directly set Audio Streaming for GC */
+	gprintf("Setting Audio Streaming for GC Games: 0x%08x\n", WDVD_SetStreaming());
+
+	return ret;
 }
 
 s32 Disc_Wait(void)
@@ -310,7 +321,14 @@ s32 Disc_Type(bool gc)
 		check = GC_MAGIC;
 		struct gc_discHdr *header = (struct gc_discHdr *)buffer;
 		ret = Disc_ReadGCHeader(header);
-		magic = header->magic;
+		if(strcmp((char *)header->id, "GCOPDV") == 0)
+		{
+			magic = 0xc2339f3d;
+		}
+		else
+		{
+			magic = header->magic;
+		}
 	}
 
 	if (ret < 0) return ret;
@@ -331,10 +349,15 @@ s32 Disc_IsGC(void)
 	return Disc_Type(1);
 }
 
-s32 Disc_BootPartition(u64 offset, u8 vidMode, bool vipatch, bool countryString, u8 patchVidMode)
+s32 Disc_BootPartition(u64 offset, u8 vidMode, bool vipatch, bool countryString, u8 patchVidMode, bool disableIOSreload, int aspectRatio)
 {
 	entry_point p_entry;
 
+	if (disableIOSreload)
+		IOSReloadBlock(IOS_GetVersion(), false);
+	else
+		IOSReloadBlock(IOS_GetVersion(), true);
+	
 	s32 ret = WDVD_OpenPartition(offset, 0, 0, 0, Tmd_Buffer);
 	if (ret < 0) return ret;
 
@@ -345,16 +368,15 @@ s32 Disc_BootPartition(u64 offset, u8 vidMode, bool vipatch, bool countryString,
 	__Disc_SetLowMem();
 
 	/* Run apploader */
-	ret = Apploader_Run(&p_entry, vidMode, vmode, vipatch, countryString, patchVidMode);
-	free_wip();
+	ret = Apploader_Run(&p_entry, vidMode, vmode, vipatch, countryString, patchVidMode, aspectRatio);
 	if (ret < 0) return ret;
 
+    free_wip();
+	
 	if (hooktype != 0)
 		ocarina_do_code();
 
 	gprintf("\n\nEntry Point is: %0x8\n", p_entry);
-//	gprintf("Lowmem:\n\n");
-//	ghexdump((void*)0x80000000, 0x3f00);
 
 	/* Set time */
 	__Disc_SetTime();
@@ -372,7 +394,7 @@ s32 Disc_BootPartition(u64 offset, u8 vidMode, bool vipatch, bool countryString,
 	/* Shutdown IOS subsystems */
 	SYS_ResetSystem(SYS_SHUTDOWN, 0, 0);
 
-	 /* Originally from tueidj - taken from NeoGamme (thx) */
+	/* Originally from tueidj - taken from NeoGamma (thx) */
 	*(vu32*)0xCC003024 = 1;
 	
 	// fix for PeppaPig
@@ -389,9 +411,7 @@ s32 Disc_BootPartition(u64 offset, u8 vidMode, bool vipatch, bool countryString,
 			"ori %r3, %r3, appentrypoint@l\n"
 			"lwz %r3, 0(%r3)\n"
 			"mtlr %r3\n"
-			"nop\n"
 			"lis %r3, 0x8000\n"
-			"nop\n"
 			"ori %r3, %r3, 0x18A8\n"
 			"nop\n"
 			"mtctr %r3\n"
@@ -412,14 +432,18 @@ s32 Disc_BootPartition(u64 offset, u8 vidMode, bool vipatch, bool countryString,
 	return 0;
 }
 
-s32 Disc_WiiBoot(u8 vidMode, bool vipatch, bool countryString, u8 patchVidModes)
+s32 Disc_WiiBoot(u8 vidMode, bool vipatch, bool countryString, u8 patchVidModes, bool disableIOSreload, int aspectRatio)
 {
 	u64 offset;
 
 	/* Find game partition offset */
 	s32 ret = __Disc_FindPartition(&offset);
-	if (ret < 0) return ret;
+	if (ret < 0) 
+	{
+		gprintf("Game Partition not found!\n");
+		return ret;
+	}
 
 	/* Boot partition */
-	return Disc_BootPartition(offset, vidMode, vipatch, countryString, patchVidModes);
+	return Disc_BootPartition(offset, vidMode, vipatch, countryString, patchVidModes, disableIOSreload, aspectRatio);
 }

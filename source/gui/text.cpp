@@ -480,3 +480,26 @@ void Asciify( wchar_t *str )
 	}
 	*ctr = '\0';
 }
+
+void Asciify2( char *str )
+{
+	u8 i=0;
+	for( i=0; i < strlen(str); ++i )
+	{
+		if( str[i] < 0x20 || str[i] > 0x7F )
+			str[i] = '_';
+		else {
+			switch( str[i] )
+			{
+				case '*':
+				case '\"':
+				case '|':
+				case '<':
+				case '>':
+				case '?':
+					str[i] = '_';
+				break;
+			}
+		}
+	}
+}

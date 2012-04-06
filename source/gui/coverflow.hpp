@@ -8,7 +8,7 @@
 #include <string>
 #include "safe_vector.hpp"
 
-#include <wiiuse/wpad.h>
+#include "wiiuse/wpad.h"
 #include <ogc/pad.h>
 
 #include "video.hpp"
@@ -242,6 +242,9 @@ private:
 	STexture m_dvdSkin;
 	STexture m_dvdSkin_Red;
 	STexture m_dvdSkin_Black;
+	STexture m_dvdSkin_Yellow;
+	STexture m_dvdSkin_GreenOne;
+	STexture m_dvdSkin_GreenTwo;
 	// Settings
 	std::string m_pngLoadCover;
 	std::string m_pngLoadCoverFlat;
@@ -297,6 +300,7 @@ private:
 	void _drawCover(int i, bool mirror, CCoverFlow::DrawMode dm);
 	void _drawCoverFlat(int i, bool mirror, CCoverFlow::DrawMode dm);
 	void _drawCoverBox(int i, bool mirror, CCoverFlow::DrawMode dm);
+	bool _checkCoverColor(char* gameID, const char* checkID[], int len);
 	void _updateTarget(int i, bool instant = false);
 	void _updateAllTargets(bool instant = false);
 	void _loadCover(int i, int item);

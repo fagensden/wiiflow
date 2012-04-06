@@ -517,21 +517,24 @@ void CVideo::_showWaitMessages(CVideo *m)
 		WIILIGHT_TurnOff();
 	}
 	m->m_waitMessages.clear();
-	gprintf("Stop showing images\n");
+	//gprintf("Stop showing images\n");
 	m->m_showingWaitMessages = false;
+	gprintf("Stop showing images\n");
 }
 
-void CVideo::hideWaitMessage(bool force)
+void CVideo::hideWaitMessage()
 {
+	gprintf("Now hide wait message\n");
 	m_showWaitMessage = false;
-	CheckWaitThread(force);
+	CheckWaitThread();
 }
 
-void CVideo::CheckWaitThread(bool force)
+void CVideo::CheckWaitThread()
 {
-	if (force || (!m_showingWaitMessages && waitThread != LWP_THREAD_NULL))
+	if (!m_showingWaitMessages && waitThread != LWP_THREAD_NULL)
 	{
 		m_showWaitMessage = false;
+		gprintf("Thread running. Stop it\n");
 
 		if(LWP_ThreadIsSuspended(waitThread))
 			LWP_ResumeThread(waitThread);
@@ -552,7 +555,7 @@ void CVideo::waitMessage(float delay)
 
 void CVideo::waitMessage(const safe_vector<STexture> &tex, float delay, bool useWiiLight)
 {
-	hideWaitMessage(true);
+	hideWaitMessage();
 
 	m_useWiiLight = useWiiLight;
 
@@ -585,12 +588,13 @@ void CVideo::waitMessage(const safe_vector<STexture> &tex, float delay, bool use
 		waitMessage(m_waitMessages[0]);
 	else if (m_waitMessages.size() > 1)
 	{
+		CheckWaitThread();
 		m_showWaitMessage = true;
 		unsigned int stack_size = (unsigned int)32768;  //Try 32768?
-		SMART_FREE(waitThreadStack);
-		waitThreadStack = SmartBuf((unsigned char *)__real_malloc(stack_size), SmartBuf::SRCALL_MALLOC);
+		//SMART_FREE(waitThreadStack);
+		//waitThreadStack = SmartBuf((unsigned char *)__real_malloc(stack_size), SmartBuf::SRCALL_MALLOC);
 		waitThreadStack = smartMem2Alloc(stack_size);
-		LWP_CreateThread(&waitThread, (void *(*)(void *))CVideo::_showWaitMessages, (void *)this, waitThreadStack.get(), stack_size, 30);
+		LWP_CreateThread(&waitThread, (void *(*)(void *))CVideo::_showWaitMessages, (void *)this, waitThreadStack.get(), stack_size, LWP_PRIO_IDLE);
 	}
 }
 
