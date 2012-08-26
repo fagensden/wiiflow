@@ -1,7 +1,6 @@
 
 #include <stdio.h>
 #include <unistd.h>
-#include <malloc.h>
 #include <ogcsys.h>
 #include <dirent.h>
 #include <sys/types.h>
@@ -10,9 +9,6 @@
 #include <sys/statvfs.h>
 #include <ctype.h>
 
-#include "libwbfs/libwbfs.h"
-#include "sdhc.h"
-#include "usbstorage.h"
 #include "utils.h"
 #include "wbfs.h"
 #include "wdvd.h"
@@ -21,8 +17,12 @@
 #include "wbfs_ext.h"
 #include "sys.h"
 #include "disc.h"
-#include "gecko.h"
-#include "mem2.hpp"
+
+#include "devicemounter/sdhc.h"
+#include "devicemounter/usbstorage.h"
+#include "libwbfs/libwbfs.h"
+#include "gecko/gecko.h"
+#include "memory/mem2.hpp"
 
 /* Constants */
 #define MAX_NB_SECTORS	32
@@ -30,10 +30,9 @@
 /* WBFS device */
 s32 wbfsDev = WBFS_MIN_DEVICE;
 
-extern u32 sector_size;
-
 // partition
 int wbfs_part_fs  = PART_FS_WBFS;
+u32 wbfs_part_idx = 0;
 u32 wbfs_part_lba = 0;
 u8 wbfs_mounted = 0;
 
@@ -48,7 +47,6 @@ static rw_sector_callback_t writeCallback = NULL;
 
 s32 __WBFS_ReadDVD(void *fp, u32 lba, u32 len, void *iobuf)
 {
-	void *buffer = NULL;
 	s32 ret;
 
 	/* Calculate offset */
@@ -62,22 +60,25 @@ s32 __WBFS_ReadDVD(void *fp, u32 lba, u32 len, void *iobuf)
 	if (size)
 	{
 		ret = WDVD_UnencryptedRead(iobuf, size, offset);
-		if (ret < 0) goto out;
+		if (ret < 0)
+			goto out;
 	}
 
 	/* Read non-aligned data */
 	if (mod)
 	{
 		/* Allocate memory */
-		buffer = MEM2_alloc(0x20);
-		if (!buffer) return -1;
+		fp = memalign(0x20, 0x20);
+		if (!fp)
+			return -1;
 
 		/* Read data */
-		ret = WDVD_UnencryptedRead(buffer, 0x20, offset + size);
-		if (ret < 0) goto out;
+		ret = WDVD_UnencryptedRead(fp, 0x20, offset + size);
+		if (ret < 0)
+			goto out;
 
 		/* Copy data */
-		memcpy(iobuf + size, buffer, mod);
+		memcpy(iobuf + size, fp, mod);
 	}
 
 	/* Success */
@@ -85,19 +86,19 @@ s32 __WBFS_ReadDVD(void *fp, u32 lba, u32 len, void *iobuf)
 
 out:
 	/* Free memory */
-	SAFE_FREE(buffer);
+	free(fp);
 
 	return ret;
 }
 
-s32 __WBFS_ReadUSB(void *fp, u32 lba, u32 count, void *iobuf)
+s32 __WBFS_ReadUSB(void* fp, u32 lba, u32 count, void *iobuf)
 {
 	u32 cnt = 0;
 
 	/* Do reads */
 	while (cnt < count)
 	{
-		void *ptr = ((u8 *)iobuf) + (cnt * sector_size);
+		fp = ((u8 *)iobuf) + (cnt * USBStorage2_GetSectorSize());
 		u32 sectors = (count - cnt);
 
 		/* Read sectors is too big */
@@ -105,7 +106,7 @@ s32 __WBFS_ReadUSB(void *fp, u32 lba, u32 count, void *iobuf)
 			sectors = MAX_NB_SECTORS;
 
 		/* USB read */
-		s32 ret = USBStorage_ReadSectors(lba + cnt, sectors, ptr);
+		s32 ret = USBStorage2_ReadSectors(USBStorage2_GetPort(), lba + cnt, sectors, fp);
 		if (ret < 0) return ret;
 
 		/* Increment counter */
@@ -115,14 +116,14 @@ s32 __WBFS_ReadUSB(void *fp, u32 lba, u32 count, void *iobuf)
 	return 0;
 }
 
-s32 __WBFS_WriteUSB(void *fp, u32 lba, u32 count, void *iobuf)
+s32 __WBFS_WriteUSB(void* fp, u32 lba, u32 count, void *iobuf)
 {
 	u32 cnt = 0;
 
 	/* Do writes */
 	while (cnt < count)
 	{
-		void *ptr = ((u8 *)iobuf) + (cnt * sector_size);
+		fp = ((u8 *)iobuf) + (cnt * USBStorage2_GetSectorSize());
 		u32 sectors = (count - cnt);
 
 		/* Write sectors is too big */
@@ -130,7 +131,7 @@ s32 __WBFS_WriteUSB(void *fp, u32 lba, u32 count, void *iobuf)
 			sectors = MAX_NB_SECTORS;
 
 		/* USB write */
-		s32 ret = USBStorage_WriteSectors(lba + cnt, sectors, ptr);
+		s32 ret = USBStorage2_WriteSectors(USBStorage2_GetPort(), lba + cnt, sectors, fp);
 		if (ret < 0) return ret;
 
 		/* Increment counter */
@@ -140,14 +141,14 @@ s32 __WBFS_WriteUSB(void *fp, u32 lba, u32 count, void *iobuf)
 	return 0;
 }
 
-s32 __WBFS_ReadSDHC(void *fp, u32 lba, u32 count, void *iobuf)
+s32 __WBFS_ReadSDHC(void* fp, u32 lba, u32 count, void *iobuf)
 {
 	u32 cnt = 0;
 
 	/* Do reads */
 	while (cnt < count)
 	{
-		void *ptr = ((u8 *)iobuf) + (cnt * sector_size);
+		fp = ((u8 *)iobuf) + (cnt * 512);
 		u32 sectors = (count - cnt);
 
 		/* Read sectors is too big */
@@ -155,7 +156,7 @@ s32 __WBFS_ReadSDHC(void *fp, u32 lba, u32 count, void *iobuf)
 			sectors = MAX_NB_SECTORS;
 
 		/* SDHC read */
-		s32 ret = SDHC_ReadSectors(lba + cnt, sectors, ptr);
+		s32 ret = SDHC_ReadSectors(lba + cnt, sectors, fp);
 		if (!ret) return -1;
 
 		/* Increment counter */
@@ -165,7 +166,7 @@ s32 __WBFS_ReadSDHC(void *fp, u32 lba, u32 count, void *iobuf)
 	return 0;
 }
 
-s32 __WBFS_WriteSDHC(void *fp, u32 lba, u32 count, void *iobuf)
+s32 __WBFS_WriteSDHC(void* fp, u32 lba, u32 count, void *iobuf)
 {
 	u32 cnt = 0;
 	s32 ret;
@@ -173,7 +174,7 @@ s32 __WBFS_WriteSDHC(void *fp, u32 lba, u32 count, void *iobuf)
 	/* Do writes */
 	while (cnt < count)
 	{
-		void *ptr = ((u8 *)iobuf) + (cnt * sector_size);
+		fp = ((u8 *)iobuf) + (cnt * 512);
 		u32 sectors = (count - cnt);
 
 		/* Write sectors is too big */
@@ -181,7 +182,7 @@ s32 __WBFS_WriteSDHC(void *fp, u32 lba, u32 count, void *iobuf)
 			sectors = MAX_NB_SECTORS;
 
 		/* SDHC write */
-		ret = SDHC_WriteSectors(lba + cnt, sectors, ptr);
+		ret = SDHC_WriteSectors(lba + cnt, sectors, fp);
 		if (!ret) return -1;
 
 		/* Increment counter */
@@ -195,6 +196,7 @@ bool WBFS_Close()
 {
 	wbfs_part_fs = 0;
 	wbfs_part_lba = 0;
+	wbfs_part_idx = 0;
 	strcpy(wbfs_fs_drive, "");
 	wbfs_mounted = 0;
 
@@ -206,7 +208,7 @@ bool WBFS_Mounted()
 	return wbfs_mounted != 0;
 }
 
-s32 WBFS_Init(wbfs_t * handle, u32 part_fs, u32 part_lba, char *partition, u8 current)
+s32 WBFS_Init(wbfs_t * handle, u32 part_fs, u32 part_idx, u32 part_lba, char *partition, u8 current)
 {
 	WBFS_Close();
 
@@ -217,6 +219,7 @@ s32 WBFS_Init(wbfs_t * handle, u32 part_fs, u32 part_lba, char *partition, u8 cu
 
 	wbfs_part_fs  = part_fs;
 	wbfs_part_lba = part_lba;
+	wbfs_part_idx = part_idx;
 
 	currentPartition = current;
 
@@ -227,6 +230,7 @@ s32 WBFS_Init(wbfs_t * handle, u32 part_fs, u32 part_lba, char *partition, u8 cu
 
 s32 WBFS_Format(u32 lba, u32 size)
 {
+	u32 sector_size = (currentPartition == 0) ? 512 : USBStorage2_GetSectorSize();
 	u32 wbfs_sector_size = sector_size;
 	u32 partition_num_sec = size;
 
@@ -265,10 +269,7 @@ s32 WBFS_AddGame(progress_callback_t spinner, void *spinner_data)
 	if (!hdd) return -1;
 
 	/* Add game to device */
-	partition_selector_t part_sel = ONLY_GAME_PARTITION;
-	int copy_1_1 = 0;
-
-	s32 ret = wbfs_add_disc(hdd, __WBFS_ReadDVD, NULL, spinner, spinner_data, part_sel, copy_1_1);
+	s32 ret = wbfs_add_disc(hdd, __WBFS_ReadDVD, NULL, spinner, spinner_data, REMOVE_UPDATE_PARTITION, 0);
 
 	return ret < 0 ? ret : 0;
 }
@@ -314,9 +315,7 @@ s32 WBFS_DVD_Size(u64 *comp_size, u64 *real_size)
 	if (!hdd) return -1;
 
 	/* Add game to device */
-	partition_selector_t part_sel = ONLY_GAME_PARTITION;
-
-	s32 ret = wbfs_size_disc(hdd, __WBFS_ReadDVD, NULL, part_sel, &comp_sec, &last_sec);
+	s32 ret = wbfs_size_disc(hdd, __WBFS_ReadDVD, NULL, REMOVE_UPDATE_PARTITION, &comp_sec, &last_sec);
 	if (ret < 0) return ret;
 
 	*comp_size = ((u64)hdd->wii_sec_sz) * comp_sec;
@@ -348,10 +347,12 @@ s32 WBFS_DiskSpace(f32 *used, f32 *free)
 
 wbfs_disc_t* WBFS_OpenDisc(u8 *discid, char *path)
 {
-	if (wbfs_part_fs) return WBFS_Ext_OpenDisc(discid, path);
+	if (wbfs_part_fs)
+		return WBFS_Ext_OpenDisc(discid, path);
 
 	/* No device open */
-	if (!hdd) return NULL;
+	if (!hdd)
+		return NULL;
 
 	/* Open disc */
 	return wbfs_open_disc(hdd, discid);
@@ -359,10 +360,12 @@ wbfs_disc_t* WBFS_OpenDisc(u8 *discid, char *path)
 
 void WBFS_CloseDisc(wbfs_disc_t *disc)
 {
-	if (wbfs_part_fs)return WBFS_Ext_CloseDisc(disc);
+	if (wbfs_part_fs)
+		return WBFS_Ext_CloseDisc(disc);
 
 	/* No device open */
-	if (!hdd || !disc) return;
+	if (!hdd || !disc)
+		return;
 
 	/* Close disc */
 	wbfs_close_disc(disc);

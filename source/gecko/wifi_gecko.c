@@ -29,7 +29,12 @@
 #include <string.h>
 #include <unistd.h>
 #include <network.h>
+#include <errno.h>
 #include "wifi_gecko.h"
+#include "loader/utils.h"
+
+// set to use TCP socket instead of UDP
+#define WIFI_GECKO_USE_TCP	(0)
 
 static int connection = -1;
 static int init = 0;
@@ -63,13 +68,21 @@ int WifiGecko_Connect()
 
 	if (dest_ip == NULL || dest_port == 0) return connection;
 
-    connection = net_socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
+#if WIFI_GECKO_USE_TCP
+    connection = net_socket(PF_INET, SOCK_STREAM, 0);
+#else
+    connection = net_socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
+#endif
     if (connection < 0)
         return connection;
 
 	struct sockaddr_in connect_addr;
 	memset(&connect_addr, 0, sizeof(connect_addr));
-	connect_addr.sin_family = AF_INET;
+#if WIFI_GECKO_USE_TCP
+	connect_addr.sin_family = PF_INET;
+#else
+    connect_addr.sin_family = AF_INET;
+#endif
 	connect_addr.sin_port = htons(dest_port);
 	inet_aton(dest_ip, &connect_addr.sin_addr);
 
@@ -97,7 +110,9 @@ int WifiGecko_Send(const char * data, int datasize)
 
     while (done < datasize)
     {
-        if(blocksize > datasize-done)
+		while(net_get_status() == -EBUSY);
+
+		if(blocksize > datasize-done)
             blocksize = datasize-done;
 
         ret = net_send(connection, data + done, blocksize, 0);
@@ -116,20 +131,4 @@ int WifiGecko_Send(const char * data, int datasize)
     }
 
     return ret;
-}
-
-void wifi_printf(const char * format, ...)
-{
-	if (!init) return;
-
-	char * tmp = NULL;
-	va_list va;
-	va_start(va, format);
-	if((vasprintf(&tmp, format, va) >= 0) && tmp)
-	{
-		WifiGecko_Send(tmp, strlen(tmp));
-	}
-	va_end(va);
-
-	SAFE_FREE(tmp);
 }

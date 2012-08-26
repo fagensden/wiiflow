@@ -1,11 +1,8 @@
+
 #include "menu.hpp"
 
-#include "wiiuse/wpad.h"
-
-#include "GameTDB.hpp"
-#include "alt_ios.h"
-#include "gecko.h"
-#include "sys.h"
+#include "gui/GameTDB.hpp"
+#include "loader/sys.h"
 
 extern const u8		wifi1_png[];
 extern const u8		wifi2_png[];
@@ -40,26 +37,40 @@ extern const u8		drums_png[];
 extern const u8		drumsR_png[];
 extern const u8		motionplus_png[];
 extern const u8		motionplusR_png[];
+extern const u8		udraw_png[];
+extern const u8		udrawR_png[];
 extern const u8		wheel_png[];
 extern const u8		zapper_png[];
 extern const u8		keyboard_png[];
 extern const u8		wiispeak_png[];
 
 //Ratings
-extern const u8		norating_png[];
+extern const u8		norating_jpg[];
+extern const u32	norating_jpg_size;
 
-extern const u8		esrb_ec_png[];
-extern const u8		esrb_e_png[];
-extern const u8		esrb_eten_png[];
-extern const u8		esrb_t_png[];
-extern const u8		esrb_m_png[];
-extern const u8		esrb_ao_png[];
+extern const u8		esrb_ec_jpg[];
+extern const u32	esrb_ec_jpg_size;
+extern const u8		esrb_e_jpg[];
+extern const u32	esrb_e_jpg_size;
+extern const u8		esrb_eten_jpg[];
+extern const u32	esrb_eten_jpg_size;
+extern const u8		esrb_t_jpg[];
+extern const u32	esrb_t_jpg_size;
+extern const u8		esrb_m_jpg[];
+extern const u32	esrb_m_jpg_size;
+extern const u8		esrb_ao_jpg[];
+extern const u32	esrb_ao_jpg_size;
 
 extern const u8		cero_a_png[];
 extern const u8		cero_b_png[];
 extern const u8		cero_c_png[];
 extern const u8		cero_d_png[];
 extern const u8		cero_z_png[];
+
+extern const u8		grb_a_png[];
+extern const u8		grb_12_png[];
+extern const u8		grb_15_png[];
+extern const u8		grb_18_png[];
 
 extern const u8		pegi_3_png[];
 extern const u8		pegi_7_png[];
@@ -97,7 +108,7 @@ void CMenu::_gameinfo(void)
 		}	
 		if(first && page == 1)
 		{
-			m_btnMgr.moveBy(m_gameinfoLblSynopsis, 0, -(30));
+			m_btnMgr.moveBy(m_gameinfoLblSynopsis, 0, -1);
 			amount_of_skips++;
 			first = false;
 		}
@@ -122,9 +133,9 @@ void CMenu::_gameinfo(void)
 		{
 			page = 1;
 			amount_of_skips = 0;
-						
+
 			m_btnMgr.reset(m_gameinfoLblSynopsis);
-			m_btnMgr.setText(m_gameinfoLblSynopsis, wfmt(L"%s", gameinfo.Synopsis.c_str()), true); //, line, false);
+			m_btnMgr.setText(m_gameinfoLblSynopsis, wfmt(L"%s", gameinfo.Synopsis.c_str()));
 
 			m_btnMgr.hide(m_gameinfoLblID, true);
 			m_btnMgr.hide(m_gameinfoLblDev, true);
@@ -135,22 +146,22 @@ void CMenu::_gameinfo(void)
 			m_btnMgr.hide(m_gameinfoLblRating, true);
 			m_btnMgr.hide(m_gameinfoLblWifiplayers, true);
 
-			for (u8 i = 0; i < ARRAY_SIZE(m_gameinfoLblControlsReq); ++i)
-				if (m_gameinfoLblControlsReq[i] != -1u)
+			for(u8 i = 0; i < ARRAY_SIZE(m_gameinfoLblControlsReq); ++i)
+				if(m_gameinfoLblControlsReq[i] != (u16)-1)
 					m_btnMgr.hide(m_gameinfoLblControlsReq[i], true);
 			
-			for (u8 i = 0; i < ARRAY_SIZE(m_gameinfoLblControls); ++i)
-				if (m_gameinfoLblControls[i] != -1u)
+			for(u8 i = 0; i < ARRAY_SIZE(m_gameinfoLblControls); ++i)
+				if(m_gameinfoLblControls[i] != (u16)-1)
 					m_btnMgr.hide(m_gameinfoLblControls[i], true);
 			
 			// When showing synopsis, only show user labels 2 and 3
-			for (u8 i = 0; i < ARRAY_SIZE(m_gameinfoLblUser); ++i)
-				if (i < ARRAY_SIZE(m_gameinfoLblUser) / 2)
+			for(u8 i = 0; i < ARRAY_SIZE(m_gameinfoLblUser); ++i)
+				if(i < ARRAY_SIZE(m_gameinfoLblUser) / 2)
 					m_btnMgr.hide(m_gameinfoLblUser[i], true);
 				else
 					m_btnMgr.show(m_gameinfoLblUser[i]);
 			
-			m_btnMgr.show(m_gameinfoLblSynopsis,false,true);
+			m_btnMgr.show(m_gameinfoLblSynopsis,false);
 		}
 		else if (BTN_LEFT_PRESSED && !(m_thrdWorking && m_thrdStop))
 		{
@@ -165,21 +176,21 @@ void CMenu::_gameinfo(void)
 			m_btnMgr.show(m_gameinfoLblRating);
 			m_btnMgr.show(m_gameinfoLblWifiplayers);
 
-			for (u8 i = 0; i < ARRAY_SIZE(m_gameinfoLblControlsReq); ++i)
-				if (m_gameinfoLblControlsReq[i] != -1u && i < cnt_controlsreq)
+			for(u8 i = 0; i < ARRAY_SIZE(m_gameinfoLblControlsReq); ++i)
+				if(m_gameinfoLblControlsReq[i] != (u16)-1 && i < cnt_controlsreq)
 					m_btnMgr.show(m_gameinfoLblControlsReq[i]);
-				
-			for (u8 i = 0; i < ARRAY_SIZE(m_gameinfoLblControls); ++i)
-				if (m_gameinfoLblControls[i] != -1u && i < cnt_controls)
+
+			for(u8 i = 0; i < ARRAY_SIZE(m_gameinfoLblControls); ++i)
+				if(m_gameinfoLblControls[i] != (u16)-1 && i < cnt_controls)
 					m_btnMgr.show(m_gameinfoLblControls[i]);
-				
+
 			// When showing synopsis, only show user labels 2 and 3
-			for (u8 i = 0; i < ARRAY_SIZE(m_gameinfoLblUser); ++i)
-				if (i < ARRAY_SIZE(m_gameinfoLblUser) / 2)
+			for(u8 i = 0; i < ARRAY_SIZE(m_gameinfoLblUser); ++i)
+				if(i < ARRAY_SIZE(m_gameinfoLblUser) / 2)
 					m_btnMgr.show(m_gameinfoLblUser[i]);
 				else
 					m_btnMgr.hide(m_gameinfoLblUser[i], true);
-				
+
 			m_btnMgr.hide(m_gameinfoLblSynopsis,true);
 		}
 
@@ -201,15 +212,15 @@ void CMenu::_hideGameInfo(bool instant)
 	m_btnMgr.hide(m_gameinfoLblRating, instant);
 	m_btnMgr.hide(m_gameinfoLblWifiplayers, instant);
 	
-	for (u8 i = 0; i < ARRAY_SIZE(m_gameinfoLblControlsReq); ++i)
-		if (m_gameinfoLblControlsReq[i] != -1u)
+	for(u8 i = 0; i < ARRAY_SIZE(m_gameinfoLblControlsReq); ++i)
+		if(m_gameinfoLblControlsReq[i] != (u16)-1)
 			m_btnMgr.hide(m_gameinfoLblControlsReq[i], instant);
 
-	for (u8 i = 0; i < ARRAY_SIZE(m_gameinfoLblUser); ++i)
+	for(u8 i = 0; i < ARRAY_SIZE(m_gameinfoLblUser); ++i)
 		m_btnMgr.hide(m_gameinfoLblUser[i], instant);
 
-	for (u8 i = 0; i < ARRAY_SIZE(m_gameinfoLblControls); ++i)
-		if (m_gameinfoLblControls[i] != -1u)
+	for(u8 i = 0; i < ARRAY_SIZE(m_gameinfoLblControls); ++i)
+		if(m_gameinfoLblControls[i] != (u16)-1)
 			m_btnMgr.hide(m_gameinfoLblControls[i], instant);
 }
 
@@ -231,16 +242,16 @@ void CMenu::_showGameInfo(void)
 		m_btnMgr.show(m_gameinfoLblGenre);
 		m_btnMgr.show(m_gameinfoLblWifiplayers);
 
-		for (u8 i = 0; i < ARRAY_SIZE(m_gameinfoLblUser); ++i)
-			if (i < ARRAY_SIZE(m_gameinfoLblUser) / 2)
+		for(u8 i = 0; i < ARRAY_SIZE(m_gameinfoLblUser); ++i)
+			if(i < ARRAY_SIZE(m_gameinfoLblUser) / 2)
 				m_btnMgr.show(m_gameinfoLblUser[i]);
 		
-		for (u8 i = 0; i < ARRAY_SIZE(m_gameinfoLblControlsReq); ++i)
-			if (m_gameinfoLblControlsReq[i] != -1u && i < cnt_controlsreq)
+		for(u8 i = 0; i < ARRAY_SIZE(m_gameinfoLblControlsReq); ++i)
+			if(m_gameinfoLblControlsReq[i] != (u16)-1 && i < cnt_controlsreq)
 				m_btnMgr.show(m_gameinfoLblControlsReq[i]);
 			
-		for (u8 i = 0; i < ARRAY_SIZE(m_gameinfoLblControls); ++i)
-			if (m_gameinfoLblControls[i] != -1u && i < cnt_controls)
+		for(u8 i = 0; i < ARRAY_SIZE(m_gameinfoLblControls); ++i)
+			if(m_gameinfoLblControls[i] != (u16)-1 && i < cnt_controls)
 				m_btnMgr.show(m_gameinfoLblControls[i]);
 	}
 }
@@ -259,22 +270,22 @@ void CMenu::_initGameInfoMenu(CMenu::SThemeData &theme)
 	m_gameinfoLblRlsdate = _addText(theme, "GAMEINFO/RLSDATE", theme.txtFont, L"", 40, 230, 460, 56, theme.txtFontColor, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_TOP);
 	m_gameinfoLblRegion = _addText(theme, "GAMEINFO/REGION", theme.txtFont, L"", 40, 260, 460, 56, theme.txtFontColor, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_TOP);
 	m_gameinfoLblRating = _addLabel(theme, "GAMEINFO/RATING", theme.titleFont, L"", 550, 380, 48, 60, theme.titleFontColor, 0, m_rating);
-	m_gameinfoLblSynopsis = _addText(theme, "GAMEINFO/SYNOPSIS", theme.txtFont, L"", 20, 150, 600, 400, theme.txtFontColor, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_TOP);
+	m_gameinfoLblSynopsis = _addText(theme, "GAMEINFO/SYNOPSIS", theme.txtFont, L"", 40, 120, 560, 280, theme.txtFontColor, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_TOP);
 	m_gameinfoLblWifiplayers = _addLabel(theme, "GAMEINFO/WIFIPLAYERS", theme.txtFont, L"", 550, 110, 68, 60, theme.txtFontColor, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_TOP,m_wifi);
 
 	_addUserLabels(theme, m_gameinfoLblUser, 1, 1, "GAMEINFO");
 	_addUserLabels(theme, m_gameinfoLblUser, 3, 2, "GAMEINFO");
 
-	m_gameinfoLblTitle = _addLabel(theme, "GAMEINFO/TITLE", theme.titleFont, L"", 20, 30, 600, 75, theme.titleFontColor, FTGX_JUSTIFY_CENTER | FTGX_ALIGN_MIDDLE);
+	m_gameinfoLblTitle = _addLabel(theme, "GAMEINFO/TITLE", theme.titleFont, L"", 20, 30, 600, 60, theme.titleFontColor, FTGX_JUSTIFY_CENTER | FTGX_ALIGN_MIDDLE);
 
-	for (u8 i = 0; i < ARRAY_SIZE(m_gameinfoLblControlsReq); ++i)
+	for(u8 i = 0; i < ARRAY_SIZE(m_gameinfoLblControlsReq); ++i)
 	{
 		string dom(sfmt("GAMEINFO/CONTROLSREQ%i", i + 1));
 		m_gameinfoLblControlsReq[i] = _addLabel(theme, dom.c_str(), theme.txtFont, L"", 40 + (i*60), 310, 60, 40, theme.txtFontColor, 0, emptyTex);
 		_setHideAnim(m_gameinfoLblControlsReq[i], dom.c_str(), 0, -100, 0.f, 0.f);
 	}
 
-	for (u8 i = 0; i < ARRAY_SIZE(m_gameinfoLblControls); ++i)
+	for(u8 i = 0; i < ARRAY_SIZE(m_gameinfoLblControls); ++i)
 	{
 		string dom(sfmt("GAMEINFO/CONTROLS%i", i + 1));
 		m_gameinfoLblControls[i] = _addLabel(theme, dom.c_str(), theme.txtFont, L"", 40 + (i*60), 380, 60, 40, theme.txtFontColor, 0, emptyTex);
@@ -282,9 +293,9 @@ void CMenu::_initGameInfoMenu(CMenu::SThemeData &theme)
 	}
 	// 
 	_setHideAnim(m_gameinfoLblID, "GAMEINFO/GAMEID",0, -100, 0.f, 0.f);
-	_setHideAnim(m_gameinfoLblTitle, "GAMEINFO/TITLE", 0, -100, 0.f, 0.f);
+	_setHideAnim(m_gameinfoLblTitle, "GAMEINFO/TITLE", 0, 0, -2.f, 0.f);
 	_setHideAnim(m_gameinfoLblRating, "GAMEINFO/RATING", 100, 0, 0.f, 0.f);
-	_setHideAnim(m_gameinfoLblSynopsis, "GAMEINFO/SYNOPSIS", 0, 100, 0.f, 0.f);
+	_setHideAnim(m_gameinfoLblSynopsis, "GAMEINFO/SYNOPSIS", 0, 700, 1.f, 1.f);
 	_setHideAnim(m_gameinfoLblRegion, "GAMEINFO/REGION", 0, -100, 0.f, 0.f);
 	_setHideAnim(m_gameinfoLblDev, "GAMEINFO/DEVELOPER", 0, -100, 0.f, 0.f);
 	_setHideAnim(m_gameinfoLblPublisher, "GAMEINFO/PUBLISHER", 0, -100, 0.f, 0.f);
@@ -300,11 +311,11 @@ void CMenu::_textGameInfo(void)
 	cnt_controlsreq = 0;
 	cnt_controls = 0;
 
-	GameTDB m_gametdb;
-	m_gametdb.OpenFile(sfmt("%s/wiitdb.xml", m_settingsDir.c_str()).c_str());
-	m_gametdb.SetLanguageCode(m_loc.getString(m_curLanguage, "gametdb_code", "EN").c_str());
+	GameTDB gametdb;
+	gametdb.OpenFile(fmt("%s/wiitdb.xml", m_settingsDir.c_str()));
+	gametdb.SetLanguageCode(m_loc.getString(m_curLanguage, "gametdb_code", "EN").c_str());
 		
-	titlecheck = m_gametdb.IsLoaded() && m_gametdb.GetGameXMLInfo(m_cf.getId().c_str(), &gameinfo);
+	titlecheck = gametdb.IsLoaded() && gametdb.GetGameXMLInfo(m_cf.getId().c_str(), &gameinfo);
 	if(titlecheck)
 	{
 		gprintf("ID: %s\nTitle: %s\n", gameinfo.GameID.c_str(), gameinfo.Title.c_str());
@@ -336,10 +347,10 @@ void CMenu::_textGameInfo(void)
 		}
 		
 		//Ratings
+		m_rating.fromJPG(norating_jpg, norating_jpg_size);
 		switch(gameinfo.RatingType)
 		{
-			case 0:
-				//CERO
+			case GAMETDB_RATING_TYPE_CERO:
 				if (gameinfo.RatingValue == "A")
 					m_rating.fromPNG(cero_a_png);
 				else if (gameinfo.RatingValue == "B")
@@ -350,28 +361,22 @@ void CMenu::_textGameInfo(void)
 					m_rating.fromPNG(cero_c_png);
 				else if (gameinfo.RatingValue == "Z")
 					m_rating.fromPNG(cero_z_png);
-				else
-					m_rating.fromPNG(norating_png);		
 				break;
-			case 1:
-				//ESRB
-				if (gameinfo.RatingValue == "AO")
-					m_rating.fromPNG(esrb_ao_png);
-				else if (gameinfo.RatingValue == "E")
-					m_rating.fromPNG(esrb_e_png);
+			case GAMETDB_RATING_TYPE_ESRB:
+				if (gameinfo.RatingValue == "E")
+					m_rating.fromJPG(esrb_e_jpg, esrb_e_jpg_size);
 				else if (gameinfo.RatingValue == "EC")
-					m_rating.fromPNG(esrb_ec_png);
+					m_rating.fromJPG(esrb_ec_jpg, esrb_ec_jpg_size);
 				else if (gameinfo.RatingValue == "E10+")
-					m_rating.fromPNG(esrb_eten_png);
+					m_rating.fromJPG(esrb_eten_jpg, esrb_eten_jpg_size);
 				else if (gameinfo.RatingValue == "T")
-					m_rating.fromPNG(esrb_t_png);
+					m_rating.fromJPG(esrb_t_jpg, esrb_t_jpg_size);
 				else if (gameinfo.RatingValue == "M")
-					m_rating.fromPNG(esrb_m_png);
-				else
-					m_rating.fromPNG(norating_png);
+					m_rating.fromJPG(esrb_m_jpg, esrb_m_jpg_size);
+				else if (gameinfo.RatingValue == "AO")
+					m_rating.fromJPG(esrb_ao_jpg, esrb_ao_jpg_size);
 				break;
-			case 2:
-				//PEGI
+			case GAMETDB_RATING_TYPE_PEGI:
 				if (gameinfo.RatingValue == "3")
 					m_rating.fromPNG(pegi_3_png);
 				else if (gameinfo.RatingValue == "7")
@@ -382,8 +387,16 @@ void CMenu::_textGameInfo(void)
 					m_rating.fromPNG(pegi_16_png);
 				else if (gameinfo.RatingValue == "18")
 					m_rating.fromPNG(pegi_18_png);
-				else
-					m_rating.fromPNG(norating_png);
+				break;
+			case GAMETDB_RATING_TYPE_GRB:
+				if (gameinfo.RatingValue == "A")
+					m_rating.fromPNG(grb_a_png);
+				else if (gameinfo.RatingValue == "12")
+					m_rating.fromPNG(grb_12_png);
+				else if (gameinfo.RatingValue == "15")
+					m_rating.fromPNG(grb_15_png);
+				else if (gameinfo.RatingValue == "18")
+					m_rating.fromPNG(grb_18_png);
 				break;
 			default:
 				break;
@@ -419,20 +432,21 @@ void CMenu::_textGameInfo(void)
 
 		u8	wiimote=0,
 			nunchuk=0,
-            		classiccontroller=0,
-            		balanceboard=0,
-            		dancepad=0,
-            		guitar=0,
-            		gamecube=0,
-            		motionplus=0,
-	                drums=0,
+			classiccontroller=0,
+			balanceboard=0,
+			dancepad=0,
+			guitar=0,
+			gamecube=0,
+			motionplus=0,
+			drums=0,
 			microphone=0,
 			wheel=0,
-			keyboard,
+			keyboard=0,
+			udraw = 0,
 			zapper=0;
 		
 		//check required controlls
-		for (safe_vector<Accessory>::iterator acc_itr = gameinfo.Accessories.begin(); acc_itr != gameinfo.Accessories.end(); acc_itr++)
+		for (vector<Accessory>::iterator acc_itr = gameinfo.Accessories.begin(); acc_itr != gameinfo.Accessories.end(); acc_itr++)
 		{
 			if (!acc_itr->Required) continue;
 			
@@ -452,6 +466,8 @@ void CMenu::_textGameInfo(void)
 		microphone=1;
             else if (strcmp((acc_itr->Name).c_str(), "balanceboard") == 0)
                 balanceboard=1;
+			else if (strcmp((acc_itr->Name).c_str(), "udraw") == 0)
+				udraw = 1;
         }
 
 		u8 x = 0;
@@ -521,6 +537,12 @@ void CMenu::_textGameInfo(void)
 			m_btnMgr.setTexture(m_gameinfoLblControlsReq[x] ,m_controlsreq[x], 52, 60);
 			x++;
 		}
+		if(udraw && x < max_controlsReq)
+		{
+			m_controlsreq[x].fromPNG(udrawR_png);
+			m_btnMgr.setTexture(m_gameinfoLblControlsReq[x] ,m_controlsreq[x], 52, 60);
+			x++;
+		}
 
 		cnt_controlsreq = x;
 
@@ -540,9 +562,10 @@ void CMenu::_textGameInfo(void)
 		microphone=0,
 		wheel=0,
 		keyboard=0,
+		udraw = 0,
 		zapper=0;
 
-		for (safe_vector<Accessory>::iterator acc_itr = gameinfo.Accessories.begin(); acc_itr != gameinfo.Accessories.end(); acc_itr++)
+		for (vector<Accessory>::iterator acc_itr = gameinfo.Accessories.begin(); acc_itr != gameinfo.Accessories.end(); acc_itr++)
 		{
 			if (acc_itr->Required) continue;
 		
@@ -570,6 +593,8 @@ void CMenu::_textGameInfo(void)
 		zapper=1;
 			else if (strcmp((acc_itr->Name).c_str(), "wheel") == 0)
                 wheel=1;
+			else if (strcmp((acc_itr->Name).c_str(), "udraw") == 0)
+				udraw = 1;
         }
 		
 		x = 0;
@@ -635,6 +660,12 @@ void CMenu::_textGameInfo(void)
 			m_btnMgr.setTexture(m_gameinfoLblControls[x] ,m_controls[x], 52, 60);
 			x++;
 		}
+		if(udraw && x < max_controls)
+		{
+			m_controls[x].fromPNG(udraw_png);
+			m_btnMgr.setTexture(m_gameinfoLblControls[x] ,m_controls[x], 52, 60);
+			x++;
+		}
 		if(zapper && x < max_controls)
 		{
 			m_controls[x].fromPNG(zapper_png);
@@ -655,6 +686,6 @@ void CMenu::_textGameInfo(void)
 	else
 		m_btnMgr.setText(m_gameinfoLblTitle, wfmt(L"%s", "No Gameinfo"), true);
 
-	m_gametdb.CloseFile();
+	gametdb.CloseFile();
 
 }

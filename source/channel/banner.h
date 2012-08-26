@@ -29,8 +29,9 @@
 #ifndef _BANNER_H_
 #define _BANNER_H_
 
-#include "safe_vector.hpp"
 #include <string>
+
+using namespace std;
 
 #define IMET_MAX_NAME_LEN 0x2a
 
@@ -56,29 +57,28 @@ typedef struct
 	u8  md5[0x10];
 } IMET;
 
-using namespace std;
-
 class Banner
 {
 	public:
-		Banner(u8 *bnr, u64 title = 0);
+		Banner(u8 *bnr, u32 bnr_size, u64 title = 0, bool custom = false);
 		~Banner();
 		
 		bool IsValid();
 
 		bool GetName(u8 *name, int language);
 		bool GetName(wchar_t *name, int language);
-		const u8 *GetFile(char *name, u32 *size);
-		
+		u8 *GetFile(char *name, u32 *size);
+
 		static Banner *GetBanner(u64 title, char *appname, bool isfs, bool imetOnly = false);
-		
-	private:
+		u8 *GetBannerFile() { return opening; }
+		u32 GetBannerFileSize() { return opening_size; }
+	protected:
 		u8 *opening;
+		u32 opening_size;
 		u64 title;
 		IMET *imet;
-		
-		u16 *GetName(int language);
 
+		u16 *GetName(int language);
 		static bool GetChannelNameFromApp(u64 title, wchar_t* name, int language);
 };
 

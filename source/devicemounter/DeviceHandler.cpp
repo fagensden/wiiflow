@@ -29,304 +29,350 @@
 #include <ogc/mutex.h>
 #include <ogc/system.h>
 #include <sdcard/gcsd.h>
-
 #include "DeviceHandler.hpp"
-#include "wbfs.h"
+#include "sdhc.h"
 #include "usbstorage.h"
-
-extern const DISC_INTERFACE __io_sdhc;
+#include "loader/cios.h"
+#include "loader/wbfs.h"
 
 DeviceHandler * DeviceHandler::instance = NULL;
-unsigned int DeviceHandler::watchdog_timeout = 10;
 
 DeviceHandler::~DeviceHandler()
 {
-    UnMountAll();
+	UnMountAll();
 }
 
 DeviceHandler * DeviceHandler::Instance()
 {
-	if (instance == NULL)
+	if(instance == NULL)
 		instance = new DeviceHandler();
-
 	return instance;
 }
 
 void DeviceHandler::DestroyInstance()
 {
-    if(instance) delete instance;
-    instance = NULL;
+	if(instance)
+		delete instance;
+	instance = NULL;
 }
 
-bool DeviceHandler::MountAll()
+void DeviceHandler::MountAll()
 {
-    bool result = false;
-
-    for(u32 i = SD; i <= USB8; i++)
-        if(Mount(i)) result = true;
-
-    return result;
+	MountSD();
+	MountAllUSB();
 }
 
 void DeviceHandler::UnMountAll()
 {
-    for(u32 i = SD; i <= GCSDB; i++)
-        UnMount(i);
+	for(u32 i = SD; i < MAXDEVICES; i++)
+		UnMount(i);
 
-    if(sd) delete sd;
-    if(usb) delete usb;
-    if(gca) delete gca;
-    if(gcb) delete gca;
+	if(sd)
+		delete sd;
+	if(usb0)
+		delete usb0;
+	if(usb1)
+		delete usb1;
 
-    sd = NULL;
-    usb = NULL;
-	gca = NULL;
-	gcb = NULL;
+	sd = NULL;
+	usb0 = NULL;
+	usb1 = NULL;
 }
 
 bool DeviceHandler::Mount(int dev)
 {
-    if(dev == SD)
+	if(dev == SD)
 		return MountSD();
+
 	else if(dev >= USB1 && dev <= USB8)
 		return MountUSB(dev-USB1);
-	else if(dev == GCSDA)
-		return MountGCA();
-	else if(dev == GCSDB)
-		return MountGCB();
-
-    return false;
-}
-
-bool DeviceHandler::IsInserted(int dev)
-{
-    if(dev == SD)
-		return SD_Inserted() && sd->IsMounted(0);
-	else if(dev >= USB1 && dev <= USB8)
-        return USB_Inserted() && usb->IsMounted(dev-USB1);
-	else if(dev == GCSDA)
-		return GCA_Inserted() && gca->IsMounted(0);
-	else if(dev == GCSDB)
-		return GCB_Inserted() && gcb->IsMounted(0);
-
-    return false;
-}
-
-void DeviceHandler::UnMount(int dev)
-{
-    if(dev == SD)
-		UnMountSD();
-	else if(dev >= USB1 && dev <= USB8) 
-		UnMountUSB(dev-USB1);
-	else if(dev == GCSDA)
-		UnMountGCA();
-    else if(dev == GCSDB)
-		UnMountGCB();
-}
-
-bool DeviceHandler::MountSD()
-{
-    if(!sd)
-	{
-        sd = new PartitionHandle(&__io_sdhc);
-		if(sd->GetPartitionCount() < 1)
-		{
-			delete sd;
-			sd = NULL;
-			return false;
-		}
-    }
-
-    //! Mount only one SD Partition
-    return sd->Mount(0, DeviceName[SD]);
-}
-
-bool DeviceHandler::MountUSB(int pos)
-{
-    if(!usb) usb = new PartitionHandle(&__io_usbstorage);
-
-    if(usb->GetPartitionCount() < 1)
-    {
-        delete usb;
-        usb = NULL;
-        return false;
-    }
-	
-	// Set the watchdog
-	InternalSetWatchdog(watchdog_timeout);
-
-    if(pos >= usb->GetPartitionCount())
-        return false;
-
-    return usb->Mount(pos, DeviceName[USB1+pos]);
-}
-
-bool DeviceHandler::MountAllUSB()
-{
-    if(!usb) usb = new PartitionHandle(&__io_usbstorage);
-
-    bool result = false;
-
-    for(int i = 0; i < usb->GetPartitionCount(); i++)
-        if(MountUSB(i))
-            result = true;
-
-    return result;
-}
-
-bool DeviceHandler::MountGCA()
-{
-    if(!gca) gca = new PartitionHandle(&__io_gcsda);
-
-    if(gca->GetPartitionCount() < 1)
-    {
-        delete gca;
-        gca = NULL;
-        return false;
-    }
-
-    //! Mount only one Partition
-    return gca->Mount(0, DeviceName[GCSDA]);
-}
-
-bool DeviceHandler::MountGCB()
-{
-    if(!gcb) gcb = new PartitionHandle(&__io_gcsdb);
-
-    if(gcb->GetPartitionCount() < 1)
-    {
-        delete gcb;
-        gcb = NULL;
-        return false;
-    }
-
-    //! Mount only one Partition
-    return gcb->Mount(0, DeviceName[GCSDB]);;
-}
-
-void DeviceHandler::UnMountUSB(int pos)
-{
-    if(!usb) return;
-
-    if(pos >= usb->GetPartitionCount())
-        return;
-
-    usb->UnMount(pos);
-}
-
-void DeviceHandler::UnMountAllUSB()
-{
-    if(!usb) return;
-
-    for(int i = 0; i < usb->GetPartitionCount(); i++)
-        usb->UnMount(i);
-
-    delete usb;
-    usb = NULL;
-}
-
-bool DeviceHandler::InternalSetWatchdog(unsigned int timeout)
-{
-	if (Instance()->USB_Inserted())
-		return USBStorage_SetWatchdog(timeout) == 0;
 
 	return false;
 }
 
-bool DeviceHandler::SetWatchdog(unsigned int timeout)
+bool DeviceHandler::IsInserted(int dev)
 {
-	watchdog_timeout = timeout;
-	return InternalSetWatchdog(timeout);
+	if(dev == SD)
+		return SD_Inserted() && sd->IsMounted(0);
+
+	else if(dev >= USB1 && dev <= USB8)
+	{
+		int portPart = PartitionToPortPartition(dev-USB1);
+		PartitionHandle *usb = instance->GetUSBHandleFromPartition(dev-USB1);
+		if(usb)
+			return usb->IsMounted(portPart);
+	}
+
+	return false;
+}
+
+void DeviceHandler::UnMount(int dev)
+{
+	if(dev == SD)
+		UnMountSD();
+
+	else if(dev >= USB1 && dev <= USB8)
+		UnMountUSB(dev-USB1);
+}
+
+void DeviceHandler::SetModes()
+{
+	/* Set for USB */
+	if(CurrentIOS.Type == IOS_TYPE_NORMAL_IOS)
+		usb_libogc_mode = 1;
+	else
+		usb_libogc_mode = 0;
+	/* Set for SD */
+	if(CurrentIOS.Type == IOS_TYPE_D2X)
+		sdhc_mode_sd = 0;
+	else
+		sdhc_mode_sd = 1;
+}
+
+bool DeviceHandler::MountSD()
+{
+	if(!sd)
+		sd = new PartitionHandle(&__io_sdhc);
+	if(sd && sd->GetPartitionCount() < 1)
+	{
+		delete sd;
+		sd = NULL;
+		return false;
+	}
+	//! Mount only one SD Partition
+	return sd->Mount(0, DeviceName[SD], true);
+}
+
+bool DeviceHandler::MountUSB(int pos)
+{
+	if(!usb0 && !usb1)
+		return false;
+
+	if(pos >= GetUSBPartitionCount())
+		return false;
+
+	int portPart = PartitionToPortPartition(pos);
+
+	if(PartitionToUSBPort(pos) == 0 && usb0)
+		return usb0->Mount(portPart, DeviceName[USB1+pos]);
+	else if(usb1)
+		return usb1->Mount(portPart, DeviceName[USB1+pos]);
+
+	return false;
+}
+
+bool DeviceHandler::MountAllUSB()
+{
+	if(!usb0)
+		usb0 = new PartitionHandle(GetUSB0Interface());
+	if(usb0 && usb0->GetPartitionCount() < 1)
+	{
+		delete usb0;
+		usb0 = NULL;
+		return false;
+	}
+	bool result = false;
+	int partCount = GetUSBPartitionCount();
+	for(int i = 0; i < partCount; i++)
+	{
+		if(MountUSB(i))
+			result = true;
+	}
+	return result;
+}
+
+bool DeviceHandler::MountUSBPort1()
+{
+	if(!usb1)// && (Settings.USBPort == 1 || Settings.USBPort == 2))
+		usb1 = new PartitionHandle(GetUSB1Interface());
+
+	if(usb1 && usb1->GetPartitionCount() < 1)
+	{
+		delete usb1;
+		usb1 = NULL;
+		return false;
+	}
+
+	bool result = false;
+	int partCount = GetUSBPartitionCount();
+	int partCount0 = 0;
+	if(usb0)
+		partCount0 = usb0->GetPartitionCount();
+
+	for(int i = partCount0; i < partCount; i++)
+	{
+		if(MountUSB(i))
+			result = true;
+	}
+
+	return result;
+}
+
+void DeviceHandler::UnMountUSB(int pos)
+{
+	if(pos >= GetUSBPartitionCount())
+		return;
+
+	int portPart = PartitionToPortPartition(pos);
+
+	if(PartitionToUSBPort(pos) == 0 && usb0)
+		return usb0->UnMount(portPart);
+	else if(usb1)
+		return usb1->UnMount(portPart);
+}
+
+void DeviceHandler::UnMountAllUSB()
+{
+	int partCount = GetUSBPartitionCount();
+
+	for(int i = 0; i < partCount; i++)
+		UnMountUSB(i);
+
+	delete usb0;
+	usb0 = NULL;
+	delete usb1;
+	usb1 = NULL;
 }
 
 int DeviceHandler::PathToDriveType(const char * path)
 {
-    if(!path) return -1;
+	if(!path)
+		return -1;
 
-    for(int i = SD; i <= GCSDB; i++)
-        if(strncmp(path, DeviceName[i], strlen(DeviceName[i])) == 0)
-            return i;
+	for(int i = SD; i < MAXDEVICES; i++)
+	{
+		if(strncasecmp(path, DeviceName[i], strlen(DeviceName[i])) == 0)
+			return i;
+	}
 
-    return -1;
+	return -1;
 }
 
 const char * DeviceHandler::GetFSName(int dev)
 {
-    if(dev == SD && DeviceHandler::instance->sd)
-        return DeviceHandler::instance->sd->GetFSName(0);
-	else if(dev >= USB1 && dev <= USB8 && DeviceHandler::instance->usb)
-        return DeviceHandler::instance->usb->GetFSName(dev-USB1);
-    else if(dev == GCSDA && DeviceHandler::instance->gca)
-        return DeviceHandler::instance->gca->GetFSName(0);
-    else if(dev == GCSDB && DeviceHandler::instance->gcb)
-        return DeviceHandler::instance->gcb->GetFSName(0);
+	if(dev == SD && DeviceHandler::instance->sd)
+	{
+		return DeviceHandler::instance->sd->GetFSName(0);
+	}
+	else if(dev >= USB1 && dev <= USB8)
+	{
+		int partCount0 = 0;
+		int partCount1 = 0;
+		if(DeviceHandler::instance->usb0)
+			partCount0 += DeviceHandler::instance->usb0->GetPartitionCount();
+		if(DeviceHandler::instance->usb1)
+			partCount1 += DeviceHandler::instance->usb1->GetPartitionCount();
 
-    return NULL;
+		if(dev-USB1 < partCount0 && DeviceHandler::instance->usb0)
+			return DeviceHandler::instance->usb0->GetFSName(dev-USB1);
+		else if(DeviceHandler::instance->usb1)
+			return DeviceHandler::instance->usb1->GetFSName(dev-USB1-partCount0);
+	}
+
+	return "";
 }
 
 int DeviceHandler::GetFSType(int dev)
 {
-	const char *name = GetFSName(dev);
-	if(!name) return -1;
+	if(!instance)
+		return -1;
 
-	if (strncasecmp(name, "WBFS", 4) == 0)
+	const char *FSName = GetFSName(dev);
+	if(!FSName) return -1;
+
+	if(strncmp(FSName, "WBFS", 4) == 0)
 		return PART_FS_WBFS;
-	else if (strncasecmp(name, "FAT", 3) == 0)
+	else if(strncmp(FSName, "FAT", 3) == 0)
 		return PART_FS_FAT;
-	else if (strncasecmp(name, "NTFS", 4) == 0)
+	else if(strncmp(FSName, "NTFS", 4) == 0)
 		return PART_FS_NTFS;
-	else if (strncasecmp(name, "LINUX", 5) == 0)
+	else if(strncmp(FSName, "LINUX", 4) == 0)
 		return PART_FS_EXT;
 
 	return -1;
 }
 
-s16 DeviceHandler::GetMountedCount(int dev)
+
+u16 DeviceHandler::GetUSBPartitionCount()
 {
-	if(dev == SD && DeviceHandler::instance->sd && IsInserted(SD))
-		return 1;
-	else if(dev >= USB1 && dev <= USB8 && DeviceHandler::instance->usb)
-		for(int i = 0; i < usb->GetPartitionCount(); i++)
-		{
-			if(!IsInserted(i)) return i;
-		}
-	else if(dev == GCSDA && DeviceHandler::instance->gca && IsInserted(GCSDA))
-		return 1;
-	else if(dev == GCSDB && DeviceHandler::instance->gcb && IsInserted(GCSDB))
-		return 1;
-		
-	return -1;
+	if(!instance)
+		return 0;
+
+	u16 partCount0 = 0;
+	u16 partCount1 = 0;
+	if(instance->usb0)
+		partCount0 = instance->usb0->GetPartitionCount();
+	if(instance->usb1)
+		partCount1 = instance->usb1->GetPartitionCount();
+
+	return partCount0+partCount1;
 }
 
 wbfs_t * DeviceHandler::GetWbfsHandle(int dev)
 {
     if(dev == SD && DeviceHandler::instance->sd)
         return DeviceHandler::instance->sd->GetWbfsHandle(0);
-	else if(dev >= USB1 && dev <= USB8 && DeviceHandler::instance->usb)
-        return DeviceHandler::instance->usb->GetWbfsHandle(dev-USB1);
-    else if(dev == GCSDA && DeviceHandler::instance->gca)
-        return DeviceHandler::instance->gca->GetWbfsHandle(0);
-    else if(dev == GCSDB && DeviceHandler::instance->gcb)
-        return DeviceHandler::instance->gcb->GetWbfsHandle(0);
+	else if(dev >= USB1 && dev <= USB8 && DeviceHandler::instance->usb0)
+        return DeviceHandler::instance->usb0->GetWbfsHandle(dev-USB1);
+	else if(dev >= USB1 && dev <= USB8 && DeviceHandler::instance->usb1)
+        return DeviceHandler::instance->usb1->GetWbfsHandle(dev-USB1);
 
     return NULL;
 }
 
 s32 DeviceHandler::Open_WBFS(int dev)
 {
-	u32 part_lba;
+	u32 part_lba, part_idx = 1;
 	u32 part_fs = GetFSType(dev);
 	char *partition = (char *)DeviceName[dev];
 
 	if(dev == SD && IsInserted(dev))
 		part_lba = Instance()->sd->GetLBAStart(dev);
 	else if(dev >= USB1 && dev <= USB8 && IsInserted(dev))
-		part_lba = Instance()->usb->GetLBAStart(dev - USB1);
-	else if(dev == GCSDA && IsInserted(dev))
-		part_lba = Instance()->gca->GetLBAStart(dev);
-	else if(dev == GCSDB && IsInserted(dev))
-		part_lba = Instance()->gcb->GetLBAStart(dev);
-	else return -1;
+	{
+		part_idx = dev;
+		part_lba = Instance()->usb0->GetLBAStart(dev - USB1);
+	}
+	else
+		return -1;
 
-	return WBFS_Init(GetWbfsHandle(dev), part_fs, part_lba, partition, dev);
+	return WBFS_Init(GetWbfsHandle(dev), part_fs, part_idx, part_lba, partition, dev);
+}
+
+int DeviceHandler::PartitionToUSBPort(int part)
+{
+	if(!DeviceHandler::instance)
+		return 0;
+
+	u16 partCount0 = 0;
+	if(DeviceHandler::instance->usb0)
+		partCount0 = instance->usb0->GetPartitionCount();
+
+	if(!instance->usb0 || part >= partCount0)
+		return 1;
+	else
+		return 0;
+}
+
+int DeviceHandler::PartitionToPortPartition(int part)
+{
+	if(!DeviceHandler::instance)
+		return 0;
+
+	u16 partCount0 = 0;
+	if(instance->usb0)
+		partCount0 = instance->usb0->GetPartitionCount();
+
+	if(!instance->usb0 || part >= partCount0)
+		return part-partCount0;
+	else
+		return part;
+}
+
+PartitionHandle *DeviceHandler::GetUSBHandleFromPartition(int part) const
+{
+	if(PartitionToUSBPort(part) == 0)
+		return usb0;
+	else
+		return usb1;
 }

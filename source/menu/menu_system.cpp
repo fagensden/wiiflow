@@ -1,15 +1,10 @@
-#include "svnrev.h"
-#include "menu.hpp"
 
+#include "menu.hpp"
+#include "svnrev.h"
+#include "defines.h"
+#include "lockMutex.hpp"
 #include "loader/sys.h"
 #include "loader/wbfs.h"
-#include "gecko.h"
-#include "lockMutex.hpp"
-#include "defines.h"
-
-#define newIOS 249
-
-extern int mainIOS;
 
 int version_num = 0, num_versions = 0, i;
 int CMenu::_version[9] = {0, atoi(SVN_REV), atoi(SVN_REV), atoi(SVN_REV), atoi(SVN_REV), atoi(SVN_REV), atoi(SVN_REV), atoi(SVN_REV), atoi(SVN_REV)};
@@ -227,8 +222,8 @@ void CMenu::_hideSystem(bool instant)
 	m_btnMgr.hide(m_systemLblVerSelectVal);
 	m_btnMgr.hide(m_systemBtnVerSelectM);
 	m_btnMgr.hide(m_systemBtnVerSelectP);
-	for (u32 i = 0; i < ARRAY_SIZE(m_systemLblUser); ++i)
-		if (m_systemLblUser[i] != -1u)
+	for(u8 i = 0; i < ARRAY_SIZE(m_systemLblUser); ++i)
+		if(m_systemLblUser[i] != (u16)-1)
 			m_btnMgr.hide(m_systemLblUser[i], instant);
 }
 
@@ -239,13 +234,13 @@ void CMenu::_showSystem(void)
 	m_btnMgr.show(m_systemLblVersionTxt);
 	m_btnMgr.show(m_systemLblVersion);
 	m_btnMgr.show(m_systemBtnBack);
-	m_btnMgr.show(m_systemLblInfo,false,true);
+	m_btnMgr.show(m_systemLblInfo,false);
 	m_btnMgr.show(m_systemLblVerSelectVal);
 	m_btnMgr.show(m_systemBtnVerSelectM);
 	m_btnMgr.show(m_systemBtnVerSelectP);
 	m_btnMgr.show(m_systemBtnDownload);
-	for (u32 i = 0; i < ARRAY_SIZE(m_systemLblUser); ++i)
-		if (m_systemLblUser[i] != -1u)
+	for(u8 i = 0; i < ARRAY_SIZE(m_systemLblUser); ++i)
+		if(m_systemLblUser[i] != (u16)-1)
 			m_btnMgr.show(m_systemLblUser[i]);
 	_textSystem();
 }
@@ -267,7 +262,7 @@ void CMenu::_initSystemMenu(CMenu::SThemeData &theme)
 	m_systemBtnVerSelectM = _addPicButton(theme, "SYSTEM/VER_SELECT_MINUS", theme.btnTexMinus, theme.btnTexMinusS, 240, 150, 56, 56);
 	m_systemBtnVerSelectP = _addPicButton(theme, "SYSTEM/VER_SELECT_PLUS", theme.btnTexPlus, theme.btnTexPlusS, 346, 150, 56, 56);
 	// 
-	_setHideAnim(m_systemLblTitle, "SYSTEM/TITLE", 0, 100, 0.f, 0.f);
+	_setHideAnim(m_systemLblTitle, "SYSTEM/TITLE", 0, 0, -2.f, 0.f);
 	_setHideAnim(m_systemBtnDownload, "SYSTEM/DOWNLOAD_BTN", 0, 0, -2.f, 0.f);
 	_setHideAnim(m_systemBtnBack, "SYSTEM/BACK_BTN", 0, 0, -2.f, 0.f);
 	_setHideAnim(m_systemLblVersionTxt, "SYSTEM/VERSION_TXT", -100, 0, 0.f, 0.f);

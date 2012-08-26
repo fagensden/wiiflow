@@ -4,17 +4,15 @@
 #ifndef __GUI_HPP
 #define __GUI_HPP
 
-#include "wiiuse/wpad.h"
 #include <ogc/pad.h>
+#include "wiiuse/wpad.h"
 
 #include "video.hpp"
 #include "FreeTypeGX.h"
-#include "wstringEx.hpp"
-#include "smartptr.hpp"
 #include "text.hpp"
-#include "gui_sound.h"
-
-#include "safe_vector.hpp"
+#include "memory/smartptr.hpp"
+#include "music/gui_sound.h"
+#include "wstringEx/wstringEx.hpp"
 
 struct SButtonTextureSet
 {
@@ -32,33 +30,35 @@ public:
 	bool init(CVideo &vid);
 	void setRumble(bool enabled) { m_rumbleEnabled = enabled; }
 	void reserve(u32 capacity) { m_elts.reserve(capacity); }
-	u32 addButton(SFont font, const wstringEx &text, int x, int y, u32 width, u32 height, const CColor &color,
+	u16 addButton(SFont font, const wstringEx &text, int x, int y, u32 width, u32 height, const CColor &color,
 		const SButtonTextureSet &texSet, const SmartGuiSound &clickSound = _noSound, const SmartGuiSound &hoverSound = _noSound);
-	u32 addLabel(SFont font, const wstringEx &text, int x, int y, u32 width, u32 height, const CColor &color, u16 style, const STexture &bg = _noTexture);
-	u32 addPicButton(const u8 *pngNormal, const u8 *pngSelected, int x, int y, u32 width, u32 height,
+	u16 addLabel(SFont font, const wstringEx &text, int x, int y, u32 width, u32 height, const CColor &color, u16 style, const STexture &bg = _noTexture);
+	u16 addPicButton(const u8 *pngNormal, const u8 *pngSelected, int x, int y, u32 width, u32 height,
 		const SmartGuiSound &clickSound = _noSound, const SmartGuiSound &hoverSound = _noSound);
-	u32 addPicButton(STexture &texNormal, STexture &texSelected, int x, int y, u32 width, u32 height,
+	u16 addPicButton(STexture &texNormal, STexture &texSelected, int x, int y, u32 width, u32 height,
 		const SmartGuiSound &clickSound = _noSound, const SmartGuiSound &hoverSound = _noSound);
-	u32 addProgressBar(int x, int y, u32 width, u32 height, SButtonTextureSet &texSet);
-	void setText(u32 id, const wstringEx &text, bool unwrap = false);
-	void setText(u32 id, const wstringEx &text, u32 startline, bool unwrap = false);
-	void setTexture(u32 id ,STexture &bg);
-	void setTexture(u32 id, STexture &bg, int width, int height);
-	void setProgress(u32 id, float f, bool instant = false);
-	void reset(u32 id, bool instant = false);
-	void moveBy(u32 id, int x, int y, bool instant = false);
-	void getDimensions(u32 id, int &x, int &y, u32 &width, u32 &height);
-	void hide(u32 id, int dx, int dy, float scaleX, float scaleY, bool instant = false);
-	void hide(u32 id, bool instant = false);
-	void show(u32 id, bool instant = false, bool synopsis = false);
+	u16 addProgressBar(int x, int y, u32 width, u32 height, SButtonTextureSet &texSet);
+	void setText(u16 id, const wstringEx &text, bool unwrap = false);
+	void setText(u16 id, const wstringEx &text, u32 startline, bool unwrap = false);
+	void setBtnTexture(u16 id, STexture &texNormal, STexture &texSelected);
+	void setTexture(u16 id ,STexture &bg);
+	void setTexture(u16 id, STexture &bg, int width, int height);
+	void setProgress(u16 id, float f, bool instant = false);
+	void reset(u16 id, bool instant = false);
+	void moveBy(u16 id, int x, int y, bool instant = false);
+	void getDimensions(u16 id, int &x, int &y, u32 &width, u32 &height);
+	void hide(u16 id, int dx, int dy, float scaleX, float scaleY, bool instant = false);
+	void hide(u16 id, bool instant = false);
+	void show(u16 id, bool instant = false);
 	void mouse(int chan, int x, int y);
 	void up(void);
 	void down(void);
 	void draw(void);
 	void tick(void);
 	void noClick(bool noclick = false);
-	void click(u32 id = (u32)-1);
-	bool selected(u32 button = (u32)-1);
+	void noHover(bool nohover = false);
+	void click(u16 id = (u32)-1);
+	bool selected(u16 button = (u32)-1);
 	void setRumble(int, bool wii = false, bool gc = false);
 	void deselect(void){ for(int chan = WPAD_MAX_WIIMOTES-1; chan >= 0; chan--) m_selected[chan] = (u32)-1; }
 	void stopSounds(void);
@@ -137,7 +137,7 @@ private:
 		virtual void tick(void);
 	};
 private:
-	safe_vector<SmartPtr<SElement> > m_elts;
+	vector<SmartPtr<SElement> > m_elts;
 	u32 m_selected[WPAD_MAX_WIIMOTES];
 	bool m_rumbleEnabled;
 	u8 m_rumble[WPAD_MAX_WIIMOTES];
@@ -147,6 +147,7 @@ private:
 	SmartGuiSound m_sndClick;
 	u8 m_soundVolume;
 	bool m_noclick;
+	bool m_nohover;
 	CVideo m_vid;
 private:
 	void _drawBtn(const SButton &b, bool selected, bool click);

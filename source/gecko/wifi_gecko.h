@@ -26,8 +26,6 @@
 #ifndef WIFI_GECKO_H_
 #define WIFI_GECKO_H_
 
-#include "utils.h"
-
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -36,7 +34,6 @@ void WifiGecko_Init(const char *ip, u16 port);
 int WifiGecko_Connect();
 void WifiGecko_Close();
 int WifiGecko_Send(const char * data, int datasize);
-void wifi_printf(const char * format, ...);
 
 #ifdef __cplusplus
 }

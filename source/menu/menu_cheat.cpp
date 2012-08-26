@@ -1,12 +1,11 @@
 #include <string.h>
 #include <gccore.h>
 
-#include "text.hpp"
-#include "lockMutex.hpp"
-
 #include "menu.hpp"
-#include "http.h"
-#include "sys.h"
+#include "lockMutex.hpp"
+#include "gui/text.hpp"
+#include "loader/sys.h"
+#include "network/http.h"
 
 #define GECKOURL "http://geckocodes.org/codes/%c/%s.txt"
 #define CHEATSPERPAGE 4
@@ -29,7 +28,8 @@ void CMenu::_showCheatDownload(void)
 u32 CMenu::_downloadCheatFileAsync(void *obj)
 {
 	CMenu *m = (CMenu *)obj;
-	if (!m->m_thrdWorking) return 0;
+	if (!m->m_thrdWorking)
+		return 0;
 
 	m->m_thrdStop = false;
 
@@ -42,7 +42,7 @@ u32 CMenu::_downloadCheatFileAsync(void *obj)
 		m->m_thrdWorking = false;
 		return -1;
 	}
-	
+
 	u32 bufferSize = 0x080000;	// Maximum download size 512kb
 	SmartBuf buffer = smartAnyAlloc(bufferSize);
 	if (!buffer)
@@ -54,7 +54,7 @@ u32 CMenu::_downloadCheatFileAsync(void *obj)
 	string id = m->m_cf.getId();
 	char type = id[0] == 'S' ? 'R' : id[0];
 
-	block cheatfile = downloadfile(buffer.get(), bufferSize, sfmt(GECKOURL, type, id.c_str()).c_str(),CMenu::_downloadProgress, m);
+	block cheatfile = downloadfile(buffer.get(), bufferSize, fmt(GECKOURL, type, id.c_str()), CMenu::_downloadProgress, m);
 
 	if (cheatfile.data != NULL && cheatfile.size > 65 && cheatfile.data[0] != '<')
 	{
@@ -63,12 +63,14 @@ u32 CMenu::_downloadCheatFileAsync(void *obj)
 		if (file != NULL)
 		{
 			fwrite(cheatfile.data, 1, cheatfile.size, file);
-			SAFE_CLOSE(file);
+			fclose(file);
+			buffer.release();
 			m->m_thrdWorking = false;
 			return 0;
 		}
 	}
-	
+
+	buffer.release();
 	m->m_thrdWorking = false;
 	return -3;
 }
@@ -274,8 +276,8 @@ void CMenu::_hideCheatSettings(bool instant)
 		m_btnMgr.hide(m_cheatLblItem[i], instant);
 	}
 	
-	for (u32 i = 0; i < ARRAY_SIZE(m_cheatLblUser); ++i)
-		if (m_cheatLblUser[i] != -1u)
+	for(u8 i = 0; i < ARRAY_SIZE(m_cheatLblUser); ++i)
+		if(m_cheatLblUser[i] != (u16)-1)
 			m_btnMgr.hide(m_cheatLblUser[i], instant);
 }
 
@@ -285,8 +287,8 @@ void CMenu::_showCheatSettings(void)
 	m_btnMgr.show(m_cheatBtnBack);
 	m_btnMgr.show(m_cheatLblTitle);
 
-	for (u32 i = 0; i < ARRAY_SIZE(m_cheatLblUser); ++i)
-		if (m_cheatLblUser[i] != -1u)
+	for(u8 i = 0; i < ARRAY_SIZE(m_cheatLblUser); ++i)
+		if(m_cheatLblUser[i] != (u16)-1)
 			m_btnMgr.show(m_cheatLblUser[i]);
 
 	if (m_cheatfile.getCnt() > 0)
@@ -360,8 +362,8 @@ void CMenu::_initCheatSettingsMenu(CMenu::SThemeData &theme)
 	_setHideAnim(m_cheatBtnPageP, "CHEAT/PAGE_PLUS", 0, 0, 1.f, -1.f);
 	
 	for (int i=0;i<CHEATSPERPAGE;++i) {
-		_setHideAnim(m_cheatLblItem[i], sfmt("CHEAT/ITEM_%i", i).c_str(), -200, 0, 1.f, 0.f);
-		_setHideAnim(m_cheatBtnItem[i], sfmt("CHEAT/ITEM_%i_BTN", i).c_str(), 200, 0, 1.f, 0.f);
+		_setHideAnim(m_cheatLblItem[i], fmt("CHEAT/ITEM_%i", i), -200, 0, 1.f, 0.f);
+		_setHideAnim(m_cheatBtnItem[i], fmt("CHEAT/ITEM_%i_BTN", i), 200, 0, 1.f, 0.f);
 	}
 	
 	_hideCheatSettings();

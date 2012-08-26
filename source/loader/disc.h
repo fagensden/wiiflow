@@ -1,19 +1,9 @@
+
 #ifndef _DISC_H_
 #define _DISC_H_
 
-#ifndef APPLOADER_START		/* Also defined in mem2.hpp */
-#define APPLOADER_START (void *)0x81200000
-#endif
-#ifndef APPLOADER_END		/* Also defined in mem2.hpp */
-#define APPLOADER_END (void *)0x81700000
-#endif
-
-#define	Sys_Magic	((vu32*)0x80000020)
-#define	Version		((vu32*)0x80000024)
-#define	Arena_L		((vu32*)0x80000030)
-#define	BI2			((vu32*)0x800000F4)
-#define	Bus_Speed	((vu32*)0x800000F8)
-#define	CPU_Speed	((vu32*)0x800000Fc)
+#define WII_MAGIC				0x5D1C9EA3
+#define GC_MAGIC				0xC2339F3D
 
 /* Disc header structure */
 struct discHdr
@@ -56,13 +46,6 @@ struct discHdr
 	u8 unused3[26];
 } ATTRIBUTE_PACKED;
 
-struct dir_discHdr
-{
-	struct discHdr hdr;
-	char path[256];
-	wchar_t title[64];
-} ATTRIBUTE_PACKED;
-
 struct gc_discHdr
 {
 	/* Game ID */
@@ -88,22 +71,38 @@ struct gc_discHdr
 	u8 unused2[64];
 } ATTRIBUTE_PACKED;
 
+struct dir_discHdr
+{
+	char id[7]; //6+1 for null character
+
+	char path[256];
+	wchar_t title[64];
+	u32 settings[2]; //chantitle, plugin magic, crc32, gamecube game on sd, etc
+
+	u8 type;
+
+	u32 casecolor;
+	u16 index;
+	u8 esrb;
+	u8 controllers;
+	u8 players;
+	u8 wifi;
+} ATTRIBUTE_PACKED;
+
 #ifdef __cplusplus
 extern "C" {
 #endif /* __cplusplus */
 
-	/* Prototypes */
-	s32	Disc_Init(void);
-	s32	Disc_Open(void);
-	s32	Disc_Wait(void);
-	s32	Disc_SetUSB(const u8 *);
-	s32	Disc_ReadHeader(void *);
-	s32 Disc_ReadGCHeader(void *);
-	s32 Disc_Type(bool);
-	s32	Disc_IsWii(void);
-	s32	Disc_IsGC(void);
-	s32	Disc_BootPartition(u64, u8, bool, bool, u8, bool, int);
-	s32	Disc_WiiBoot(u8, bool, bool, u8, bool, int);
+/* Prototypes */
+s32	Disc_Init(void);
+s32	Disc_Open(bool);
+s32	Disc_Wait(void);
+s32	Disc_SetUSB(const u8 *id, bool frag);
+s32	Disc_ReadHeader(void *);
+s32 Disc_ReadGCHeader(void *);
+s32 Disc_Type(bool);
+s32	Disc_IsWii(void);
+s32	Disc_IsGC(void);
 
 #ifdef __cplusplus
 }

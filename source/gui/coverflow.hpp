@@ -6,19 +6,20 @@
 #include <ogcsys.h>
 #include <gccore.h>
 #include <string>
-#include "safe_vector.hpp"
 
 #include "wiiuse/wpad.h"
 #include <ogc/pad.h>
 
 #include "video.hpp"
-#include "smartptr.hpp"
 #include "FreeTypeGX.h"
 #include "text.hpp"
-#include "config.hpp"
-#include "gui_sound.h"
-#include "disc.h"
-#include "utils.h"
+#include "config/config.hpp"
+#include "loader/disc.h"
+#include "loader/utils.h"
+#include "memory/smartptr.hpp"
+#include "music/gui_sound.h"
+
+using namespace std;
 
 enum Sorting
 {
@@ -39,9 +40,10 @@ public:
 	CCoverFlow(void);
 	~CCoverFlow(void);
 	// 
-	bool init(const SmartBuf &font, u32 font_size);
+	bool init(const SmartBuf &font, u32 font_size, bool vid_50hz);
 	// Cover list management
 	void clear(void);
+	void shutdown(void);
 	void reserve(u32 capacity);
 	void addItem(dir_discHdr *hdr, const char *picPath, const char *boxPicPath, int playcount = 0, unsigned int lastPlayed = 0);
 	bool empty(void) const { return m_items.empty(); }
@@ -82,10 +84,11 @@ public:
 	void setCompression(bool enable) { m_compressTextures = enable; }
 	bool getBoxMode(void) const { return m_box;}
 	void setBufferSize(u32 numCovers);
-	void setTextures(const std::string &loadingPic, const std::string &loadingPicFlat, const std::string &noCoverPic, const std::string &noCoverPicFlat);
+	void setTextures(const string &loadingPic, const string &loadingPicFlat, const string &noCoverPic, const string &noCoverPicFlat);
 	void setFont(SFont font, const CColor &color);
 	void setRange(u32 rows, u32 columns);
 	void setBoxMode(bool box);
+	void setHQcover(bool HQ);
 	void setTextureQuality(float lodBias, int aniso, bool edgeLOD);
 	void setCameraPos(bool selected, const Vector3D &pos, const Vector3D &aim);
 	void setCameraOsc(bool selected, const Vector3D &speed, const Vector3D &amp);
@@ -123,8 +126,8 @@ public:
 	bool fullCoverCached(const char *id);
 	bool preCacheCover(const char *id, const u8 *png, bool full);
 	// 
-	std::string getId(void) const;
-	std::string getNextId(void) const;
+	string getId(void) const;
+	string getNextId(void) const;
 	dir_discHdr * getHdr(void) const;
 	dir_discHdr * getNextHdr(void) const;
 	wstringEx getTitle(void) const;
@@ -185,8 +188,8 @@ private:
 	struct CItem
 	{
 		dir_discHdr *hdr;
-		std::string picPath;
-		std::string boxPicPath;
+		string picPath;
+		string boxPicPath;
 		int playcount;
 		unsigned int lastPlayed;
 		STexture texture;
@@ -226,8 +229,8 @@ private:
 	Vector3D m_cameraAim;
 	Vector3D m_targetCameraPos;
 	Vector3D m_targetCameraAim;
-	safe_vector<CItem> m_items;
-	safe_vector<CCover> m_covers;
+	vector<CItem> m_items;
+	vector<CCover> m_covers;
 	int m_delay;
 	int m_minDelay;
 	int m_jump;
@@ -246,16 +249,18 @@ private:
 	STexture m_dvdSkin_GreenOne;
 	STexture m_dvdSkin_GreenTwo;
 	// Settings
-	std::string m_pngLoadCover;
-	std::string m_pngLoadCoverFlat;
-	std::string m_pngNoCover;
-	std::string m_pngNoCoverFlat;
+	string m_pngLoadCover;
+	string m_pngLoadCoverFlat;
+	string m_pngNoCover;
+	string m_pngNoCoverFlat;
 	u32 m_numBufCovers;
 	SFont m_font;
 	CColor m_fontColor;
 	CColor m_fanartFontColor;
 	bool m_fanartPlaying;
 	bool m_box;
+	bool m_useHQcover;
+	bool m_dvdskin_loaded;
 	u32 m_range;
 	u32 m_rows;
 	u32 m_columns;
@@ -265,7 +270,7 @@ private:
 	bool m_hideCover;
 	bool m_compressTextures;
 	bool m_compressCache;
-	std::string m_cachePath;
+	string m_cachePath;
 	bool m_deletePicsAfterCaching;
 	bool m_mirrorBlur;
 	float m_mirrorAlpha;
@@ -323,12 +328,12 @@ private:
 	CLRet _loadCoverTex(u32 i, bool box, bool hq);
 	bool _invisibleCover(u32 x, u32 y);
 	void _instantTarget(int i);
-	void _transposeCover(safe_vector<CCover> &dst, u32 rows, u32 columns, int pos);
+	void _transposeCover(vector<CCover> &dst, u32 rows, u32 columns, int pos);
 	void _playSound(void);
 	
 	void _stopSound(SmartGuiSound snd);
 	void _playSound(SmartGuiSound snd);
-	
+
 	static bool _sortByPlayCount(CItem item1, CItem item2);
 	static bool _sortByLastPlayed(CItem item1, CItem item2);
 	static bool _sortByGameID(CItem item1, CItem item2);

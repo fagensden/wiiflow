@@ -27,11 +27,10 @@
  ***************************************************************************/
 #include <unistd.h>
 #include <asndlib.h>
-#include "wiiuse/wpad.h"
 
 #include "WiiMovie.hpp"
-#include "musicplayer.h"
-#include "gecko.h"
+#include "gecko/gecko.h"
+#include "memory/mem2.hpp"
 
 #define SND_BUFFERS     8
 #define FRAME_BUFFERS	8
@@ -75,7 +74,7 @@ WiiMovie::WiiMovie(const char * filepath)
 	}
 
 	PlayThreadStack = NULL;
-	ThreadStack = (u8 *) memalign(32, 32768);
+	ThreadStack = (u8 *)malloc(32768);
 	if (!ThreadStack)
 		return;
 
@@ -97,8 +96,6 @@ WiiMovie::~WiiMovie()
     LWP_MutexDestroy(mutex);
 
     ASND_StopVoice(10);
-	MusicPlayer::Instance()->Play();
-	
 	if (ReadThread != LWP_THREAD_NULL)
 	{
 		LWP_ResumeThread(ReadThread);
@@ -111,7 +108,7 @@ WiiMovie::~WiiMovie()
 	}
 	if (ThreadStack != NULL)
 	{
-		SAFE_FREE(ThreadStack);
+		free(ThreadStack);
 		ThreadStack = NULL;
 	}
 
@@ -129,8 +126,9 @@ bool WiiMovie::Play(bool loop)
 
 	gprintf("Start playing video\n");
 
-	PlayThreadStack = (u8 *) memalign(32, 32768);
-	if (PlayThreadStack == NULL) return false;
+	PlayThreadStack = (u8 *)malloc(32768);
+	if (PlayThreadStack == NULL)
+		return false;
 
     Playing = true;
     PlayTime.reset();
@@ -150,13 +148,13 @@ void WiiMovie::Stop()
 	gprintf("Stopping WiiMovie video\n");
     ExitRequested = true;
 	if (PlayThread != LWP_THREAD_NULL)
-	{
 		LWP_JoinThread(PlayThread, NULL);
-	}
+
 	PlayThread = LWP_THREAD_NULL;
 	gprintf("Playing thread stopped\n");
 
-	SAFE_FREE(PlayThreadStack);
+	if(PlayThreadStack != NULL)
+		free(PlayThreadStack);
 }
 
 void WiiMovie::SetVolume(int vol)

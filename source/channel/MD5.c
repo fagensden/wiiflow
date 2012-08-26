@@ -81,12 +81,9 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include <malloc.h>
 #include <ctype.h>
 
 #include "MD5.h"
-#include "utils.h"
-#include "mem2.hpp"
 
 /* -------------------------------------------------------------------------- **
  * Static Constants:
@@ -568,12 +565,11 @@ unsigned char * MD5fromFile(unsigned char *dst, const char *src)
     else
         blksize = 1048576;
 
-    unsigned char * buffer = MEM2_alloc(blksize);
-
-    if(!!buffer)
+    unsigned char * buffer = malloc(blksize);
+    if(buffer == NULL)
 	{
 	    //no memory
-        SAFE_CLOSE(file);
+        fclose(file);
 		return NULL;
 	}
 
@@ -581,11 +577,10 @@ unsigned char * MD5fromFile(unsigned char *dst, const char *src)
 	{
 	    read = fread(buffer, 1, blksize, file);
         (void)auth_md5SumCtx( ctx, buffer, read );    /* Pass only one block. */
-
 	} while(read > 0);
 
-    SAFE_CLOSE(file);
-    SAFE_FREE(buffer);
+    fclose(file);
+    free(buffer);
 
     (void)auth_md5CloseCtx( ctx, dst );       /* Close the context.   */
 

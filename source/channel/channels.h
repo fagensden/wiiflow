@@ -29,10 +29,10 @@
 #ifndef _CHANNELS_H_
 #define _CHANNELS_H_
 
-#include "safe_vector.hpp"
+#include <vector>
 #include <string>
 
-#include "smartptr.hpp"
+#include "memory/smartptr.hpp"
 #include "banner.h"
 
 #define IMET_MAX_NAME_LEN 0x2a
@@ -54,10 +54,9 @@ class Channels
 
 		void Init(u32 channelType, string lang, bool reload = false);
 
-		u8 * Load(u64 title, char* id);
+		u32 Load(u64 title);
 		u8 GetRequestedIOS(u64 title);
-		bool Launch(u8 *data, u64 chantitle, u8 vidMode, bool vipatch, bool countryString, u8 patchVidMode, bool disableIOSreload, int aspectRatio);
-		
+
 		int Count();
 		wchar_t *GetName(int index);
 		char *GetId(int index);
@@ -70,7 +69,7 @@ class Channels
 		u32 channelType;
 		string langCode;
 
-		safe_vector<Channel> channels;
+		vector<Channel> channels;
 		
 		static int GetLanguage(const char *lang);
 		u64* GetChannelList(u32* count);

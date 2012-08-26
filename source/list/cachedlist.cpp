@@ -1,8 +1,7 @@
 #include "cachedlist.hpp"
 #include <typeinfo>
 
-template <class T>
-void CachedList<T>::Load(string path, string containing, string m_lastLanguage)													/* Load All */
+void CachedList::Load(string path, string containing, string m_lastLanguage, Config &m_plugin)													/* Load All */
 {
 	gprintf("\nLoading files containing %s in %s\n", containing.c_str(), path.c_str());
 	m_loaded = false;
@@ -13,45 +12,49 @@ void CachedList<T>::Load(string path, string containing, string m_lastLanguage)	
 	bool update_games = false;
 	bool update_homebrew = false;
 	bool update_dml = false;
+	bool update_emu = false;
+
 	bool ditimes = false;
-	bool music = typeid(T) == typeid(std::string);
-	if(music)
-		gprintf("Loading music list from path: %s\n",path.c_str());
-	else if(!m_wbfsFS)
+	if(!m_wbfsFS)
 	{
 		gprintf("Database file: %s\n", m_database.c_str());
 		
 		update_games = strcasestr(path.c_str(), "wbfs") != NULL && force_update[COVERFLOW_USB];
 		update_homebrew = strcasestr(path.c_str(), "apps") != NULL && force_update[COVERFLOW_HOMEBREW];
+		update_emu = strcasestr(path.c_str(), m_plugin.getString("PLUGIN","romDir","").c_str()) != NULL && force_update[COVERFLOW_EMU];
 
 		const char* partition = DeviceName[DeviceHandler::Instance()->PathToDriveType(path.c_str())];
-		update_dml = strcasestr(path.c_str(), sfmt(strncmp(partition, "sd", 2) != 0 ? m_DMLgameDir.c_str() : "%s:/games", partition).c_str()) != NULL && force_update[COVERFLOW_DML];
+		update_dml = strcasestr(path.c_str(), fmt(strncmp(partition, "sd", 2) != 0 ? m_DMLgameDir.c_str() : "%s:/games", partition)) != NULL && force_update[COVERFLOW_DML];
 
-		gprintf("update_games=%d update_homebrew=%d update_dml=%d\n", update_games, update_homebrew, update_dml);
-		if(update_games || update_homebrew || update_dml)
+		gprintf("update_games=%d update_homebrew=%d update_dml=%d, update_emu=%d\n", update_games, update_homebrew, update_dml, update_emu);
+		if(update_games || update_homebrew || update_dml || update_emu)
 			remove(m_database.c_str());
 
 		m_discinf = sfmt("%s/disc.info", path.c_str());
 		struct stat filestat, discinfo, cache;
 		gprintf("%s\n", path.c_str());
-		if(stat(path.c_str(), &filestat) == -1) return;			
-		
+		if(stat(path.c_str(), &filestat) == -1) 
+			return;
+
 		bool update_lang = m_lastLanguage != m_curLanguage;
 		bool noDB = stat(m_database.c_str(), &cache) == -1;
 		bool mtimes = filestat.st_mtime > cache.st_mtime;
 		if(strcasestr(m_discinf.c_str(), "wbfs") != NULL && stat(m_discinf.c_str(), &discinfo) != -1)		
-			ditimes = discinfo.st_mtime > cache.st_mtime;		
+			ditimes = discinfo.st_mtime > cache.st_mtime;
 
-		m_update = update_lang || noDB || mtimes || ditimes;
-		if(m_update) gprintf("Cache of %s is being updated because ", path.c_str());
-		if(update_lang) gprintf("languages are different!\nOld language string: %s\nNew language string: %s\n", m_lastLanguage.c_str(), m_curLanguage.c_str());
-		if(noDB) gprintf("a database was not found!\n");
-		if(mtimes || ditimes) gprintf("the WBFS folder was modified!\n");
-	
-		if((strcasestr(path.c_str(), "wbfs") != NULL || strcasestr(path.c_str(), "games") != NULL) && m_extcheck && !m_update)
+		m_update = update_lang || noDB || (!m_skipcheck && (mtimes || ditimes));
+		if(m_update) 
+			gprintf("Cache of %s is being updated because:\n", path.c_str());
+		if(update_lang) 
+			gprintf("Languages are different!\nOld language string: %s\nNew language string: %s\n", m_lastLanguage.c_str(), m_curLanguage.c_str());
+		if(noDB) 
+			gprintf("A database was not found!\n");
+		if(!m_skipcheck && (mtimes || ditimes)) 
+			gprintf("The WBFS folder was modified!\nCache date: %i\nFolder date: %i\n", cache.st_mtime, filestat.st_mtime);
+
+		if(m_extcheck && !m_update && !m_skipcheck)
 		{
 			bool m_chupdate = false;
-	
 			DIR *dir = opendir(path.c_str());
 			struct dirent *entry;
 			while((entry = readdir(dir)) != NULL)
@@ -59,25 +62,27 @@ void CachedList<T>::Load(string path, string containing, string m_lastLanguage)	
 				m_discinf = sfmt("%s/%s", path.c_str(), entry->d_name);
 				if(stat(m_discinf.c_str(), &discinfo) != -1)
 					m_chupdate = discinfo.st_mtime > cache.st_mtime;
-			
 				if(m_chupdate)
 					break;
 			}
 			m_update = m_chupdate;
-		}	
+		}
 	}
 
-	if(update_games) force_update[COVERFLOW_USB] = false;
-	if(update_homebrew) force_update[COVERFLOW_HOMEBREW] = false;
-	if(update_dml) force_update[COVERFLOW_DML] = false;
+	if(update_games) 
+		force_update[COVERFLOW_USB] = false;
+	if(update_homebrew) 
+		force_update[COVERFLOW_HOMEBREW] = false;
+	if(update_dml) 
+		force_update[COVERFLOW_DML] = false;
 
-	if(m_update || m_wbfsFS || music)
+	if(m_update || m_wbfsFS)
 	{
 		gprintf("Calling list to update filelist\n");
 		
-		safe_vector<string> pathlist;
-		list.GetPaths(pathlist, containing, path, m_wbfsFS);
-		list.GetHeaders(pathlist, *this, m_settingsDir, m_curLanguage, m_DMLgameDir);
+		vector<string> pathlist;
+		list.GetPaths(pathlist, containing, path, m_wbfsFS, (update_dml || (m_update && strcasestr(path.c_str(), ":/games") != NULL)), !update_emu);
+		list.GetHeaders(pathlist, *this, m_settingsDir, m_curLanguage, m_DMLgameDir, m_plugin);
 
 		path.append("/touch.db");
 		FILE *file = fopen(path.c_str(), "wb");
@@ -85,23 +90,20 @@ void CachedList<T>::Load(string path, string containing, string m_lastLanguage)	
 		remove(path.c_str());
 		
 		m_loaded = true;
-		m_update = false;		
+		m_update = false;
 		
-		if(!music && pathlist.size() > 0)
-		{
+		if(pathlist.size() > 0)
 			Save();
-			pathlist.clear();
-		}
+		pathlist.clear();
 	}
 	else
-	{		
-		CCache<T>(*this, m_database, LOAD);
+	{
+		CCache(*this, m_database, LOAD);
 		m_loaded = true;
 	}
 }
 
-template<>
-void CachedList<dir_discHdr>::LoadChannels(string path, u32 channelType, string m_lastLanguage)													/* Load All */
+void CachedList::LoadChannels(string path, u32 channelType, string m_lastLanguage)													/* Load All */
 {
 	m_loaded = false;
 	m_update = true;
@@ -141,13 +143,12 @@ void CachedList<dir_discHdr>::LoadChannels(string path, u32 channelType, string 
 		if(this->size() > 0 && emu) Save();
 	}
 	else
-		CCache<dir_discHdr>(*this, m_database, LOAD);
+		CCache(*this, m_database, LOAD);
 
 	m_loaded = true;
 }
 
-template <class T>
-string CachedList<T>::make_db_name(string path)
+string CachedList::make_db_name(string path)
 {
 	string buffer = path;
 	size_t find = buffer.find(":/");
@@ -163,5 +164,3 @@ string CachedList<T>::make_db_name(string path)
 	return buffer;
 }
 
-template class CachedList<string>;
-template class CachedList<dir_discHdr>;

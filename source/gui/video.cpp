@@ -1,23 +1,33 @@
-#include "pngu.h"
-#include "video.hpp"
+
 #include <string.h>
-#include <wiilight.h>
-#include "gecko.h"
+#include <unistd.h>
+
+#include "video.hpp"
+#include "pngu.h"
+#include "Gekko.h"
+#include "gecko/gecko.h"
+#include "loader/utils.h"
 
 #define DEFAULT_FIFO_SIZE	(256 * 1024)
 
-using namespace std;
+extern const u8 wait_01_jpg[];
+extern const u32 wait_01_jpg_size;
+extern const u8 wait_02_jpg[];
+extern const u32 wait_02_jpg_size;
+extern const u8 wait_03_jpg[];
+extern const u32 wait_03_jpg_size;
+extern const u8 wait_04_jpg[];
+extern const u32 wait_04_jpg_size;
+extern const u8 wait_05_jpg[];
+extern const u32 wait_05_jpg_size;
+extern const u8 wait_06_jpg[];
+extern const u32 wait_06_jpg_size;
+extern const u8 wait_07_jpg[];
+extern const u32 wait_07_jpg_size;
+extern const u8 wait_08_jpg[];
+extern const u32 wait_08_jpg_size;
 
-extern const u8 wait_01_png[];
-extern const u8 wait_02_png[];
-extern const u8 wait_03_png[];
-extern const u8 wait_04_png[];
-extern const u8 wait_05_png[];
-extern const u8 wait_06_png[];
-extern const u8 wait_07_png[];
-extern const u8 wait_08_png[];
-extern const u8 wait_09_png[];
-extern const u8 wait_10_png[];
+vector<STexture> m_defaultWaitMessages;
 
 const float CVideo::_jitter2[2][2] = {
 	{ 0.246490f, 0.249999f },
@@ -71,12 +81,6 @@ const int CVideo::_stencilHeight = 128;
 static lwp_t waitThread = LWP_THREAD_NULL;
 SmartBuf waitThreadStack;
 
-extern "C"
-{
-	extern __typeof(malloc) __real_malloc;
-	extern __typeof(memalign) __real_memalign;
-}
-
 CVideo::CVideo(void) :
 	m_rmode(NULL), m_frameBuf(), m_curFB(0), m_fifo(NULL),
 	m_yScale(0.0f), m_xfbHeight(0), m_wide(false),
@@ -84,11 +88,6 @@ CVideo::CVideo(void) :
 	m_aaWidth(0), m_aaHeight(0), m_showWaitMessage(false), m_showingWaitMessages(false)
 {
 	memset(m_frameBuf, 0, sizeof m_frameBuf);
-}
-
-CVideo::~CVideo(void)
-{
-	cleanup();
 }
 
 void CColor::blend(const CColor &src)
@@ -122,16 +121,21 @@ void CVideo::setAA(u8 aa, bool alpha, int width, int height)
 
 void CVideo::init(void)
 {
+	/* General Video Init */
 	VIDEO_Init();
 	m_wide = CONF_GetAspectRatio() == CONF_ASPECT_16_9;
 	m_rmode = VIDEO_GetPreferredMode(NULL);
-
 	u32 type = CONF_GetVideo();
-
+	m_50hz = false;
+	if(m_rmode == &TVPal528IntDf)
+	{
+		m_rmode= &TVPal574IntDfScale;
+		m_50hz = true;
+	}
 	m_rmode->viWidth = m_wide ? 700 : 672;
 
 	//CONF_VIDEO_NTSC and CONF_VIDEO_MPAL and m_rmode TVEurgb60Hz480IntDf are the same max height and width.
-	if (type == CONF_VIDEO_PAL && m_rmode != &TVEurgb60Hz480IntDf)
+	if(type == CONF_VIDEO_PAL && m_rmode != &TVEurgb60Hz480IntDf)
 	{
 		m_rmode->viHeight = VI_MAX_HEIGHT_PAL;
 		m_rmode->viXOrigin = (VI_MAX_WIDTH_PAL - m_rmode->viWidth) / 2;
@@ -145,20 +149,14 @@ void CVideo::init(void)
 	}
 
 	s8 hoffset = 0;  //Use horizontal offset set in wii menu.
-	if (CONF_GetDisplayOffsetH(&hoffset) == 0)
+	if(CONF_GetDisplayOffsetH(&hoffset) == 0)
 		m_rmode->viXOrigin += hoffset;
 
+	/* GX Init */
 	m_frameBuf[0] = MEM_K0_TO_K1(SYS_AllocateFramebuffer(m_rmode));
 	m_frameBuf[1] = MEM_K0_TO_K1(SYS_AllocateFramebuffer(m_rmode));
-	VIDEO_Configure(m_rmode);
 	m_curFB = 0;
-	VIDEO_SetNextFramebuffer(m_frameBuf[m_curFB]);
-	VIDEO_SetBlack(FALSE);
-	VIDEO_Flush();
-	VIDEO_WaitVSync();
-	if (m_rmode->viTVMode & VI_NON_INTERLACE)
-		VIDEO_WaitVSync();
-	m_fifo = __real_memalign(32, DEFAULT_FIFO_SIZE);
+	m_fifo = memalign(32, DEFAULT_FIFO_SIZE);
 	memset(m_fifo, 0, DEFAULT_FIFO_SIZE);
 	GX_Init(m_fifo, DEFAULT_FIFO_SIZE);
 	GX_SetCopyClear(CColor(0), 0x00FFFFFF);
@@ -184,8 +182,29 @@ void CVideo::init(void)
 	GX_SetNumChans(0);
 	GX_SetZCompLoc(GX_ENABLE);
 	setup2DProjection();
-	m_stencil = smartMemAlign32(CVideo::_stencilWidth * CVideo::_stencilHeight);
-	memset(m_stencil.get(), 0, CVideo::_stencilWidth * CVideo::_stencilHeight);
+	GX_SetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
+	GX_SetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_CLR_RGBA, GX_RGBA8, 0);
+	for(u32 i = 0; i < 8; i++)
+		GX_SetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0+i, GX_TEX_ST, GX_F32, 0);
+	m_stencil = memalign(32, CVideo::_stencilWidth * CVideo::_stencilHeight);
+	memset(m_stencil, 0, CVideo::_stencilWidth * CVideo::_stencilHeight);
+
+	/* Configure Video */
+	VIDEO_Configure(m_rmode);
+	_clearScreen();
+	VIDEO_SetBlack(FALSE);
+	VIDEO_Flush();
+	VIDEO_WaitVSync();
+	if(m_rmode->viTVMode & VI_NON_INTERLACE)
+		VIDEO_WaitVSync();
+}
+
+void CVideo::_clearScreen()
+{
+	VIDEO_ClearFrameBuffer(m_rmode, m_frameBuf[0], COLOR_BLACK);
+	VIDEO_ClearFrameBuffer(m_rmode, m_frameBuf[1], COLOR_BLACK);
+	render();
+	render();
 }
 
 void CVideo::set2DViewport(u32 w, u32 h, int x, int y)
@@ -236,11 +255,32 @@ void CVideo::prepare(void)
 
 void CVideo::cleanup(void)
 {
-	for (u32 i = 0; i < sizeof m_aaBuffer / sizeof m_aaBuffer[0]; ++i)
+	gprintf("Cleaning up video...\n");
+
+	hideWaitMessage();
+	_clearScreen();
+
+	VIDEO_SetBlack(TRUE);
+	VIDEO_Flush();
+
+	GX_DrawDone();
+	GX_AbortFrame();
+
+	for(u8 i = 0; i < sizeof m_aaBuffer / sizeof m_aaBuffer[0]; ++i)
 	{
-		SMART_FREE(m_aaBuffer[i]);
+		if(m_aaBuffer[i].get())
+			m_aaBuffer[i].release();
 		m_aaBufferSize[i] = 0;
 	}
+	for(u8 i = 0; i < m_defaultWaitMessages.size(); i++)
+		m_defaultWaitMessages[i].data.release();
+	if(waitThreadStack.get())
+		waitThreadStack.release();
+
+	free(MEM_K1_TO_K0(m_frameBuf[0]));
+	free(MEM_K1_TO_K0(m_frameBuf[1]));
+	free(m_stencil);
+	free(m_fifo);
 }
 
 void CVideo::prepareAAPass(int aaStep)
@@ -323,13 +363,13 @@ void CVideo::drawAAScene(bool fs)
 
 	if (m_aa <= 0 || m_aa > 8)
 		return;
-	// 
+
 	for (aa = 0; aa < m_aa; ++aa)
 		if (!m_aaBuffer[aa])
 			break;
 	if (aa == 7)
 		aa = 6;
-	// 
+
 	GX_SetNumChans(0);
 	for (int i = 0; i < aa; ++i)
 	{
@@ -353,12 +393,12 @@ void CVideo::drawAAScene(bool fs)
 		GX_SetTevAlphaOp(GX_TEVSTAGE0 + i, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
 	}
 	GX_SetNumTevStages(aa);
-	// 
+
 	GX_SetAlphaUpdate(GX_TRUE);
 	GX_SetCullMode(GX_CULL_NONE);
 	GX_SetZMode(GX_DISABLE, GX_ALWAYS, GX_FALSE);
 	GX_SetBlendMode(GX_BM_NONE, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_CLEAR);
-	// 
+
 	GX_ClearVtxDesc();
 	GX_SetVtxDesc(GX_VA_POS, GX_DIRECT);
 	GX_SetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
@@ -409,7 +449,7 @@ int CVideo::stencilVal(int x, int y)
 	u32 i = coordsI8(x, y, (u32)CVideo::_stencilWidth);
 	if (i >= (u32)(CVideo::_stencilWidth * CVideo::_stencilHeight))
 		return 0;
-	return m_stencil.get()[i];
+	return ((u8*)m_stencil)[i];
 }
 
 void CVideo::prepareStencil(void)
@@ -429,9 +469,9 @@ void CVideo::renderStencil(void)
 	GX_SetCopyFilter(GX_FALSE, NULL, GX_FALSE, NULL);
 	GX_SetTexCopySrc(0, 0, CVideo::_stencilWidth, CVideo::_stencilHeight);
 	GX_SetTexCopyDst(CVideo::_stencilWidth, CVideo::_stencilHeight, GX_CTF_R8, GX_FALSE);
-	GX_CopyTex(m_stencil.get(), GX_TRUE);
+	GX_CopyTex(m_stencil, GX_TRUE);
 	GX_PixModeSync();
-	DCFlushRange(m_stencil.get(), CVideo::_stencilWidth * CVideo::_stencilHeight);
+	DCFlushRange(m_stencil, CVideo::_stencilWidth * CVideo::_stencilHeight);
 	GX_SetCopyFilter(m_rmode->aa, m_rmode->sample_pattern, GX_TRUE, m_rmode->vfilter);
 }
 
@@ -454,147 +494,107 @@ void CVideo::_showWaitMessages(CVideo *m)
 	m->m_showingWaitMessages = true;
 	u32 frames = m->m_waitMessageDelay * 50;
 	u32 waitFrames = frames;
-	
-	u8 fadeStep = 2 * (u32) (255.f / (waitFrames * m->m_waitMessages.size()));
+
 	s8 fadeDirection = 1;
+	s8 PNGfadeDirection = 1;
 	s16 currentLightLevel = 0;
 
-	safe_vector<STexture>::iterator waitItr = m->m_waitMessages.begin();
+	vector<STexture>::iterator waitItr = m->m_waitMessages.begin();
+	m->_clearScreen();
 
-	gprintf("Going to show a wait message screen, delay: %d, # images: %d\n", waitFrames, m->m_waitMessages.size());
+	m->prepare();
+	m->setup2DProjection();
+	wiiLightSetLevel(0);
+	wiiLightOn();
 
-	m->waitMessage(*waitItr);
-	waitItr++;
-
-	if (m->m_useWiiLight)
+	gprintf("Wait Message Thread: Start\nDelay: %d, Images: %d\n", waitFrames, m->m_waitMessages.size());
+	while(m->m_showWaitMessage)
 	{
-		WIILIGHT_SetLevel(0);
-		WIILIGHT_TurnOn();
-	}
-	while (m->m_showWaitMessage)
-	{
-		if (m->m_useWiiLight)
+		currentLightLevel += fadeDirection * 5;
+		if(currentLightLevel >= 255) 
 		{
-			currentLightLevel += (fadeStep * fadeDirection);
-			if (currentLightLevel >= 255) 
-			{
-				currentLightLevel = 255;
-				fadeDirection = -1;
-			}
-			else if (currentLightLevel <= 0)
-			{
-				currentLightLevel = 0;
-				fadeDirection = 1;
-			}
-			WIILIGHT_SetLevel(currentLightLevel);
+			currentLightLevel = 255;
+			fadeDirection = -1;
 		}
-		
-		if (waitFrames == 0)
+		else if(currentLightLevel <= 0)
 		{
-			if (waitItr == m->m_waitMessages.end())
-				waitItr = m->m_waitMessages.begin();
-			
-			while (!*waitItr->data) 
-			{
-				gprintf("Skipping one image, because loaded data is not valid\n");
-				waitItr++;
+			currentLightLevel = 0;
+			fadeDirection = 1;
+		}
+		wiiLightSetLevel(currentLightLevel);
 
-				if (waitItr == m->m_waitMessages.end())
-					waitItr = m->m_waitMessages.begin();
-			}
-			
+		if(waitFrames == 0)
+		{
 			m->waitMessage(*waitItr);
-			waitItr++;
-			
+			waitItr += PNGfadeDirection;
+			if(waitItr + 1 == m->m_waitMessages.end() || waitItr == m->m_waitMessages.begin())
+				PNGfadeDirection *= (-1);
 			waitFrames = frames;
 		}
+		else
+			VIDEO_WaitVSync();
 		waitFrames--;
-		VIDEO_WaitVSync();
 	}
-	if (m->m_useWiiLight)
-	{
-		WIILIGHT_SetLevel(0);
-		WIILIGHT_TurnOff();
-	}
-	m->m_waitMessages.clear();
-	//gprintf("Stop showing images\n");
+	wiiLightOff();
+	gprintf("Wait Message Thread: End\n");
 	m->m_showingWaitMessages = false;
-	gprintf("Stop showing images\n");
 }
 
 void CVideo::hideWaitMessage()
 {
-	gprintf("Now hide wait message\n");
 	m_showWaitMessage = false;
-	CheckWaitThread();
-}
-
-void CVideo::CheckWaitThread()
-{
-	if (!m_showingWaitMessages && waitThread != LWP_THREAD_NULL)
+	if(waitThread != LWP_THREAD_NULL)
 	{
-		m_showWaitMessage = false;
-		gprintf("Thread running. Stop it\n");
-
 		if(LWP_ThreadIsSuspended(waitThread))
 			LWP_ResumeThread(waitThread);
-
+		while(m_showingWaitMessages)
+			usleep(100);
 		LWP_JoinThread(waitThread, NULL);
-
-		SMART_FREE(waitThreadStack);
-		waitThread = LWP_THREAD_NULL;
-
-		m_waitMessages.clear();
 	}
+	waitThread = LWP_THREAD_NULL;
 }
 
 void CVideo::waitMessage(float delay)
 {
-	waitMessage(safe_vector<STexture>(), delay);
+	if(m_defaultWaitMessages.size() == 0)
+	{
+		STexture m_wTextures[8];
+		m_wTextures[0].fromJPG(wait_01_jpg, wait_01_jpg_size);
+		m_wTextures[1].fromJPG(wait_02_jpg, wait_02_jpg_size);
+		m_wTextures[2].fromJPG(wait_03_jpg, wait_03_jpg_size);
+		m_wTextures[3].fromJPG(wait_04_jpg, wait_04_jpg_size);
+		m_wTextures[4].fromJPG(wait_05_jpg, wait_05_jpg_size);
+		m_wTextures[5].fromJPG(wait_06_jpg, wait_06_jpg_size);
+		m_wTextures[6].fromJPG(wait_07_jpg, wait_07_jpg_size);
+		m_wTextures[7].fromJPG(wait_08_jpg, wait_08_jpg_size);
+		for(int i = 0; i < 8; i++)
+			m_defaultWaitMessages.push_back(m_wTextures[i]);
+	}
+	waitMessage(vector<STexture>(), delay);
 }
 
-void CVideo::waitMessage(const safe_vector<STexture> &tex, float delay, bool useWiiLight)
+void CVideo::waitMessage(const vector<STexture> &tex, float delay)
 {
 	hideWaitMessage();
-
-	m_useWiiLight = useWiiLight;
-
-	if (tex.size() == 0)
+	if(tex.size() == 0)
 	{
-		STexture m_wTextures[10];
-		m_wTextures[0].fromPNG(wait_01_png);
-		m_wTextures[1].fromPNG(wait_02_png);
-		m_wTextures[2].fromPNG(wait_03_png);
-		m_wTextures[3].fromPNG(wait_04_png);
-		m_wTextures[4].fromPNG(wait_05_png);
-		m_wTextures[5].fromPNG(wait_06_png);
-		m_wTextures[6].fromPNG(wait_07_png);
-		m_wTextures[7].fromPNG(wait_08_png);
-		m_wTextures[8].fromPNG(wait_09_png);
-		m_wTextures[9].fromPNG(wait_10_png);
-		m_waitMessages.reserve(10);
-		for (int i = 0; i < 10; i++)
-			m_waitMessages.push_back(m_wTextures[i]);
-
-		m_waitMessageDelay = 0.2f;
+		m_waitMessages = m_defaultWaitMessages;
+		m_waitMessageDelay = 0.15f;
 	}
 	else
 	{
 		m_waitMessages = tex;
 		m_waitMessageDelay = delay;
 	}
-	
-	if (m_waitMessages.size() == 1)
+
+	if(m_waitMessages.size() == 1)
 		waitMessage(m_waitMessages[0]);
-	else if (m_waitMessages.size() > 1)
+	else if(m_waitMessages.size() > 1)
 	{
-		CheckWaitThread();
 		m_showWaitMessage = true;
-		unsigned int stack_size = (unsigned int)32768;  //Try 32768?
-		//SMART_FREE(waitThreadStack);
-		//waitThreadStack = SmartBuf((unsigned char *)__real_malloc(stack_size), SmartBuf::SRCALL_MALLOC);
-		waitThreadStack = smartMem2Alloc(stack_size);
-		LWP_CreateThread(&waitThread, (void *(*)(void *))CVideo::_showWaitMessages, (void *)this, waitThreadStack.get(), stack_size, LWP_PRIO_IDLE);
+		if(!waitThreadStack.get())
+			waitThreadStack = smartMem2Alloc(8192);
+		LWP_CreateThread(&waitThread, (void *(*)(void *))CVideo::_showWaitMessages, (void *)this, waitThreadStack.get(), 8192, LWP_PRIO_HIGHEST);
 	}
 }
 
@@ -603,51 +603,42 @@ void CVideo::waitMessage(const STexture &tex)
 	Mtx modelViewMtx;
 	GXTexObj texObj;
 
-	for (int i = 0; i < 3; ++i)
-	{
-		prepare();
-		setup2DProjection();
-		//prepareAAPass(i);
-		//setup2DProjection(false, true);
-		GX_SetNumChans(0);
-		GX_ClearVtxDesc();
-		GX_SetVtxDesc(GX_VA_POS, GX_DIRECT);
-		GX_SetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
-		GX_SetVtxDesc(GX_VA_TEX0, GX_DIRECT);
-		GX_SetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_TEX_ST, GX_F32, 0);
-		GX_SetNumTexGens(1);
-		GX_SetTevColorIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_ZERO, GX_CC_ZERO, GX_CC_TEXC);
-		GX_SetTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_TEXA);
-		GX_SetTevColorOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
-		GX_SetTevAlphaOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
-		GX_SetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLORNULL);
-		GX_SetTexCoordGen(GX_TEXCOORD0, GX_TG_MTX2x4, GX_TG_TEX0, GX_IDENTITY);
-		GX_SetBlendMode(GX_BM_NONE, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_CLEAR);
-		GX_SetAlphaUpdate(GX_TRUE);
-		GX_SetCullMode(GX_CULL_NONE);
-		GX_SetZMode(GX_DISABLE, GX_ALWAYS, GX_FALSE);
-		guMtxIdentity(modelViewMtx);
-		GX_LoadPosMtxImm(modelViewMtx, GX_PNMTX0);
-		GX_InitTexObj(&texObj, tex.data.get(), tex.width, tex.height, tex.format, GX_CLAMP, GX_CLAMP, GX_FALSE);
-		GX_LoadTexObj(&texObj, GX_TEXMAP0);
-		GX_Begin(GX_QUADS, GX_VTXFMT0, 4);
-		GX_Position3f32((float)((640 - tex.width) / 2), (float)((480 - tex.height) / 2), 0.f);
-		GX_TexCoord2f32(0.f, 0.f);
-		GX_Position3f32((float)((640 + tex.width) / 2), (float)((480 - tex.height) / 2), 0.f);
-		GX_TexCoord2f32(1.f, 0.f);
-		GX_Position3f32((float)((640 + tex.width) / 2), (float)((480 + tex.height) / 2), 0.f);
-		GX_TexCoord2f32(1.f, 1.f);
-		GX_Position3f32((float)((640 - tex.width) / 2), (float)((480 + tex.height) / 2), 0.f);
-		GX_TexCoord2f32(0.f, 1.f);
-		GX_End();
-		render();
-	}
-	GX_SetNumChans(1);
+	GX_ClearVtxDesc();
+	GX_SetVtxDesc(GX_VA_POS, GX_DIRECT);
+	GX_SetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
+	GX_SetVtxDesc(GX_VA_TEX0, GX_DIRECT);
+	GX_SetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_TEX_ST, GX_F32, 0);
+	GX_SetNumTexGens(1);
+	GX_SetTevColorIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_ZERO, GX_CC_ZERO, GX_CC_TEXC);
+	GX_SetTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_TEXA);
+	GX_SetTevColorOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
+	GX_SetTevAlphaOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
+	GX_SetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLORNULL);
+	GX_SetTexCoordGen(GX_TEXCOORD0, GX_TG_MTX2x4, GX_TG_TEX0, GX_IDENTITY);
+	GX_SetBlendMode(GX_BM_NONE, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_CLEAR);
+	GX_SetAlphaUpdate(GX_TRUE);
+	GX_SetCullMode(GX_CULL_NONE);
+	GX_SetZMode(GX_DISABLE, GX_ALWAYS, GX_FALSE);
+	guMtxIdentity(modelViewMtx);
+	GX_LoadPosMtxImm(modelViewMtx, GX_PNMTX0);
+	GX_InitTexObj(&texObj, tex.data.get(), tex.width, tex.height, tex.format, GX_CLAMP, GX_CLAMP, GX_FALSE);
+	GX_LoadTexObj(&texObj, GX_TEXMAP0);
+	GX_Begin(GX_QUADS, GX_VTXFMT0, 4);
+	GX_Position3f32((float)((640 - tex.width) / 2), (float)((480 - tex.height) / 2), 0.f);
+	GX_TexCoord2f32(0.f, 0.f);
+	GX_Position3f32((float)((640 + tex.width) / 2), (float)((480 - tex.height) / 2), 0.f);
+	GX_TexCoord2f32(1.f, 0.f);
+	GX_Position3f32((float)((640 + tex.width) / 2), (float)((480 + tex.height) / 2), 0.f);
+	GX_TexCoord2f32(1.f, 1.f);
+	GX_Position3f32((float)((640 - tex.width) / 2), (float)((480 + tex.height) / 2), 0.f);
+	GX_TexCoord2f32(0.f, 1.f);
+	GX_End();
+	render();
 }
 
 s32 CVideo::TakeScreenshot(const char *path)
 {
-	IMGCTX ctx = PNGU_SelectImageFromDevice (path);
+	IMGCTX ctx = PNGU_SelectImageFromDevice(path);
 	s32 ret = PNGU_EncodeFromYCbYCr(ctx, m_rmode->fbWidth, m_rmode->efbHeight, m_frameBuf[m_curFB], 1);
 	PNGU_ReleaseImageContext (ctx);
 	return ret;

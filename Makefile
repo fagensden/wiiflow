@@ -18,49 +18,36 @@ include $(DEVKITPPC)/wii_rules
 TARGET		:=	boot
 BUILD		:=	build
 SOURCES		:=	source \
+				source/banner \
+				source/channel \
 				source/cheats \
 				source/config \
 				source/data \
 				source/devicemounter \
+				source/devicemounter/libwbfs \
+				source/fileOps \
 				source/gc \
 				source/gecko \
 				source/gui \
+				source/homebrew \
+				source/libwbfs \
 				source/list \
 				source/loader \
-				source/channel \
-				source/homebrew \
 				source/memory \
 				source/menu \
 				source/music \
 				source/network \
+				source/plugin \
 				source/unzip \
 				source/xml \
-				source/wstringEx \
-				source/devicemounter/libwbfs
+				source/wstringEx
 
 DATA		:=	data \
 				data/images \
-				data/sounds
+				data/sounds \
+				data/help
 
-INCLUDES	:=	source \
-				source/cheats \
-				source/config \
-				source/devicemounter \
-				source/gc \
-				source/gecko \
-				source/gui \
-				source/list \
-				source/loader \
-				source/channel \
-				source/homebrew \
-				source/memory \
-				source/menu \
-				source/music \
-				source/network \
-				source/unzip \
-				source/wstringEx \
-				source/xml
-				
+INCLUDES	:=	source
 #---------------------------------------------------------------------------------
 # Default build shell script options
 #---------------------------------------------------------------------------------
@@ -68,15 +55,15 @@ ios			:=	249
 #---------------------------------------------------------------------------------
 # options for code generation
 #---------------------------------------------------------------------------------
-CFLAGS	 =	-g -Os -Wall $(MACHDEP) $(INCLUDE) -DHAVE_CONFIG_H
-CXXFLAGS =	-g -Os -Wall -Wextra -Wno-multichar $(MACHDEP) $(INCLUDE) -DHAVE_CONFIG_H
+CFLAGS	 =	-g -O2 -Wall -Wextra -Wno-multichar $(MACHDEP) $(INCLUDE) -DHAVE_CONFIG_H
+CXXFLAGS =	$(CFLAGS)
 
-LDFLAGS	 =	-g $(MACHDEP) -Wl,-Map,$(notdir $@).map,--section-start,.init=0x80A00000,-wrap,malloc,-wrap,free,-wrap,memalign,-wrap,calloc,-wrap,realloc,-wrap,malloc_usable_size -T../scripts/rvl.ld
+LDFLAGS	 =	-g $(MACHDEP) -Wl,-Map,$(notdir $@).map,--section-start,.init=0x80A00000,-wrap,malloc,-wrap,free,-wrap,memalign,-wrap,calloc,-wrap,realloc,-wrap,malloc_usable_size
 
 #---------------------------------------------------------------------------------
 # any extra libraries we wish to link with the project
 #---------------------------------------------------------------------------------
-LIBS	:=	-lpng -lm -lz -lwiiuse -lbte -lasnd -logc -lfreetype -lvorbisidec -lmad -ljpeg -lwiilight -lntfs -lfat -lext2fs -lmodplay
+LIBS	:=	-lcustomfat -lcustomntfs -lcustomext2fs -lpng -lm -lz -lwiiuse -lbte -lasnd -logc -lfreetype -lvorbisidec -lmad -ljpeg -lmodplay
 
 #---------------------------------------------------------------------------------
 # list of directories containing libraries, this must be the top level containing
@@ -107,9 +94,12 @@ export CPPFILES	:=	$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.cpp)))
 sFILES		:=	$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.s)))
 SFILES		:=	$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.S)))
 
+TXTFILES	:=	$(foreach dir,$(DATA),$(notdir $(wildcard $(dir)/*.txt)))
+
 BINFILES	:=	$(foreach dir,$(DATA),$(notdir $(wildcard $(dir)/*.bin)))
 TTFFILES	:=	$(foreach dir,$(DATA),$(notdir $(wildcard $(dir)/*.ttf)))
 PNGFILES	:=	$(foreach dir,$(DATA),$(notdir $(wildcard $(dir)/*.png)))
+JPGFILES	:=	$(foreach dir,$(DATA),$(notdir $(wildcard $(dir)/*.jpg)))
 
 MP3FILES	:=	$(foreach dir,$(DATA),$(notdir $(wildcard $(dir)/*.mp3)))
 OGGFILES	:=	$(foreach dir,$(DATA),$(notdir $(wildcard $(dir)/*.ogg)))
@@ -130,9 +120,10 @@ endif
 
 export OFILES	:=	$(CPPFILES:.cpp=.o) $(CFILES:.c=.o) \
 					$(sFILES:.s=.o) $(SFILES:.S=.o) \
-					$(TTFFILES:.ttf=.ttf.o) $(PNGFILES:.png=.png.o) $(DOLFILES:.dol=.dol.o) \
-					$(OGGFILES:.ogg=.ogg.o) $(PCMFILES:.pcm=.pcm.o) $(MP3FILES:.mp3=.mp3.o) \
-					$(WAVFILES:.wav=.wav.o) $(ELFFILES:.elf=.elf.o) $(BINFILES:.bin=.bin.o)
+					$(JPGFILES:.jpg=.jpg.o) $(PNGFILES:.png=.png.o) $(DOLFILES:.dol=.dol.o) \
+					$(OGGFILES:.ogg=.ogg.o) $(WAVFILES:.wav=.wav.o) $(MP3FILES:.mp3=.mp3.o) \
+					$(ELFFILES:.elf=.elf.o) $(BINFILES:.bin=.bin.o) $(TXTFILES:.txt=.txt.o) \
+					$(CURDIR)/data/magic_patcher.o
 
 #---------------------------------------------------------------------------------
 # build a list of include paths
@@ -195,16 +186,23 @@ $(OUTPUT).elf: $(OFILES) alt_ios_gen.o
 $(BUILD)/alt_ios_gen.o: alt_ios_gen.c
 
 #---------------------------------------------------------------------------------
-# This rule links in binary data with the .png extension
+# This rule links in binary data with the .txt extension
 #---------------------------------------------------------------------------------
-%.png.o	:	%.png
+%.txt.o:	%.txt
 	@echo $(notdir $<)
 	@bin2s -a 32 $< | $(AS) -o $(@)
 
 #---------------------------------------------------------------------------------
-# This rule links in binary data with the .ttf extension
+# This rule links in binary data with the .jpg extension
 #---------------------------------------------------------------------------------
-%.ttf.o	:	%.ttf
+%.jpg.o	:	%.jpg
+	@echo $(notdir $<)
+	@bin2s -a 32 $< | $(AS) -o $(@)
+
+#---------------------------------------------------------------------------------
+# This rule links in binary data with the .png extension
+#---------------------------------------------------------------------------------
+%.png.o	:	%.png
 	@echo $(notdir $<)
 	@bin2s -a 32 $< | $(AS) -o $(@)
 
@@ -216,23 +214,9 @@ $(BUILD)/alt_ios_gen.o: alt_ios_gen.c
 	@bin2s -a 32 $< | $(AS) -o $(@)
 
 #---------------------------------------------------------------------------------
-# This rule links in binary data with the .pcm extension
-#---------------------------------------------------------------------------------
-%.pcm.o : %.pcm
-	@echo $(notdir $<)
-	@bin2s -a 32 $< | $(AS) -o $(@)
-
-#---------------------------------------------------------------------------------
 # This rule links in binary data with the .wav extension
 #---------------------------------------------------------------------------------
 %.wav.o	:	%.wav
-	@echo $(notdir $<)
-	@bin2s -a 32 $< | $(AS) -o $(@)
-
-#---------------------------------------------------------------------------------
-# This rule links in binary data with the .mp3 extension
-#---------------------------------------------------------------------------------
-%.mp3.o : %.mp3
 	@echo $(notdir $<)
 	@bin2s -a 32 $< | $(AS) -o $(@)
 

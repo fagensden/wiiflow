@@ -7,32 +7,32 @@
 #include <algorithm>
 #include <malloc.h>
 
-#include "utils.h"
 #include "mem2.hpp"
-#include "gui_sound.h"
+#include "loader/utils.h"
+#include "music/gui_sound.h"
 
 template <class T> class SmartPtr
 {
 public:
-	enum SrcAlloc { SRCALL_MALLOC, SRCALL_MEM2, SRCALL_MEM1, SRCALL_NEW };
+	enum SrcAlloc { SRCALL_NEW, SRCALL_MEM1, SRCALL_MEM2 };
 	T &operator*(void) const { return *m_p; }
 	T *operator->(void) const { return m_p; }
 	bool operator!(void) const { return m_p == NULL; }
 	T *get(void) const { return m_p; }
 	virtual void release(void)
 	{
-		if (m_refcount != NULL && --*m_refcount == 0)
+		if (m_p != NULL && m_refcount != NULL && --*m_refcount == 0)
 		{
-			switch (m_srcAlloc)
+			switch(m_srcAlloc)
 			{
 				case SRCALL_NEW:
-					SAFE_DELETE(m_p);
+					delete m_p;
 					break;
 				default:
-					SAFE_FREE(m_p);
+					free(m_p);
 					break;
 			}
-			SAFE_DELETE(m_refcount);
+			delete m_refcount;
 		}
 
 		m_p = NULL;
@@ -67,7 +67,6 @@ protected:
 typedef SmartPtr<unsigned char> SmartBuf;
 typedef SmartPtr<GuiSound> SmartGuiSound;
 
-SmartBuf smartMalloc(unsigned int size);
 SmartBuf smartMemAlign32(unsigned int size);
 SmartBuf smartMem2Alloc(unsigned int size);
 SmartBuf smartAnyAlloc(unsigned int size);

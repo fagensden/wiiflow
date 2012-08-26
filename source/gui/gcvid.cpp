@@ -26,13 +26,15 @@
  * gcvid.cpp
  ***************************************************************************/
 
-#include "gcvid.h"
-#include "utils.h"
-
 #include <cstdlib> //NULL
 #include <cstring> //memcmp
 #include <string>
 #include <cassert>
+
+#include "gcvid.h"
+#include "loader/utils.h"
+#include "memory/mem2.hpp"
+
 using namespace std;
 
 void readThpHeader(FILE* f, ThpHeader& h)
@@ -278,7 +280,7 @@ void VideoFrame::resize(int width, int height)
 	_p = 3*width;
 	_p += (4 - _p%4)%4;
 
-	_data = (u8 *) malloc(_p * _h);
+	_data = (u8 *)malloc(_p * _h);
 }
 
 int VideoFrame::getWidth() const
@@ -298,7 +300,8 @@ const u8* VideoFrame::getData() const
 
 void VideoFrame::dealloc()
 {
-	SAFE_FREE(_data);
+	if(_data != NULL)
+		free(_data);
 	_w = _h = _p = 0;
 }
 
@@ -366,7 +369,7 @@ VideoFile::VideoFile(FILE* f)
 
 VideoFile::~VideoFile()
 {
-	SAFE_CLOSE(_f);
+	fclose(_f);
 }
 
 int VideoFile::getWidth() const
@@ -580,7 +583,7 @@ void MthVideoFile::getCurrentFrame(VideoFrame& f) const
 JpgVideoFile::JpgVideoFile(FILE* f)
 : VideoFile(f)
 {
-	safe_vector<u8> data(getFilesize(f));
+	vector<u8> data(getFilesize(f));
 	fread(&data[0], 1, getFilesize(f), f);
 
 	loadFrame(_currFrame, &data[0], getFilesize(f));
@@ -618,7 +621,7 @@ VideoFile* openVideo(const string& fileName)
 			return new JpgVideoFile(f);
 
 		default:
-			SAFE_CLOSE(f);
+			fclose(f);
 			return NULL;
 	}
 }
@@ -689,8 +692,6 @@ void convertToRealJpeg(u8* dest, const u8* src, int srcSize, int start, int end)
 		}
 	}
 }
-
-void decodeRealJpeg(const u8* data, int size, VideoFrame& dest);
 
 void decodeJpeg(const u8* data, int size, VideoFrame& dest)
 {
@@ -783,18 +784,13 @@ void decodeRealJpeg(const u8* data, int size, VideoFrame& dest)
 
 	jpeg_read_header(&cinfo, TRUE);
 
-#if 1
-	//set quality/speed parameters to speed:
-	cinfo.do_fancy_upsampling = FALSE;
-	cinfo.do_block_smoothing = FALSE;
-
-	//this actually slows decoding down:
-	//cinfo.dct_method = JDCT_FASTEST;
-#endif
+	cinfo.do_fancy_upsampling = TRUE;
+	cinfo.do_block_smoothing = TRUE;
+	cinfo.dct_method = JDCT_ISLOW;
 
 	jpeg_start_decompress(&cinfo);
 
-	dest.resize(cinfo.output_width, cinfo.output_height);
+	dest.resize(ALIGN(4, cinfo.output_width), ALIGN(4, cinfo.output_height));
 
 	if(cinfo.num_components == 3)
 	{

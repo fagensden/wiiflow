@@ -3,95 +3,73 @@
 #include <stdio.h>
 #include <string.h>
 #include <ogc/machine/processor.h>
-#include "safe_vector.hpp"
+#include <vector>
 #include <string>
-#include "smartptr.hpp"
-#include "gecko.h"
+#include "gecko/gecko.h"
 
-#define EXECUTE_ADDR	((u8 *) 0x92000000)
-#define BOOTER_ADDR		((u8 *) 0x93000000)
-#define ARGS_ADDR		((u8 *) 0x93200000)
+#define EXECUTE_ADDR	((u8 *)0x92000000)
+#define BOOTER_ADDR		((u8 *)0x93000000)
+#define ARGS_ADDR		((u8 *)0x93200000)
+
+using namespace std;
 
 extern const u8 app_booter_bin[];
 extern const u32 app_booter_bin_size;
 
+extern const u8 stub_bin[];
+extern const u32 stub_bin_size;
+
 typedef void (*entrypoint) (void);
 extern "C" { void __exception_closeall(); }
 
-static u8 *homebrewbuffer = EXECUTE_ADDR;
-static u32 homebrewsize = 0;
-static safe_vector<std::string> Arguments;
+u32 buffer_size = 0;
 
-bool bootHB;
+static vector<string> Arguments;
 
-bool IsDollZ (u8 *buff)
+static bool IsDollZ(u8 *buf)
 {
-  u8 dollz_stamp[] = {0x3C};
-  int dollz_offs = 0x100;
+	u8 cmp1[] = {0x3C};
+	return memcmp(&buf[0x100], cmp1, sizeof(cmp1)) == 0;
+}
 
-  int ret = memcmp (&buff[dollz_offs], dollz_stamp, sizeof(dollz_stamp));
-  if (ret == 0) return true;
-  
-  return false;
+static bool IsSpecialELF(u8 *buf)
+{
+	u32 cmp1[] = {0x7F454C46};
+	u8 cmp2[] = {0x00};
+	return memcmp(buf, cmp1, sizeof(cmp1)) == 0 && memcmp(&buf[0x24], cmp2, sizeof(cmp2)) == 0;
 }
 
 void AddBootArgument(const char * argv)
 {
-	std::string arg(argv);
+	string arg(argv);
 	Arguments.push_back(arg);
 }
 
-int CopyHomebrewMemory(u8 *temp, u32 pos, u32 len)
+int LoadHomebrew(const char *filepath)
 {
-	homebrewsize += len;
-    memcpy(homebrewbuffer+pos, temp, len);
-	DCFlushRange(homebrewbuffer+pos, len);
-
-	return 1;
-}
-
-void FreeHomebrewBuffer()
-{
-	homebrewbuffer = EXECUTE_ADDR;
-	homebrewsize = 0;
-
-	Arguments.clear();
-}
-
-int LoadHomebrew(const char * filepath)
-{
-	if(!filepath) return -1;
+	if(!filepath) 
+		return -1;
 
 	FILE *file = fopen(filepath ,"rb");
-	if(!file) return -2;
+	if(!file) 
+		return -2;
 
 	fseek(file, 0, SEEK_END);
 	u32 filesize = ftell(file);
 	rewind(file);
 
-	SmartBuf buffer = smartAnyAlloc(filesize);
-	if (!buffer)
-	{
-		SAFE_CLOSE(file);
-		return -3;
-	}
+	buffer_size = filesize;
+	fread(EXECUTE_ADDR, 1, buffer_size, file);
+	DCFlushRange(EXECUTE_ADDR, buffer_size);
+	fclose(file);
 
-	bool good_read = fread((u8 *)buffer.get(), 1, filesize, file) == filesize;
-	if (!good_read)
-    { 
-	    SAFE_CLOSE(file);
-		return -4;
-	}
-	SAFE_CLOSE(file);
-
-	DCFlushRange((u8 *)buffer.get(), filesize);
-
-	return CopyHomebrewMemory((u8*)buffer.get(), 0, filesize);
+	return 1;
 }
 
 static int SetupARGV(struct __argv * args)
 {
-	if(!args) return -1;
+	if(!args) 
+		return -1;
 
 	bzero(args, sizeof(struct __argv));
 	args->argvMagic = ARGV_MAGIC;
@@ -127,24 +105,38 @@ static int SetupARGV(struct __argv * args)
 	return 0;
 }
 
+void writeStub()
+{
+	/* Clear potential homebrew channel stub */
+	memset((void*)0x80001800, 0, 0x1800);
+
+	/* Copy our own stub into memory */
+	memcpy((void*)0x80001800, stub_bin, stub_bin_size);
+	DCFlushRange((void*)0x80001800, stub_bin_size);
+}
+
 int BootHomebrew()
 {
-	if(homebrewsize == 0) return -1;
-
 	struct __argv args;
-	if (!IsDollZ(homebrewbuffer))
+	if(!IsDollZ(EXECUTE_ADDR) && !IsSpecialELF(EXECUTE_ADDR))
 		SetupARGV(&args);
+	else
+		gprintf("Homebrew Boot Arguments disabled\n");
 
 	memcpy(BOOTER_ADDR, app_booter_bin, app_booter_bin_size);
 	DCFlushRange(BOOTER_ADDR, app_booter_bin_size);
 
-	entrypoint entry = (entrypoint) BOOTER_ADDR;
+	entrypoint exeEntryPoint = (entrypoint)BOOTER_ADDR;
+	u32 cookie;
 
 	memmove(ARGS_ADDR, &args, sizeof(args));
 	DCFlushRange(ARGS_ADDR, sizeof(args) + args.length);
 
+	/* cleaning up and load dol */
 	SYS_ResetSystem(SYS_SHUTDOWN, 0, 0);
-	entry();
-
+	_CPU_ISR_Disable(cookie);
+	__exception_closeall();
+	exeEntryPoint();
+	_CPU_ISR_Restore(cookie);
 	return 0;
 }

@@ -1,22 +1,20 @@
 
-#include "menu.hpp"
-#include "nand.hpp"
-#include "loader/wdvd.h"
-#include "network/gcard.h"
-#include "DeviceHandler.hpp"
 #include <unistd.h>
 #include <fstream>
 #include <sys/stat.h>
 
-#include "wbfs.h"
-#include "gecko.h"
-#include "sys.h"
-#include "disc.h"
-#include "loader/cios.hpp"
+#include "menu.hpp"
+#include "channel/nand.hpp"
+#include "devicemounter/DeviceHandler.hpp"
+#include "gui/GameTDB.hpp"
 #include "loader/alt_ios.h"
-#include "GameTDB.hpp"
-
-using namespace std;
+#include "loader/cios.h"
+#include "loader/disc.h"
+#include "loader/nk.h"
+#include "loader/sys.h"
+#include "loader/wbfs.h"
+#include "loader/wdvd.h"
+#include "network/gcard.h"
 
 extern const u8 btnconfig_png[];
 extern const u8 btnconfigs_png[];
@@ -34,6 +32,8 @@ extern const u8 btnusb_png[];
 extern const u8 btnusbs_png[];
 extern const u8 btndml_png[];
 extern const u8 btndmls_png[];
+extern const u8 btnemu_png[];
+extern const u8 btnemus_png[];
 extern const u8 btndvd_png[];
 extern const u8 btndvds_png[];
 extern const u8 favoriteson_png[];
@@ -60,6 +60,7 @@ void CMenu::_hideMain(bool instant)
 	m_btnMgr.hide(m_mainBtnChannel, instant);
 	m_btnMgr.hide(m_mainBtnUsb, instant);
 	m_btnMgr.hide(m_mainBtnDML, instant);
+	m_btnMgr.hide(m_mainBtnEmu, instant);
 	m_btnMgr.hide(m_mainBtnDVD, instant);
 	m_btnMgr.hide(m_mainBtnInit, instant);
 	m_btnMgr.hide(m_mainBtnInit2, instant);
@@ -68,14 +69,15 @@ void CMenu::_hideMain(bool instant)
 	m_btnMgr.hide(m_mainBtnFavoritesOff, instant);
 	m_btnMgr.hide(m_mainLblLetter, instant);
 	m_btnMgr.hide(m_mainLblNotice, instant);
-	for (u32 i = 0; i < ARRAY_SIZE(m_mainLblUser); ++i)
-		if (m_mainLblUser[i] != -1u)
+	for(u8 i = 0; i < ARRAY_SIZE(m_mainLblUser); ++i)
+		if(m_mainLblUser[i] != (u16)-1)
 			m_btnMgr.hide(m_mainLblUser[i], instant);
 }
 
 static bool show_homebrew = true;
 static bool parental_homebrew = false;
 static bool show_channel = true;
+static bool show_emu = true;
 
 void CMenu::_showMain(void)
 {
@@ -95,13 +97,17 @@ void CMenu::_showMain(void)
 		case COVERFLOW_DML:
 			if(show_channel)
 				m_btnMgr.show(m_mainBtnChannel);
+			else if(show_emu)
+				m_btnMgr.show(m_mainBtnEmu);
 			else if(show_homebrew)
 				m_btnMgr.show(m_mainBtnHomebrew);
-			else 
+			else
 				m_btnMgr.show(m_mainBtnUsb);
 			break;
 		case COVERFLOW_CHANNEL:
-			if (show_homebrew && (parental_homebrew || !m_locked))
+			if(show_emu)
+				m_btnMgr.show(m_mainBtnEmu);
+			else if (show_homebrew && (parental_homebrew || !m_locked))
 				m_btnMgr.show(m_mainBtnHomebrew);
 			else
 				m_btnMgr.show(m_mainBtnUsb);
@@ -109,44 +115,78 @@ void CMenu::_showMain(void)
 		case COVERFLOW_HOMEBREW:
 			m_btnMgr.show(m_mainBtnUsb);
 			break;
+		case COVERFLOW_EMU:
+			if (show_homebrew && (parental_homebrew || !m_locked))
+				m_btnMgr.show(m_mainBtnHomebrew);
+			else
+				m_btnMgr.show(m_mainBtnUsb);
+			break;
 		default:
-			if(m_show_dml)
+			if(m_show_dml || m_devo_installed)
 				m_btnMgr.show(m_mainBtnDML);
 			else if (show_channel)
 				m_btnMgr.show(m_mainBtnChannel);
-			else if (show_homebrew && (parental_homebrew || !m_locked))
+			else if(show_emu)
+				m_btnMgr.show(m_mainBtnEmu);
+			else if(show_homebrew && (parental_homebrew || !m_locked))
 				m_btnMgr.show(m_mainBtnHomebrew);
 			else
 				m_btnMgr.show(m_mainBtnUsb);
 			break;
 	}
 
-	for (u32 i = 1; i < ARRAY_SIZE(m_mainLblUser); ++i)
-		if (m_mainLblUser[i] != -1u)
+	for(u8 i = 0; i < ARRAY_SIZE(m_mainLblUser); ++i)
+		if(m_mainLblUser[i] != (u16)-1)
 			m_btnMgr.show(m_mainLblUser[i]);
 
-	if (m_gameList.empty())
+	if(m_gameList.empty())
 	{
-		m_btnMgr.show(m_mainBtnInit);
-		m_btnMgr.show(m_mainBtnInit2);
-		m_btnMgr.show(m_mainLblInit);
+		switch(m_current_view)
+		{
+			case COVERFLOW_USB:
+			case COVERFLOW_DML:
+				m_btnMgr.setText(m_mainLblInit, _t("main2", L"Welcome to WiiFlow. I have not found any games. Click Install to install games, or Select partition to select your partition type."), true);
+				m_btnMgr.show(m_mainBtnInit);
+				m_btnMgr.show(m_mainBtnInit2);
+				m_btnMgr.show(m_mainLblInit);
+				break;
+			case COVERFLOW_CHANNEL:
+				if(!m_cfg.getBool("NAND", "disable", true))
+				{
+					Nand::Instance()->Disable_Emu();
+					DeviceHandler::Instance()->MountAll();
+					_hideMain();
+					if(!_AutoCreateNand())
+						m_cfg.setBool("NAND", "disable", true);
+					_loadList();
+					_showMain();
+					_initCF();
+				}
+				break;
+			case COVERFLOW_HOMEBREW:
+				m_btnMgr.setText(m_mainLblInit, _t("main4", L"Welcome to WiiFlow. I have not found any homebrew apps. Select partition to select your partition type."), true);
+				m_btnMgr.show(m_mainBtnInit2);
+				m_btnMgr.show(m_mainLblInit);
+				break;
+			case COVERFLOW_EMU:
+				m_btnMgr.setText(m_mainLblInit, _t("main5", L"Welcome to WiiFlow. I have not found any plugins. Select partition to select your partition type."), true);
+				m_btnMgr.show(m_mainBtnInit2);
+				m_btnMgr.show(m_mainLblInit);
+				break;
+		}
 	}
-}
-
-int CMenu::GetCoverStatusAsync(CMenu *m)
-{
-	u32 disc_check = 0;
-	WDVD_GetCoverStatus(&disc_check);
-	m->m_initialCoverStatusComplete = true;
-	return 0;
+	else if(!neek2o() && m_current_view == COVERFLOW_CHANNEL && !m_cfg.getBool("NAND", "disable", true))
+		Nand::Instance()->Enable_Emu();
 }
 
 void CMenu::LoadView(void)
 {
-	_showWaitMessage();
-	_hideMain();
-	
 	m_curGameId = m_cf.getId();
+
+	_hideMain(true);
+	m_cf.clear();
+	if(!m_vid.showingWaitMessage())
+		_showWaitMessage();
 
 	_loadList();
 	_showMain();
@@ -163,161 +203,401 @@ void CMenu::LoadView(void)
 
 	m_showtimer=60;
 	char gui_name[20];
-	sprintf(gui_name,"%s [%s]",_domainFromView(),mode);
+	snprintf(gui_name, sizeof(gui_name), "%s [%s]", _domainFromView(),mode);
 	m_btnMgr.setText(m_mainLblNotice, (string)gui_name);
 	m_btnMgr.show(m_mainLblNotice);
+}
+
+void CMenu::exitHandler(int ExitTo)
+{
+	gprintf("Exit WiiFlow called\n");
+	Nand::Instance()->Disable_Emu();
+	if(!m_disable_exit || ExitTo == 0)
+	{
+		m_exit = true;
+		if(ExitTo == 1) // HBC
+			Sys_ExitTo(EXIT_TO_HBC);
+		else if(ExitTo == 2) // System Menu
+			Sys_ExitTo(EXIT_TO_MENU);
+		else if(ExitTo == 3) // Priiloader
+			Sys_ExitTo(EXIT_TO_PRIILOADER);
+		else if(ExitTo == 4) //Bootmii, check that the files are there, or ios will hang.
+		{
+			struct stat dummy;
+			if(DeviceHandler::Instance()->IsInserted(SD) && 
+				stat(fmt("%s:/bootmii/armboot.bin", DeviceName[SD]), &dummy) == 0 && 
+				stat(fmt("%s:/bootmii/ppcboot.elf", DeviceName[SD]), &dummy) == 0)
+			{
+				Sys_ExitTo(EXIT_TO_BOOTMII);
+			}
+			else
+				Sys_ExitTo(EXIT_TO_HBC);
+		}
+		else if(ExitTo == 5) //Neek2o kernel
+			Sys_ExitTo(EXIT_TO_NEEK2O);
+	}
+	m_reload = (BTN_B_HELD || m_disable_exit);
+	if(m_exit)
+	{
+		// Mark exiting to prevent soundhandler from restarting
+		extern bool exiting;
+		exiting = true;
+	}
 }
 
 int CMenu::main(void)
 {
 	wstringEx curLetter;
 	string prevTheme = m_cfg.getString("GENERAL", "theme", "default");
-	bool use_grab = m_cfg.getBool("GENERAL", "use_grab", false);
+	parental_homebrew = m_cfg.getBool("HOMEBREW", "parental", false);	
 	show_homebrew = !m_cfg.getBool("HOMEBREW", "disable", false);
 	show_channel = !m_cfg.getBool("GENERAL", "hidechannel", false);
+	show_emu = !m_cfg.getBool("EMULATOR", "disable", false);
 	bool dpad_mode = m_cfg.getBool("GENERAL", "dpad_mode", false);
 	bool b_lr_mode = m_cfg.getBool("GENERAL", "b_lr_mode", false);
-	parental_homebrew = m_cfg.getBool("HOMEBREW", "parental", false);	
+	bool use_grab = m_cfg.getBool("GENERAL", "use_grab", false);
+	bool bheld = false;
+	bool bUsed = false;
 
-	u32 cv=m_current_view;
 	m_reload = false;
-	static u32 disc_check = 0;
+	u32 disc_check = 0;
 	int done = 0;
 
 	if (m_cfg.getBool("GENERAL", "async_network", false) || has_enabled_providers())
 		_initAsyncNetwork();
 
-	SetupInput();
-	MusicPlayer::Instance()->Play();
+	SetupInput(true);
+	m_music.Play();
 	
 	GameTDB m_gametdb; 
- 	m_gametdb.OpenFile(sfmt("%s/wiitdb.xml", m_settingsDir.c_str()).c_str());
+ 	m_gametdb.OpenFile(fmt("%s/wiitdb.xml", m_settingsDir.c_str()));
 	m_GameTDBLoaded=false;
- 	if( m_gametdb.IsLoaded() )
+ 	if(m_gametdb.IsLoaded())
 	{
 		m_GameTDBLoaded=true;
 		m_gametdb.CloseFile();
 	}
-	
+	if(m_Emulator_boot)
+		m_current_view = COVERFLOW_EMU;
+
 	if (m_cfg.getBool("GENERAL", "update_cache", false))
 	{
 		UpdateCache();
 		m_gameList.Update();
 	}
-	_loadList();
-	
-	_showMain();
-	m_curGameId.clear();
-	_initCF();
-
-	lwp_t coverStatus = LWP_THREAD_NULL;
-	unsigned int stack_size = (unsigned int)32768;
-	SmartBuf coverstatus_stack = smartMem2Alloc(stack_size);	
-	LWP_CreateThread(&coverStatus, (void *(*)(void *))CMenu::GetCoverStatusAsync, (void *)this, coverstatus_stack.get(), stack_size, 40);
-	while (true)
+	LoadView();
+	if (m_cfg.getBool("GENERAL", "startup_menu", false)) 
 	{
+		_hideMain();
+		if(!_Source())
+			LoadView();
+		else
+		_showMain();
+		if(BTN_B_HELD)
+			bUsed = true;
+	}
+
+	while(true)
+	{
+		/* IMPORTANT check if a disc is inserted */
+		WDVD_GetCoverStatus(&disc_check);
+		/* Main Loop */
 		_mainLoopCommon(true);
-
-		if (m_initialCoverStatusComplete)
+		if(bheld && !BTN_B_HELD)
 		{
-			LWP_JoinThread(coverStatus, NULL);
-			coverStatus = LWP_THREAD_NULL;
-			SMART_FREE(coverstatus_stack);
-			WDVD_GetCoverStatus(&disc_check);
-		}
-
-		//Check for exit or reload request
-		if (BTN_HOME_PRESSED)
-		{
-			gprintf("Home pressed, quit\n");
-			bool exitSet = false;
-			if(!m_locked && !m_disable_exit)
+			bheld = false;
+			if(bUsed)
 			{
-				exitSet = true;
-				
-				if(BTN_PLUS_HELD) Sys_ExitTo(EXIT_TO_HBC);
-				else if(BTN_MINUS_HELD) Sys_ExitTo(EXIT_TO_MENU);
-				else if(BTN_1_HELD) Sys_ExitTo(EXIT_TO_PRIILOADER);
-				else if(BTN_2_HELD)	//Check that the files are there, or ios will hang.
-				{
-						struct stat dummy;
-						if(DeviceHandler::Instance()->IsInserted(SD) && 
-						stat(sfmt("%s:/bootmii/armboot.bin", DeviceName[SD]).c_str(), &dummy) == 0 && 
-						stat(sfmt("%s:/bootmii/ppcboot.elf", DeviceName[SD]).c_str(), &dummy) == 0)
-							Sys_ExitTo(EXIT_TO_BOOTMII);
-						else  Sys_ExitTo(EXIT_TO_HBC);
-				}
+				bUsed = false;
+			}
+			else
+			{
+				_hideMain();
+				if(!_Source()) //Different source selected
+					LoadView();
 				else
-					exitSet = false;
+					_showMain();
+				if(BTN_B_HELD)
+					bUsed = true;
+				continue;
 			}
-			m_reload = (BTN_B_HELD || m_disable_exit);
-			if (!exitSet && !m_reload)
-			{
-				// Mark exiting to prevent soundhandler from restarting
-				extern bool exiting;
-				exiting = true;
-			}
-			break;
 		}
-		m_btnMgr.noClick(true);
-		cv = m_current_view;
-		if ((m_btnMgr.selected(m_mainBtnChannel) || m_btnMgr.selected(m_mainBtnUsb) || m_btnMgr.selected(m_mainBtnDML) || m_btnMgr.selected(m_mainBtnHomebrew)) && dpad_mode && (BTN_UP_PRESSED || BTN_DOWN_PRESSED || BTN_LEFT_PRESSED || BTN_RIGHT_PRESSED))
+		if(dpad_mode && (BTN_UP_PRESSED || BTN_DOWN_PRESSED || BTN_LEFT_PRESSED || BTN_RIGHT_PRESSED) && (m_btnMgr.selected(m_mainBtnChannel) || m_btnMgr.selected(m_mainBtnUsb) || m_btnMgr.selected(m_mainBtnDML) || m_btnMgr.selected(m_mainBtnHomebrew) || m_btnMgr.selected(m_mainBtnEmu)))
 		{
-			if (BTN_UP_PRESSED) 
-                m_current_view = COVERFLOW_USB;
-            else if (BTN_DOWN_PRESSED && m_show_dml)
-                m_current_view = COVERFLOW_DML;
-            else if (BTN_LEFT_PRESSED && show_homebrew && (parental_homebrew || !m_locked))
-                m_current_view =  COVERFLOW_HOMEBREW;
-            else if (BTN_RIGHT_PRESSED && show_channel)
-                m_current_view = COVERFLOW_CHANNEL;
-			if (cv != m_current_view)
+			u32 lastView = m_current_view;
+			if(BTN_UP_PRESSED) 
+				m_current_view = COVERFLOW_USB;
+			else if(BTN_DOWN_PRESSED && (m_show_dml ||m_devo_installed))
+				m_current_view = COVERFLOW_DML;
+			else if(BTN_LEFT_PRESSED && show_emu)
+				m_current_view =  COVERFLOW_EMU;
+			else if(BTN_RIGHT_PRESSED && show_channel)
+				m_current_view = COVERFLOW_CHANNEL;
+			if(lastView == m_current_view) 
+				m_current_view = COVERFLOW_HOMEBREW;
+			LoadView();
+			continue;
+		}
+		if(BTN_HOME_PRESSED)
+		{
+			_hideMain();
+			if(_Home()) //exit wiiflow
+				break;
+			_showMain();
+			if(BTN_B_HELD)
+				bUsed = true;
+		}
+		else if(BTN_A_PRESSED)
+		{
+			if(m_btnMgr.selected(m_mainBtnPrev))
+				m_cf.pageUp();
+		 	else if(m_btnMgr.selected(m_mainBtnNext))
+				m_cf.pageDown();
+			else if(m_btnMgr.selected(m_mainBtnQuit))
 			{
-				m_category = m_cat.getInt(_domainFromView(), "category", 0);
+				_hideMain();
+				if(_Home()) //exit wiiflow
+					break;
+				_showMain();
+				if(BTN_B_HELD)
+					bUsed = true;
+			}
+			else if(m_btnMgr.selected(m_mainBtnChannel) || m_btnMgr.selected(m_mainBtnUsb) || m_btnMgr.selected(m_mainBtnDML) || m_btnMgr.selected(m_mainBtnHomebrew) || m_btnMgr.selected(m_mainBtnEmu))
+			{
+				if(m_current_view == COVERFLOW_USB) 
+					m_current_view = (m_show_dml || m_devo_installed) ? COVERFLOW_DML : (show_channel ? COVERFLOW_CHANNEL : (show_emu ? COVERFLOW_EMU : ((show_homebrew && (parental_homebrew || !m_locked)) ? COVERFLOW_HOMEBREW : COVERFLOW_USB)));
+				else if(m_current_view == COVERFLOW_DML)
+					m_current_view = show_channel ? COVERFLOW_CHANNEL : ((show_emu ? COVERFLOW_EMU : (show_homebrew && (parental_homebrew || !m_locked)) ? COVERFLOW_HOMEBREW : COVERFLOW_USB));
+				else if(m_current_view == COVERFLOW_CHANNEL)
+					m_current_view = (show_emu ? COVERFLOW_EMU : (show_homebrew && (parental_homebrew || !m_locked)) ? COVERFLOW_HOMEBREW : COVERFLOW_USB);
+				else if(m_current_view == COVERFLOW_EMU)
+					m_current_view = (show_homebrew && (parental_homebrew || !m_locked)) ? COVERFLOW_HOMEBREW : COVERFLOW_USB;
+				else if(m_current_view == COVERFLOW_HOMEBREW)
+					m_current_view = COVERFLOW_USB;
 				LoadView();
 			}
-		}
-		if (cv == m_current_view && !m_btnMgr.selected(m_mainBtnChannel) && !m_btnMgr.selected(m_mainBtnUsb) && !m_btnMgr.selected(m_mainBtnDML) && !m_btnMgr.selected(m_mainBtnHomebrew))
-		{
-		if (!m_btnMgr.selected(m_mainBtnQuit) && !BTN_B_HELD && (BTN_UP_REPEAT || RIGHT_STICK_UP))
-			m_cf.up();
-		if (!m_btnMgr.selected(m_mainBtnQuit) && ((!BTN_B_HELD && (BTN_RIGHT_REPEAT || RIGHT_STICK_RIGHT)) || WROLL_RIGHT))
-			m_cf.right();
-		if (!m_btnMgr.selected(m_mainBtnQuit) && !BTN_B_HELD && (BTN_DOWN_REPEAT ||  RIGHT_STICK_DOWN))
-			m_cf.down();
-		if (!m_btnMgr.selected(m_mainBtnQuit) && ((!BTN_B_HELD && (BTN_LEFT_REPEAT || RIGHT_STICK_LEFT)) || WROLL_LEFT))
-			m_cf.left();
-		}
-		m_btnMgr.noClick(false);
-		//CF Layout select
-		if (!BTN_B_HELD && (BTN_1_PRESSED || BTN_2_PRESSED))
-		{
-			m_btnMgr.noClick(true);
-			if (!m_btnMgr.selected(m_mainBtnQuit))
+			else if(m_btnMgr.selected(m_mainBtnInit))
 			{
-				const char *domain = _domainFromView();
-				s8 direction = BTN_1_PRESSED ? 1 : -1;
-				int cfVersion = 1+loopNum((m_cfg.getInt(domain, "last_cf_mode", 1)-1) + direction, m_numCFVersions);
-				_loadCFLayout(cfVersion);
-				m_cf.applySettings();
-				m_cfg.setInt(domain, "last_cf_mode", cfVersion);
+				if(!m_locked)
+				{
+					_hideMain();
+					_wbfsOp(CMenu::WO_ADD_GAME);
+					if(prevTheme != m_cfg.getString("GENERAL", "theme"))
+					{
+						m_reload = true;
+						break;
+					}
+					_showMain();
+					if(BTN_B_HELD)
+						bUsed = true;
+				}
 			}
-			m_btnMgr.noClick(false);
-		}
-		//Change Songs or search by pages
-		else if (!BTN_B_HELD && BTN_MINUS_PRESSED && b_lr_mode) MusicPlayer::Instance()->Previous();
-		else if (!BTN_B_HELD && BTN_MINUS_PRESSED && !b_lr_mode) m_cf.pageUp();
-		else if (!BTN_B_HELD && BTN_PLUS_PRESSED && b_lr_mode) MusicPlayer::Instance()->Next();
-		else if (!BTN_B_HELD && BTN_PLUS_PRESSED && !b_lr_mode) m_cf.pageDown();
-		else if (BTN_B_HELD)
-		{
-			const char *domain = _domainFromView();
-
-			//Search by Alphabet
-			if (BTN_DOWN_PRESSED || BTN_UP_PRESSED)
+			else if(m_btnMgr.selected(m_mainBtnInit2))
 			{
+				_hideMain();
+				_config(1);
+				if(prevTheme != m_cfg.getString("GENERAL", "theme"))
+				{
+					m_reload = true;
+					break;
+				}
+				_showMain();
+				if(BTN_B_HELD)
+					bUsed = true;
+			}
+			else if(m_btnMgr.selected(m_mainBtnConfig))
+			{
+				_hideMain();
+				_config(1);
+				if(prevTheme != m_cfg.getString("GENERAL", "theme"))
+				{
+					m_reload = true;
+					break;
+				}
+				_showMain();
+				if(BTN_B_HELD)
+					bUsed = true;
+			}
+			else if(m_btnMgr.selected(m_mainBtnInfo))
+			{
+				_hideMain();
+				_about();
+				_showMain();
+				if(BTN_B_HELD)
+					bUsed = true;
+			}
+			else if(m_btnMgr.selected(m_mainBtnDVD))
+			{
+				/* Cleanup for Disc Booter */
+				_hideMain(true);
+				m_cf.clear();
+				_showWaitMessage();
+				m_gameSound.Stop();
+				CheckGameSoundThread();
+				Nand::Instance()->Disable_Emu();
+				/* Create Fake Header */
+				dir_discHdr hdr;
+				memset(&hdr, 0, sizeof(dir_discHdr));
+				memcpy(&hdr.id, "dvddvd", 6);
+				/* Boot the Disc */
+				_launchGame(&hdr, true);
+				_showMain();
+				if(BTN_B_HELD)
+					bUsed = true;
+			}
+			else if(m_btnMgr.selected(m_mainBtnFavoritesOn) || m_btnMgr.selected(m_mainBtnFavoritesOff))
+			{
+				m_favorites = !m_favorites;
+				m_cfg.setInt("GENERAL", "favorites", m_favorites);
+				m_curGameId = m_cf.getId();
+				_initCF();
+			}
+			else if(!m_cf.empty() && m_cf.select())
+			{
+				_hideMain();
+				_game(BTN_B_HELD);
+				if(m_exit)
+					break;
+				if(BTN_B_HELD)
+					bUsed = true;
+				m_cf.cancel();
+				_showMain();
+			}
+		}
+		else if(BTN_B_PRESSED)
+		{
+			//Events to Show Categories
+			if(m_btnMgr.selected(m_mainBtnFavoritesOn) || m_btnMgr.selected(m_mainBtnFavoritesOff))
+			{
+				// Event handler to show categories for selection
+				_hideMain();
+				_CategorySettings();
+				if(BTN_B_HELD)
+					bUsed = true;
+				_showMain();
+				_initCF();
+			}
+			//Events to Switch off/on nand emu
+			else if(m_btnMgr.selected(m_mainBtnChannel) || m_btnMgr.selected(m_mainBtnUsb) || m_btnMgr.selected(m_mainBtnDML)|| m_btnMgr.selected(m_mainBtnEmu) || m_btnMgr.selected(m_mainBtnHomebrew))
+			{
+				if(m_cfg.getBool("GENERAL", "b_on_mode_to_source", false))
+				{
+					_hideMain();
+					if(!_Source()) //Different source selected
+						LoadView();
+					else
+						_showMain();
+					if(BTN_B_HELD)
+						bUsed = true;
+					continue;
+				}
+				else if(!neek2o())
+				{
+					bUsed = true;
+					m_cfg.setBool("NAND", "disable", !m_cfg.getBool("NAND", "disable", true));
+					gprintf("EmuNand is %s\n", m_cfg.getBool("NAND", "disable", true) ? "Disabled" : "Enabled");
+					m_current_view = COVERFLOW_CHANNEL;
+					LoadView();
+				}
+			}
+			else if(m_btnMgr.selected(m_mainBtnNext) || m_btnMgr.selected(m_mainBtnPrev))
+			{
+				bUsed = true;
+				const char *domain = _domainFromView();
 				int sorting = m_cfg.getInt(domain, "sort", SORT_ALPHA);
 				if (sorting != SORT_ALPHA && sorting != SORT_PLAYERS && sorting != SORT_WIFIPLAYERS && sorting != SORT_GAMEID)
+				{
+					m_cf.setSorting((Sorting)SORT_ALPHA);
+					m_cfg.setInt(domain, "sort", SORT_ALPHA);
+				}
+				wchar_t c[2] = {0, 0};
+				m_btnMgr.selected(m_mainBtnPrev) ? m_cf.prevLetter(c) : m_cf.nextLetter(c);
+				m_showtimer = 60;
+				curLetter.clear();
+				curLetter = wstringEx(c);
+
+				if(sorting == SORT_ALPHA)
+				{
+					m_btnMgr.setText(m_mainLblLetter, curLetter);
+					m_btnMgr.show(m_mainLblLetter);
+				}
+				else
+				{
+					curLetter = _getNoticeTranslation(sorting, curLetter);
+					m_btnMgr.setText(m_mainLblNotice, curLetter);
+					m_btnMgr.show(m_mainLblNotice);
+				}
+			}
+			else if(enable_wmote_roll && m_btnMgr.selected(m_mainBtnQuit))
+			{
+				_hideMain();
+				if(!_Source()) //Different source selected
+					LoadView();
+				else
+					_showMain();
+				if(BTN_B_HELD)
+					bUsed = true;
+				continue;
+			}
+		}
+		else if(WROLL_LEFT)
+		{
+			m_cf.left();
+			bUsed = true;
+		}
+		else if(WROLL_RIGHT)
+		{
+			m_cf.right();
+			bUsed = true;
+		}
+		if(!BTN_B_HELD)
+		{
+			//SourceMenuTimeout = 0;
+			if(BTN_UP_REPEAT || RIGHT_STICK_UP)
+				m_cf.up();
+			else if(BTN_RIGHT_REPEAT || RIGHT_STICK_RIGHT)
+				m_cf.right();
+			else if(BTN_DOWN_REPEAT ||  RIGHT_STICK_DOWN)
+				m_cf.down();
+			else if(BTN_LEFT_REPEAT || RIGHT_STICK_LEFT)
+				m_cf.left();
+			else if(BTN_1_PRESSED || BTN_2_PRESSED)
+			{
+				if (!m_btnMgr.selected(m_mainBtnQuit))
+				{
+					const char *domain = _domainFromView();
+					s8 direction = BTN_1_PRESSED ? 1 : -1;
+					int cfVersion = 1+loopNum((m_cfg.getInt(domain, "last_cf_mode", 1)-1) + direction, m_numCFVersions);
+					_loadCFLayout(cfVersion);
+					m_cf.applySettings();
+					m_cfg.setInt(domain, "last_cf_mode", cfVersion);
+				}
+			}
+			else if(BTN_MINUS_PRESSED)
+			{
+				if(b_lr_mode)
+					m_music.Previous();
+				else
+					m_cf.pageUp();
+			}
+			else if(BTN_PLUS_PRESSED)
+			{
+				if(b_lr_mode)
+					m_music.Next();
+				else
+					m_cf.pageDown();
+			}
+		}
+		else
+		{
+			bheld = true;
+			const char *domain = _domainFromView();
+			//Search by Alphabet
+			if(BTN_DOWN_PRESSED || BTN_UP_PRESSED)
+			{
+				bUsed = true;
+				int sorting = m_cfg.getInt(domain, "sort", SORT_ALPHA);
+				if(sorting != SORT_ALPHA && sorting != SORT_PLAYERS && sorting != SORT_WIFIPLAYERS && sorting != SORT_GAMEID)
 				{
 					m_cf.setSorting((Sorting)SORT_ALPHA);
 					m_cfg.setInt(domain, "sort", SORT_ALPHA);
@@ -337,66 +617,72 @@ int CMenu::main(void)
 				else
 				{
 					curLetter = _getNoticeTranslation(sorting, curLetter);
-
 					m_btnMgr.setText(m_mainLblNotice, curLetter);
 					m_btnMgr.show(m_mainLblNotice);
 				}
 			}
-			//Search by pages or change songs
-			else if (BTN_LEFT_PRESSED && b_lr_mode) m_cf.pageUp();
-			else if (BTN_LEFT_PRESSED && !b_lr_mode) MusicPlayer::Instance()->Previous();
-			else if (BTN_RIGHT_PRESSED && b_lr_mode) m_cf.pageDown();
-			else if (BTN_RIGHT_PRESSED && !b_lr_mode) MusicPlayer::Instance()->Next();
-			//Sorting Selection
-			else if (BTN_PLUS_PRESSED && !m_locked)
+			else if(BTN_LEFT_PRESSED)
 			{
+				bUsed = true;
+				if(b_lr_mode)
+					m_cf.pageUp();
+				else
+					m_music.Previous();
+			}
+			else if(BTN_RIGHT_PRESSED)
+			{
+				bUsed = true;
+				if(b_lr_mode)
+					m_cf.pageDown();
+				else
+					m_music.Next();
+			}
+			else if(BTN_PLUS_PRESSED && !m_locked)
+			{
+				bUsed = true;
 				u32 sort = 0;
 				sort = loopNum((m_cfg.getInt(domain, "sort", 0)) + 1, SORT_MAX - 1);
 				m_cf.setSorting((Sorting)sort);
 				m_cfg.setInt(domain, "sort", sort);
 				wstringEx curSort ;
-				if (sort == SORT_ALPHA)
+				if(sort == SORT_ALPHA)
 					curSort = m_loc.getWString(m_curLanguage, "alphabetically", L"Alphabetically");
-				else if (sort == SORT_PLAYCOUNT)
+				else if(sort == SORT_PLAYCOUNT)
 					curSort = m_loc.getWString(m_curLanguage, "byplaycount", L"By Play Count");
-				else if (sort == SORT_LASTPLAYED)
+				else if(sort == SORT_LASTPLAYED)
 					curSort = m_loc.getWString(m_curLanguage, "bylastplayed", L"By Last Played");
-				else if (sort == SORT_GAMEID)
+				else if(sort == SORT_GAMEID)
 					curSort = m_loc.getWString(m_curLanguage, "bygameid", L"By Game I.D.");
-				else if (sort == SORT_ESRB)
+				else if(sort == SORT_ESRB)
 					curSort = m_loc.getWString(m_curLanguage, "byesrb", L"By ESRB");
-				else if (sort == SORT_WIFIPLAYERS)
+				else if(sort == SORT_WIFIPLAYERS)
 					curSort = m_loc.getWString(m_curLanguage, "bywifiplayers", L"By Wifi Players");
-				else if (sort == SORT_PLAYERS)
+				else if(sort == SORT_PLAYERS)
 					curSort = m_loc.getWString(m_curLanguage, "byplayers", L"By Players");
-				else if (sort == SORT_CONTROLLERS)
+				else if(sort == SORT_CONTROLLERS)
 					curSort = m_loc.getWString(m_curLanguage, "bycontrollers", L"By Controllers");
-
 				m_showtimer=60; 
 				m_btnMgr.setText(m_mainLblNotice, curSort);
 				m_btnMgr.show(m_mainLblNotice);
 			}
-			//Partition Selection
-			else if (BTN_MINUS_PRESSED && !m_locked)
+			else if(BTN_MINUS_PRESSED && !m_locked)
 			{
-				bool block = m_current_view == COVERFLOW_CHANNEL && m_cfg.getBool("NAND", "disable", true);
+				bUsed = true;
+				bool block = m_current_view == COVERFLOW_CHANNEL && (m_cfg.getBool("NAND", "disable", true) || neek2o());
 				char *partition;
 				if(!block)
 				{
 					_showWaitMessage();
 					_hideMain();
-					
-					Nand::Instance()->Disable_Emu();
-					bool isD2XnewerThanV6 = false;
-					iosinfo_t * iosInfo = cIOSInfo::GetInfo(mainIOS);
-					if (iosInfo->version > 6)
+					bool isD2XnewerThanV6 = (CurrentIOS.Type == IOS_TYPE_NEEK2O);
+					if(CurrentIOS.Revision > 6 && CurrentIOS.Type == IOS_TYPE_D2X)
 						isD2XnewerThanV6 = true;
-					if(m_current_view == COVERFLOW_CHANNEL && m_cfg.getInt("NAND", "emulation", 0) > 0)
+					if(m_current_view == COVERFLOW_CHANNEL && m_cfg.getInt("NAND", "emulation", 0))
 						Nand::Instance()->Enable_Emu();
 					u8 limiter = 0;
 					currentPartition = loopNum(currentPartition + 1, (int)USB8);
 					while(!DeviceHandler::Instance()->IsInserted(currentPartition) ||
-						(m_current_view == COVERFLOW_CHANNEL && (DeviceHandler::Instance()->GetFSType(currentPartition) != PART_FS_FAT ||
+						((m_current_view == COVERFLOW_CHANNEL || m_current_view == COVERFLOW_EMU) && (DeviceHandler::Instance()->GetFSType(currentPartition) != PART_FS_FAT ||
 							(!isD2XnewerThanV6 && DeviceHandler::Instance()->PathToDriveType(m_appDir.c_str()) == currentPartition) ||
 							(!isD2XnewerThanV6 && DeviceHandler::Instance()->PathToDriveType(m_dataDir.c_str()) == currentPartition))) ||
 						((m_current_view == COVERFLOW_HOMEBREW || m_current_view == COVERFLOW_DML) && DeviceHandler::Instance()->GetFSType(currentPartition) == PART_FS_WBFS))
@@ -405,11 +691,9 @@ int CMenu::main(void)
 						if(limiter > 10) break;
 						limiter++;
 					}
-
 					partition = (char *)DeviceName[currentPartition];
 					gprintf("Setting Emu NAND to Partition: %i\n",currentPartition);
 					m_cfg.setInt(_domainFromView(), "partition", currentPartition);
-
 				}
 				else
 					partition = (char *)"NAND";
@@ -421,10 +705,9 @@ int CMenu::main(void)
 
 				m_showtimer=60; 
 				char gui_name[20];
-				sprintf(gui_name,"%s [%s]",_domainFromView(),partition);
+				snprintf(gui_name, sizeof(gui_name), "%s [%s]", _domainFromView(),partition);
 				m_btnMgr.setText(m_mainLblNotice, (string)gui_name);
 				m_btnMgr.show(m_mainLblNotice);
-
 				if(!block)
 				{
 					_loadList();
@@ -433,205 +716,38 @@ int CMenu::main(void)
 				}
 			}
 		}
-		if (BTN_B_PRESSED)
-		{
-			//Events to Show Categories
-			if (m_btnMgr.selected(m_mainBtnFavoritesOn) || m_btnMgr.selected(m_mainBtnFavoritesOff))
-			{
-				// Event handler to show categories for selection
-				_hideMain();
-				_CategorySettings();
-				_showMain();
-				_initCF();
-			}
-			//Events to Switch off/on nand emu
-			else if (m_btnMgr.selected(m_mainBtnChannel) || m_btnMgr.selected(m_mainBtnUsb) || m_btnMgr.selected(m_mainBtnDML) || m_btnMgr.selected(m_mainBtnHomebrew))
-			{
-				m_cfg.setBool("NAND", "disable", !m_cfg.getBool("NAND", "disable", true));
-				gprintf("EmuNand is %s\n", m_cfg.getBool("NAND", "disable", true) ? "Disabled" : "Enabled");
 
-				m_category = m_cat.getInt("NAND", "category", 0);
-				m_current_view = COVERFLOW_CHANNEL;
-
-				LoadView();
-			}
-			else if (m_btnMgr.selected(m_mainBtnNext) || m_btnMgr.selected(m_mainBtnPrev))
-			{
-				const char *domain = _domainFromView();
-				int sorting = m_cfg.getInt(domain, "sort", SORT_ALPHA);
-				if (sorting != SORT_ALPHA && sorting != SORT_PLAYERS && sorting != SORT_WIFIPLAYERS && sorting != SORT_GAMEID)
-				{
-					m_cf.setSorting((Sorting)SORT_ALPHA);
-					m_cfg.setInt(domain, "sort", SORT_ALPHA);
-				}
-				wchar_t c[2] = {0, 0};
-				m_btnMgr.selected(m_mainBtnPrev) ? m_cf.prevLetter(c) : m_cf.nextLetter(c);
-				m_showtimer = 60;
-				
-				curLetter.clear();
-				curLetter = wstringEx(c);
-
-				if(sorting == SORT_ALPHA)
-				{
-					m_btnMgr.setText(m_mainLblLetter, curLetter);
-					m_btnMgr.show(m_mainLblLetter);
-				}
-				else
-				{
-					curLetter = _getNoticeTranslation(sorting, curLetter);
-
-					m_btnMgr.setText(m_mainLblNotice, curLetter);
-					m_btnMgr.show(m_mainLblNotice);
-				}
-			}
-			else if(m_btnMgr.selected(m_mainBtnConfig))
-			{
-				m_gameList.SetLanguage(m_loc.getString(m_curLanguage, "gametdb_code", "EN").c_str());
-								
-				UpdateCache(m_current_view);				
-				LoadView();
-			}
-		}
-		else if (done==0 && m_cat.getBool("GENERAL", "category_on_start", false))
+		if(done==0 && m_cat.getBool("GENERAL", "category_on_start", false))
 		{
 			done = 1; //set done so it doesnt keep doing it
 			// show categories menu
 			_hideMain();
 			_CategorySettings();
+			if(BTN_B_HELD)
+				bUsed = true;
 			_showMain();
-			m_curGameId = m_cf.getId();
 			_initCF();
 		}
-		//Handling input when other gui buttons are selected
-		else if (BTN_A_PRESSED)
+		if(use_grab)
+			_getGrabStatus();
+		if(m_showtimer > 0)
 		{
-			if (m_btnMgr.selected(m_mainBtnPrev))
-				m_cf.pageUp();
-		 	else if (m_btnMgr.selected(m_mainBtnNext))
-				m_cf.pageDown();
-			else if (m_btnMgr.selected(m_mainBtnQuit))
-			{
-				if(!m_locked && !m_disable_exit)
-				{
-					struct stat dummy;
-					if(BTN_PLUS_HELD) Sys_ExitTo(EXIT_TO_HBC);
-					else if(BTN_MINUS_HELD) Sys_ExitTo(EXIT_TO_MENU);
-					else if(BTN_1_HELD) Sys_ExitTo(EXIT_TO_PRIILOADER);
-					else if(BTN_2_HELD)	//Check that the files are there, or ios will hang.
-					{
-						if(DeviceHandler::Instance()->IsInserted(SD) && 
-						stat(sfmt("%s:/bootmii/armboot.bin", DeviceName[SD]).c_str(), &dummy) == 0 && 
-						stat(sfmt("%s:/bootmii/ppcboot.elf", DeviceName[SD]).c_str(), &dummy) == 0)
-							Sys_ExitTo(EXIT_TO_BOOTMII);
-						 else Sys_ExitTo(EXIT_TO_HBC);
-					}
-				}
-				m_reload = (BTN_B_HELD || m_disable_exit);
-				break;
-			}
-			else if (m_btnMgr.selected(m_mainBtnChannel) || m_btnMgr.selected(m_mainBtnUsb) || m_btnMgr.selected(m_mainBtnDML) || m_btnMgr.selected(m_mainBtnHomebrew))
-			{
-				if (m_current_view == COVERFLOW_USB) 
-					m_current_view = m_show_dml ? COVERFLOW_DML : (show_channel ? COVERFLOW_CHANNEL : ((show_homebrew && (parental_homebrew || !m_locked)) ? COVERFLOW_HOMEBREW : COVERFLOW_USB));
-				else if (m_current_view == COVERFLOW_DML)
-					m_current_view = show_channel ? COVERFLOW_CHANNEL : ((show_homebrew && (parental_homebrew || !m_locked)) ? COVERFLOW_HOMEBREW : COVERFLOW_USB);
-				else if (m_current_view == COVERFLOW_CHANNEL)
-					m_current_view = (show_homebrew && (parental_homebrew || !m_locked)) ? COVERFLOW_HOMEBREW : COVERFLOW_USB;
-				else if (m_current_view == COVERFLOW_HOMEBREW)
-					m_current_view = COVERFLOW_USB;
-				m_category = m_cat.getInt(_domainFromView(), "category", 0);
-				LoadView();
-			}
-			else if (m_btnMgr.selected(m_mainBtnInit))
-			{
-				if (!m_locked)
-				{
-					_hideMain();
-					_wbfsOp(CMenu::WO_ADD_GAME);
-					if (prevTheme != m_cfg.getString("GENERAL", "theme"))
-					{
-						m_reload = true;
-						break;
-					}
-					_showMain();
-				}
-			}
-			else if (m_btnMgr.selected(m_mainBtnInit2))
-			{
-				_hideMain();
-				_config(1);
-				if (prevTheme != m_cfg.getString("GENERAL", "theme"))
-				{
-					m_reload = true;
-					break;
-				}
-				_showMain();
-			}
-			else if (m_btnMgr.selected(m_mainBtnConfig))
-			{
-				_hideMain();
-				_config(1);
-				if (prevTheme != m_cfg.getString("GENERAL", "theme") || m_reload == true)
-				{
-					m_reload = true;
-					break;
-				}
-				_showMain();
-			}
-			else if (m_btnMgr.selected(m_mainBtnInfo))
-			{
-				_hideMain();
-				_about();
-				 if(m_exit)break;
-				_showMain();
-			}
-			else if (m_btnMgr.selected(m_mainBtnDVD))
-			{
-				_showWaitMessage();
-				_hideMain(true);
-				dir_discHdr hdr;
-				memset(&hdr, 0, sizeof(dir_discHdr));
-				memcpy(&hdr.hdr.id, "dvddvd", 6);
-				_launchGame(&hdr, true);
-				_showMain();
-			}
-			else if (m_btnMgr.selected(m_mainBtnFavoritesOn) || m_btnMgr.selected(m_mainBtnFavoritesOff))
-			{
-				m_favorites = !m_favorites;
-				m_cfg.setInt("GENERAL", "favorites", m_favorites);
-				m_curGameId = m_cf.getId();
-				_initCF();
-			}
-			else if (!m_cf.empty())
-			{
-				if (m_cf.select())
-				{
-					_hideMain();
-					_game(BTN_B_HELD);
-					if(m_exit) break;
-					m_cf.cancel();
-					_showMain();
-				}
-			}
-		}
-		if(use_grab) _getGrabStatus();
-
-		if (m_showtimer > 0)
-			if (--m_showtimer == 0)
+			if(--m_showtimer == 0)
 			{
 				m_btnMgr.hide(m_mainLblLetter);
 				m_btnMgr.hide(m_mainLblNotice);
 			}
+		}
 		//zones, showing and hiding buttons
-		if (!m_gameList.empty() && m_show_zone_prev)
+		if(!m_gameList.empty() && m_show_zone_prev)
 			m_btnMgr.show(m_mainBtnPrev);
 		else
 			m_btnMgr.hide(m_mainBtnPrev);
-		if (!m_gameList.empty() && m_show_zone_next)
+		if(!m_gameList.empty() && m_show_zone_next)
 			m_btnMgr.show(m_mainBtnNext);
 		else
 			m_btnMgr.hide(m_mainBtnNext);
-		if (!m_gameList.empty() && m_show_zone_main)
+		if(!m_gameList.empty() && m_show_zone_main)
 		{
 			m_btnMgr.show(m_mainLblUser[0]);
 			m_btnMgr.show(m_mainLblUser[1]);
@@ -647,44 +763,56 @@ int CMenu::main(void)
 		{
 			m_btnMgr.hide(m_mainLblUser[0]);
 			m_btnMgr.hide(m_mainLblUser[1]);
-			m_btnMgr.hide(m_mainBtnConfig);
+			if(!m_gameList.empty())
+				m_btnMgr.hide(m_mainBtnConfig);
 			m_btnMgr.hide(m_mainBtnInfo);
 			m_btnMgr.hide(m_mainBtnQuit);
 			m_btnMgr.hide(m_mainBtnFavoritesOn);
 			m_btnMgr.hide(m_mainBtnFavoritesOff);
 		}
-		if (!m_cfg.getBool("GENERAL", "hideviews", false) && (m_gameList.empty() || m_show_zone_main2))
+		if(!m_cfg.getBool("GENERAL", "hideviews", false) && (m_gameList.empty() || m_show_zone_main2))
 		{
-		switch(m_current_view)
-		{
-			case COVERFLOW_DML:
-				if(show_channel)
-					m_btnMgr.show(m_mainBtnChannel);
-				else if(show_homebrew)
-					m_btnMgr.show(m_mainBtnHomebrew);
-				else 
+			switch(m_current_view)
+			{
+				case COVERFLOW_DML:
+					if(show_channel)
+						m_btnMgr.show(m_mainBtnChannel);
+					else if(show_emu)
+						m_btnMgr.show(m_mainBtnEmu);
+					else if(show_homebrew)
+						m_btnMgr.show(m_mainBtnHomebrew);
+					else 
+						m_btnMgr.show(m_mainBtnUsb);
+					break;
+				case COVERFLOW_CHANNEL:
+					if(show_emu)
+						m_btnMgr.show(m_mainBtnEmu);
+					else if(show_homebrew && (parental_homebrew || !m_locked))
+						m_btnMgr.show(m_mainBtnHomebrew);
+					else
+						m_btnMgr.show(m_mainBtnUsb);
+					break;
+				case COVERFLOW_EMU:
+					if(show_homebrew && (parental_homebrew || !m_locked))
+						m_btnMgr.show(m_mainBtnHomebrew);
+					else
+						m_btnMgr.show(m_mainBtnUsb);
+					break;
+				case COVERFLOW_HOMEBREW:
 					m_btnMgr.show(m_mainBtnUsb);
-				break;
-			case COVERFLOW_CHANNEL:
-				if (show_homebrew && (parental_homebrew || !m_locked))
-					m_btnMgr.show(m_mainBtnHomebrew);
-				else
-					m_btnMgr.show(m_mainBtnUsb);
-				break;
-			case COVERFLOW_HOMEBREW:
-				m_btnMgr.show(m_mainBtnUsb);
-				break;
-			default:
-				if(m_show_dml)
-					m_btnMgr.show(m_mainBtnDML);
-				else if (show_channel)
-					m_btnMgr.show(m_mainBtnChannel);
-				else if (show_homebrew && (parental_homebrew || !m_locked))
-					m_btnMgr.show(m_mainBtnHomebrew);
-				else
-					m_btnMgr.show(m_mainBtnUsb);
-				break;
-		}
+					break;
+				default:
+					if(m_show_dml || m_devo_installed)
+						m_btnMgr.show(m_mainBtnDML);
+					else if(show_channel)
+						m_btnMgr.show(m_mainBtnChannel);
+					else if(show_emu)
+						m_btnMgr.show(m_mainBtnEmu);
+					else if(show_homebrew && (parental_homebrew || !m_locked))
+						m_btnMgr.show(m_mainBtnHomebrew);
+					else
+						m_btnMgr.show(m_mainBtnUsb);
+			}
 			m_btnMgr.show(m_mainLblUser[2]);
 			m_btnMgr.show(m_mainLblUser[3]);
 		}
@@ -694,10 +822,11 @@ int CMenu::main(void)
 			m_btnMgr.hide(m_mainBtnChannel);
 			m_btnMgr.hide(m_mainBtnUsb);
 			m_btnMgr.hide(m_mainBtnDML);
+			m_btnMgr.hide(m_mainBtnEmu);
 			m_btnMgr.hide(m_mainLblUser[2]);
 			m_btnMgr.hide(m_mainLblUser[3]);
 		}
-		if ((disc_check & 0x2) && (m_gameList.empty() || m_show_zone_main3))
+		if((disc_check & 0x2) && (m_gameList.empty() || m_show_zone_main3))
 		{
 			m_btnMgr.show(m_mainBtnDVD);
 			m_btnMgr.show(m_mainLblUser[4]);
@@ -709,31 +838,33 @@ int CMenu::main(void)
 			m_btnMgr.hide(m_mainLblUser[4]);
 			m_btnMgr.hide(m_mainLblUser[5]);
 		}
-		//
 		for(int chan = WPAD_MAX_WIIMOTES-1; chan >= 0; chan--)
-			if (WPadIR_Valid(chan) || (m_show_pointer[chan] && !WPadIR_Valid(chan)))
+		{
+			if(WPadIR_Valid(chan) || (m_show_pointer[chan] && !WPadIR_Valid(chan)))
 				m_cf.mouse(m_vid, chan, m_cursor[chan].x(), m_cursor[chan].y());
 			else
-				m_cf.mouse(m_vid, chan, -1, -1);		
+				m_cf.mouse(m_vid, chan, -1, -1);
+		}
 	}
-	_showWaitMessage();
-	//
-	gprintf("Invalidate GX\n");
-
-	GX_InvVtxCache();
-	GX_InvalidateTexAll();
-	gprintf("Clear coverflow\n");
-	m_cf.clear();
+	if(m_reload)
+	{
+		m_cf.clear();
+		_showWaitMessage();
+		exitHandler(0); //Making wiiflow ready to boot something
+		_launchHomebrew(fmt("%s/boot.dol", m_appDir.c_str()), m_homebrewArgs);
+		return 0;
+	}
+	else if(Sys_GetExitTo() == EXIT_TO_NEEK2O)
+	{
+		string emuPath;
+		_FindEmuPart(&emuPath, m_cfg.getInt("NAND", "partition", 0), false);
+		Sys_SetNeekPath(emuPath.size() > 1 ? emuPath.c_str() : NULL);
+	}
 	gprintf("Saving configuration files\n");
 	m_cfg.save();
-	m_cat.save();
+	m_cat.unload();
 //	m_loc.save();
-	gprintf("Wait for dvd\n");
-	LWP_JoinThread(coverStatus, NULL);
-	coverStatus = LWP_THREAD_NULL;
-	SMART_FREE(coverstatus_stack);
-	gprintf("Done with main\n");
-	return m_reload ? 1 : 0;
+	return 0;
 }
 
 void CMenu::_initMainMenu(CMenu::SThemeData &theme)
@@ -746,6 +877,8 @@ void CMenu::_initMainMenu(CMenu::SThemeData &theme)
 	STexture texConfigS;
 	STexture texDML;
 	STexture texDMLs;
+	STexture texEmu;
+	STexture texEmus;
 	STexture texDVD;
 	STexture texDVDs;
 	STexture texUsb;
@@ -766,7 +899,7 @@ void CMenu::_initMainMenu(CMenu::SThemeData &theme)
 	STexture emptyTex;
 
 	m_mainBg = _texture(theme.texSet, "MAIN/BG", "texture", theme.bg);
-	if (m_theme.loaded() && STexture::TE_OK == bgLQ.fromPNGFile(sfmt("%s/%s", m_themeDataDir.c_str(), m_theme.getString("MAIN/BG", "texture").c_str()).c_str(), GX_TF_CMPR, ALLOC_MEM2, 64, 64))
+	if (m_theme.loaded() && STexture::TE_OK == bgLQ.fromImageFile(fmt("%s/%s", m_themeDataDir.c_str(), m_theme.getString("MAIN/BG", "texture").c_str()), GX_TF_CMPR, ALLOC_MEM2, 64, 64))
 		m_mainBgLQ = bgLQ;
 
 	texQuit.fromPNG(btnquit_png);
@@ -781,6 +914,8 @@ void CMenu::_initMainMenu(CMenu::SThemeData &theme)
 	texUsbs.fromPNG(btnusbs_png);
 	texDML.fromPNG(btndml_png);
 	texDMLs.fromPNG(btndmls_png);
+	texEmu.fromPNG(btnemu_png);
+	texEmus.fromPNG(btnemus_png);
 	texChannel.fromPNG(btnchannel_png);
 	texChannels.fromPNG(btnchannels_png);
 	texHomebrew.fromPNG(btnhomebrew_png);
@@ -803,6 +938,7 @@ void CMenu::_initMainMenu(CMenu::SThemeData &theme)
 	m_mainBtnHomebrew = _addPicButton(theme, "MAIN/HOMEBREW_BTN", texHomebrew, texHomebrews, 520, 400, 48, 48);
 	m_mainBtnUsb = _addPicButton(theme, "MAIN/USB_BTN", texUsb, texUsbs, 520, 400, 48, 48);
 	m_mainBtnDML = _addPicButton(theme, "MAIN/DML_BTN", texDML, texDMLs, 520, 400, 48, 48);
+	m_mainBtnEmu = _addPicButton(theme, "MAIN/EMU_BTN", texEmu, texEmus, 520, 400, 48, 48);
 	m_mainBtnDVD = _addPicButton(theme, "MAIN/DVD_BTN", texDVD, texDVDs, 470, 400, 48, 48);
 	m_mainBtnNext = _addPicButton(theme, "MAIN/NEXT_BTN", texNext, texNextS, 540, 146, 80, 80);
 	m_mainBtnPrev = _addPicButton(theme, "MAIN/PREV_BTN", texPrev, texPrevS, 20, 146, 80, 80);
@@ -856,6 +992,7 @@ void CMenu::_initMainMenu(CMenu::SThemeData &theme)
 	_setHideAnim(m_mainBtnHomebrew, "MAIN/HOMEBREW_BTN", 0, 40, 0.f, 0.f);
 	_setHideAnim(m_mainBtnUsb, "MAIN/USB_BTN", 0, 40, 0.f, 0.f);
 	_setHideAnim(m_mainBtnDML, "MAIN/DML_BTN", 0, 40, 0.f, 0.f);
+	_setHideAnim(m_mainBtnEmu, "MAIN/EMU_BTN", 0, 40, 0.f, 0.f);
 	_setHideAnim(m_mainBtnDVD, "MAIN/DVD_BTN", 0, 40, 0.f, 0.f);
 	_setHideAnim(m_mainBtnFavoritesOn, "MAIN/FAVORITES_ON", 0, 40, 0.f, 0.f);
 	_setHideAnim(m_mainBtnFavoritesOff, "MAIN/FAVORITES_OFF", 0, 40, 0.f, 0.f);
@@ -875,7 +1012,6 @@ void CMenu::_textMain(void)
 {
 	m_btnMgr.setText(m_mainBtnInit, _t("main1", L"Install Game"));
 	m_btnMgr.setText(m_mainBtnInit2, _t("main3", L"Select Partition"));
-	m_btnMgr.setText(m_mainLblInit, _t("main2", L"Welcome to WiiFlow. I have not found any games. Click Install to install games, or Select partition to select your partition type."), true);
 }
 
 wstringEx CMenu::_getNoticeTranslation(int sorting, wstringEx curLetter)

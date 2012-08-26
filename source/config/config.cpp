@@ -2,11 +2,8 @@
 #include <fstream>
 
 #include "config.hpp"
-#include "text.hpp"
-#include "DeviceHandler.hpp"
-#include "gecko.h"
-
-using namespace std;
+#include "gecko/gecko.h"
+#include "gui/text.hpp"
 
 static const char *g_whitespaces = " \f\n\r\t\v";
 static const int g_floatPrecision = 10;
@@ -332,20 +329,21 @@ string Config::getString(const string &domain, const string &key, const string &
 	return data;
 }
 
-safe_vector<string> Config::getStrings(const string &domain, const string &key, char seperator, const string &defVal)
+vector<string> Config::getStrings(const string &domain, const string &key, char seperator, const string &defVal)
 {
-	safe_vector<string> retval;
-	
-	if (domain.empty() || key.empty())
+	vector<string> retval;
+
+	if(domain.empty() || key.empty())
 	{
-		if (defVal != std::string())
+		if(defVal != std::string())
 			retval.push_back(defVal);
 		return retval;
 	}
+
 	string &data = m_domains[upperCase(domain)][lowerCase(key)];
-	if (data.empty())
+	if(data.empty())
 	{
-		if (defVal != std::string())
+		if(defVal != std::string())
 			retval.push_back(defVal);
 		return retval;
 	}
@@ -357,7 +355,14 @@ safe_vector<string> Config::getStrings(const string &domain, const string &key, 
 	// find first "non-delimiter".
 	string::size_type pos = data.find_first_of(seperator, lastPos);
 
-	while (string::npos != pos || string::npos != lastPos)
+	// no seperator found, return data
+	if(pos == string::npos)
+	{
+		retval.push_back(data);
+		return retval;
+	}
+
+	while(string::npos != pos || string::npos != lastPos)
 	{
 		// found a token, add it to the vector.
 		retval.push_back(data.substr(lastPos, pos - lastPos));

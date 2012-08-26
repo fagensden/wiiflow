@@ -1,12 +1,11 @@
+#include <dirent.h>
+#include <sys/types.h>
+#include <sys/param.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 #include "menu.hpp"
-#include "wbfs.h"
-
-#include <dirent.h>
-#include <sys/types.h> 
-#include <sys/param.h> 
-#include <sys/stat.h> 
-#include <unistd.h> 
+#include "loader/wbfs.h"
 
 using namespace std;
 
@@ -19,11 +18,7 @@ template <class T> static inline T loopNum(T i, T s)
 
 void CMenu::_hideConfigAdv(bool instant)
 {
-	m_btnMgr.hide(m_configLblTitle, instant);
-	m_btnMgr.hide(m_configBtnBack, instant);
-	m_btnMgr.hide(m_configLblPage, instant);
-	m_btnMgr.hide(m_configBtnPageM, instant);
-	m_btnMgr.hide(m_configBtnPageP, instant);
+	_hideConfigCommon(instant);
 
 	m_btnMgr.hide(m_configAdvLblInstall, instant);
 	m_btnMgr.hide(m_configAdvBtnInstall, instant);
@@ -37,19 +32,14 @@ void CMenu::_hideConfigAdv(bool instant)
 	m_btnMgr.hide(m_configAdvBtnCurLanguageP, instant);
 	m_btnMgr.hide(m_configAdvLblCFTheme, instant);
 	m_btnMgr.hide(m_configAdvBtnCFTheme, instant);
-	for (u32 i = 0; i < ARRAY_SIZE(m_configAdvLblUser); ++i)
-		if (m_configAdvLblUser[i] != -1u)
+	for(u8 i = 0; i < ARRAY_SIZE(m_configAdvLblUser); ++i)
+		if(m_configAdvLblUser[i] != (u16)-1)
 			m_btnMgr.hide(m_configAdvLblUser[i], instant);
 }
 
 void CMenu::_showConfigAdv(void)
 {
-	_setBg(m_configAdvBg, m_configAdvBg);
-	m_btnMgr.show(m_configLblTitle);
-	m_btnMgr.show(m_configBtnBack);
-	m_btnMgr.show(m_configLblPage);
-	m_btnMgr.show(m_configBtnPageM);
-	m_btnMgr.show(m_configBtnPageP);
+	_showConfigCommon(m_configAdvBg, g_curPage);
 
 	m_btnMgr.show(m_configAdvLblCurTheme);
 	m_btnMgr.show(m_configAdvBtnCurThemeM);
@@ -66,16 +56,15 @@ void CMenu::_showConfigAdv(void)
 		m_btnMgr.show(m_configAdvLblCFTheme);
 		m_btnMgr.show(m_configAdvBtnCFTheme);
 	}
-	for (u32 i = 0; i < ARRAY_SIZE(m_configAdvLblUser); ++i)
-		if (m_configAdvLblUser[i] != -1u)
+	for(u32 i = 0; i < ARRAY_SIZE(m_configAdvLblUser); ++i)
+		if(m_configAdvLblUser[i] != (u16)-1)
 			m_btnMgr.show(m_configAdvLblUser[i]);
 
-	m_btnMgr.setText(m_configLblPage, wfmt(L"%i / %i", g_curPage, m_locked ? g_curPage : CMenu::_nbCfgPages));
 	m_btnMgr.setText(m_configAdvLblCurLanguage, m_curLanguage);
 	m_btnMgr.setText(m_configAdvLblCurTheme, m_cfg.getString("GENERAL", "theme"));
 }
 
-static void listThemes(const char * path, safe_vector<string> &themes)
+static void listThemes(const char * path, vector<string> &themes)
 {
 	DIR *d;
 	struct dirent *dir;
@@ -88,9 +77,9 @@ static void listThemes(const char * path, safe_vector<string> &themes)
 		dir = readdir(d);
 		while (dir != 0)
 		{
-			string fileName = upperCase(dir->d_name);
-			def = def || fileName == "DEFAULT.INI";
-			if (fileName.size() > 4 && fileName.substr(fileName.size() - 4, 4) == ".INI")
+			string fileName = dir->d_name;
+			def = def || (upperCase(fileName) == "DEFAULT.INI");
+			if (fileName.size() > 4 && fileName.substr(fileName.size() - 4, 4) == ".ini")
 				themes.push_back(fileName.substr(0, fileName.size() - 4));
 			dir = readdir(d);
 		}
@@ -103,8 +92,8 @@ static void listThemes(const char * path, safe_vector<string> &themes)
 
 int CMenu::_configAdv(void)
 {
-	int nextPage = 0;
-	safe_vector<string> themes;
+	int change = CONFIG_PAGE_NO_CHANGE;
+	vector<string> themes;
 	string prevTheme = m_cfg.getString("GENERAL", "theme");
 
 	bool lang_changed = false;
@@ -120,40 +109,21 @@ int CMenu::_configAdv(void)
 	_showConfigAdv();
 	while (true)
 	{
-		_mainLoopCommon();
-		if (BTN_HOME_PRESSED || BTN_B_PRESSED)
+		change = _configCommon();
+		if (change != CONFIG_PAGE_NO_CHANGE)
 			break;
-		else if (BTN_UP_PRESSED)
-			m_btnMgr.up();
-		else if (BTN_DOWN_PRESSED)
-			m_btnMgr.down();
-		if (BTN_LEFT_PRESSED || BTN_MINUS_PRESSED || (BTN_A_PRESSED && m_btnMgr.selected(m_configBtnPageM)))
-		{
-			nextPage = max(1, m_locked ? 1 : g_curPage - 1);
-			if(BTN_LEFT_PRESSED || BTN_MINUS_PRESSED) m_btnMgr.click(m_configBtnPageM);
-			break;
-		}
-		if (!m_locked && (BTN_RIGHT_PRESSED || BTN_PLUS_PRESSED || (BTN_A_PRESSED && m_btnMgr.selected(m_configBtnPageP))))
-		{
-			nextPage = min(g_curPage + 1, CMenu::_nbCfgPages);
-			if(BTN_RIGHT_PRESSED || BTN_PLUS_PRESSED) m_btnMgr.click(m_configBtnPageP);
-			break;
-		}
 		if (BTN_A_PRESSED)
 		{
-			if (m_btnMgr.selected(m_configBtnBack))
-				break;
-			else if (m_btnMgr.selected(m_configAdvBtnInstall))
+			if (m_btnMgr.selected(m_configAdvBtnInstall))
 			{
-				if (!m_locked)
-				{
-					_hideConfigAdv();
-					_wbfsOp(CMenu::WO_ADD_GAME);
-					_showConfigAdv();
-				}
+				_cfNeedsUpdate();
+				_hideConfigAdv();
+				_wbfsOp(CMenu::WO_ADD_GAME);
+				_showConfigAdv();
 			}
 			else if (m_btnMgr.selected(m_configAdvBtnCurThemeP) || m_btnMgr.selected(m_configAdvBtnCurThemeM))
 			{
+				_cfNeedsUpdate();
 				s8 direction = m_btnMgr.selected(m_configAdvBtnCurThemeP) ? 1 : -1;
 				curTheme = loopNum(curTheme + direction, (int)themes.size());
 				m_cfg.setString("GENERAL", "theme", themes[curTheme]);
@@ -162,10 +132,11 @@ int CMenu::_configAdv(void)
 			}
 			else if (m_btnMgr.selected(m_configAdvBtnCurLanguageP) || m_btnMgr.selected(m_configAdvBtnCurLanguageM))
 			{
+				_cfNeedsUpdate();
 				s8 direction = m_btnMgr.selected(m_configAdvBtnCurLanguageP) ? 1 : -1;
 				int lang = (int)loopNum((u32)m_cfg.getInt("GENERAL", "language", 0) + direction, ARRAY_SIZE(CMenu::_translations));
 				m_curLanguage = CMenu::_translations[lang];
-				if (m_loc.load(sfmt("%s/%s.ini", m_languagesDir.c_str(), m_curLanguage.c_str()).c_str()))
+				if (m_loc.load(fmt("%s/%s.ini", m_languagesDir.c_str(), m_curLanguage.c_str())))
 				{
 					m_cfg.setInt("GENERAL", "language", lang);
 					lang_changed = true;
@@ -177,19 +148,20 @@ int CMenu::_configAdv(void)
 						lang = (int)loopNum((u32)lang + direction, ARRAY_SIZE(CMenu::_translations));
 						m_curLanguage = CMenu::_translations[lang];
 						struct stat langs;
-						if (stat(sfmt("%s/%s.ini", m_languagesDir.c_str(), m_curLanguage.c_str()).c_str(), &langs) == 0)
+						if (stat(fmt("%s/%s.ini", m_languagesDir.c_str(), m_curLanguage.c_str()), &langs) == 0)
 							break;
 					}
 					m_cfg.setInt("GENERAL", "language", lang);
 					lang_changed = true;
 					m_curLanguage = CMenu::_translations[lang];
-					m_loc.load(sfmt("%s/%s.ini", m_languagesDir.c_str(), m_curLanguage.c_str()).c_str());
+					m_loc.load(fmt("%s/%s.ini", m_languagesDir.c_str(), m_curLanguage.c_str()));
 				}
 				_updateText();
 				_showConfigAdv();
 			}
 			else if (m_btnMgr.selected(m_configAdvBtnCFTheme))
 			{
+				_cfNeedsUpdate();
 				_hideConfigAdv();
 				_cfTheme();
 				_showConfigAdv();
@@ -206,7 +178,7 @@ int CMenu::_configAdv(void)
 	}
 	lang_changed = false;
 
-	return nextPage;
+	return change;
 }
 
 void CMenu::_initConfigAdvMenu(CMenu::SThemeData &theme)

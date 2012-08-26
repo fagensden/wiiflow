@@ -7,17 +7,17 @@
 #include "ntfs.h"
 #include "ntfsfile_frag.h"
 
-#include "libwbfs/libwbfs.h"
 #include "wbfs.h"
 #include "wbfs_ext.h"
-#include "usbstorage.h"
 #include "frag.h"
 #include "utils.h"
 #include "sys.h"
 #include "wdvd.h"
-#include "gecko.h"
 #include "ext2_frag.h"
 #include "fatfile_frag.h"
+#include "devicemounter/usbstorage.h"
+#include "gecko/gecko.h"
+#include "libwbfs/libwbfs.h"
 
 FragList *frag_list = NULL;
 
@@ -29,7 +29,7 @@ void frag_init(FragList *ff, int maxnum)
 
 void frag_dump(FragList *ff)
 {
-	int i;
+	u32 i;
 	gprintf("frag list: %d %d 0x%x\n", ff->num, ff->size, ff->size);
 	for (i = 0; i < ff->num; i++)
 	{
@@ -72,7 +72,8 @@ int _frag_append(void *ff, u32 offset, u32 sector, u32 count)
 
 int frag_concat(FragList *ff, FragList *src)
 {
-	int i, ret;
+	int ret;
+	u32 i;
 	u32 size = ff->size;
 
 	for (i=0; i<src->num; i++)
@@ -91,7 +92,7 @@ int frag_concat(FragList *ff, FragList *src)
 // the difference should be filled with 0
 int frag_get(FragList *ff, u32 offset, u32 count, u32 *poffset, u32 *psector, u32 *pcount)
 {
-	int i;
+	u32 i;
 	u32 delta;
 	for (i=0; i<ff->num; i++)
 	{
@@ -130,7 +131,7 @@ int frag_get(FragList *ff, u32 offset, u32 count, u32 *poffset, u32 *psector, u3
 
 int frag_remap(FragList *ff, FragList *log, FragList *phy)
 {
-	int i;
+	u32 i;
 	u32 offset;
 	u32 sector;
 	for (i=0; i<log->num; i++)
@@ -160,14 +161,19 @@ int get_frag_list(u8 *id, char *path, const u32 hdd_sector_size)
 	u32 length = strlen(path);
 	strcpy(fname, path);
 
-	if(fname[length-1] > '0' && fname[length-1] < '9') return 0;
+	int ret, ret_val = -1;
+	u32 i, j;
+
+	if(fname[length-1] > '0' && fname[length-1] < '9')
+		return 0;
 	bool isWBFS = wbfs_part_fs != PART_FS_WBFS && strcasestr(strrchr(fname,'.'), ".wbfs") != 0;
 
 	struct stat st;
 	FragList *fs = malloc(sizeof(FragList));
 	FragList *fa = malloc(sizeof(FragList));
 	FragList *fw = malloc(sizeof(FragList));
-	int ret, ret_val = -1, i, j;
+	if(fs == NULL || fa == NULL || fw == NULL)
+		goto out;
 
 	frag_init(fa, MAX_FRAG);
 
@@ -228,13 +234,17 @@ int get_frag_list(u8 *id, char *path, const u32 hdd_sector_size)
 		{
 			gprintf("Shifting all frags by sector: %d\n", wbfs_part_lba);
 			// offset to start of partition
-			for (j = 0; j < fs->num; j++) fs->frag[j].sector += wbfs_part_lba;
+			for (j = 0; j < fs->num; j++) 
+				fs->frag[j].sector += wbfs_part_lba;
 		}
 		
 		frag_concat(fa, fs);
 	}
 
-	frag_list = MEM2_alloc((sizeof(FragList)+31)&(~31));
+	frag_list = malloc(sizeof(FragList));
+	if(frag_list == NULL)
+		goto out;
+
 	frag_init(frag_list, MAX_FRAG);
 	if (isWBFS) // If this is a .wbfs file format, remap.
 	{
@@ -252,28 +262,45 @@ int get_frag_list(u8 *id, char *path, const u32 hdd_sector_size)
 			goto out;
 		}
 		WBFS_CloseDisc(disc); // Close before jumping on fail.
-		if (frag_remap(frag_list, fw, fa))
+		if(frag_remap(frag_list, fw, fa))
 		{
 			ret_val = -6;
 			goto out;
 		}
 	}
-	else memcpy(frag_list, fa, sizeof(FragList)); // .iso files do not need a remap, just copy
+	else
+		memcpy(frag_list, fa, sizeof(FragList)); // .iso files do not need a remap, just copy
 
 	ret_val = 0;
 
 out:
-	if (ret_val) SAFE_FREE(frag_list);
-	SAFE_FREE(fs);
-	SAFE_FREE(fa);
-	SAFE_FREE(fw);
-
+	if(ret_val && frag_list != NULL)
+	{
+		free(frag_list);
+		frag_list = NULL;
+	}
+	if(fs != NULL)
+	{
+		free(fs);
+		fs = NULL;
+	}
+	if(fa != NULL)
+	{
+		free(fa);
+		fa = NULL;
+	}
+	if(fw != NULL)
+	{
+		free(fw);
+		fw = NULL;
+	}
 	return ret_val;
 }
 
-int set_frag_list(u8 *id)
+int set_frag_list()
 {
-	if (frag_list == NULL) return -2;
+	if (frag_list == NULL)
+		return -2;
 
 	// (+1 for header which is same size as fragment)
 	int size = sizeof(Fragment) * (frag_list->num + 1);
@@ -288,13 +315,7 @@ int set_frag_list(u8 *id)
 	free(frag_list);
 	frag_list = NULL;
 
-	if (ret) return ret;
-	
-	// verify id matches
-	char discid[32] ATTRIBUTE_ALIGN(32);
-	memset(discid, 0, sizeof(discid));
-
-	ret = WDVD_UnencryptedRead(discid, 32, 0);
-	gprintf("Reading ID after setting fraglist: %s (expected: %s)\n", discid, id);
-	return (strncasecmp((char *) id, discid, 6) != 0) ? -3 : 0;
+	if(ret)
+		return ret;
+	return 0;
 }

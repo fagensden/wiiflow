@@ -3,12 +3,13 @@
 #define __VIDEO_HPP
 
 #include <gccore.h>
+#include <vector>
 
-#include "smartptr.hpp"
+#include "memory/smartptr.hpp"
 #include "vector.hpp"
 #include "texture.hpp"
 
-#include "safe_vector.hpp"
+using namespace std;
 
 class CTexCoord
 {
@@ -45,7 +46,6 @@ class CVideo
 {
 public:
 	CVideo(void);
-	~CVideo(void);
 	void init(void);
 	void prepare(void);
 	void setAA(u8 aa, bool alpha = false, int width = 0, int height = 0);
@@ -58,18 +58,21 @@ public:
 	void setup2DProjection(bool setViewPort = true, bool noScale = false);
 	u32 width(void) const { return m_rmode->fbWidth; }
 	u32 height(void) const { return m_rmode->efbHeight; }
+	GXRModeObj *vid_mode(void) const { return m_rmode; }
 	u32 width2D(void) { return m_width2D; }
 	u32 height2D(void) { return m_height2D; }
 	bool wide(void) const { return m_wide; }
+	bool vid_50hz(void) const { return m_50hz; }
+	u8 getAA(void) const { return m_aa; }
+	bool showingWaitMessage() { return m_showingWaitMessages || m_showWaitMessage; }
 	void set2DViewport(u32 w, u32 h, int x, int y);
 	void prepareStencil(void);
 	void renderStencil(void);
 	int stencilVal(int x, int y);
 	void hideWaitMessage();
 	void waitMessage(float delay);
-	void waitMessage(const safe_vector<STexture> &tex, float delay, bool useWiiLight = true);
+	void waitMessage(const vector<STexture> &tex, float delay);
 	void waitMessage(const STexture &tex);
-	void CheckWaitThread();
 	s32 TakeScreenshot(const char *);
 	void shiftViewPort(float x, float y);
 private:
@@ -77,9 +80,11 @@ private:
 	void *m_frameBuf[2];
 	int m_curFB;
 	void *m_fifo;
+	void *m_stencil;
 	float m_yScale;
 	u32 m_xfbHeight;
 	bool m_wide;
+	bool m_50hz;
 	u32 m_width2D;
 	u32 m_height2D;
 	int m_x2D;
@@ -88,7 +93,6 @@ private:
 	bool m_aaAlpha;
 	int m_aaWidth;
 	int m_aaHeight;
-	SmartBuf m_stencil;
 	SmartBuf m_aaBuffer[8];
 	u32 m_aaBufferSize[8];
 	float m_vpX;
@@ -98,8 +102,7 @@ private:
 	float m_waitMessageDelay;
 	bool m_showWaitMessage;
 	volatile bool m_showingWaitMessages;
-	bool m_useWiiLight;
-	safe_vector<STexture> m_waitMessages;
+	vector<STexture> m_waitMessages;
 	// 
 	static const int _stencilWidth;
 	static const int _stencilHeight;
@@ -112,6 +115,7 @@ private:
 private:
 	void _drawAASceneWithAlpha(float w, float h);
 	void _setViewPort(float x, float y, float w, float h);
+	void _clearScreen();
 	static void _showWaitMessages(CVideo *m);
 private:
 	CVideo(const CVideo &);

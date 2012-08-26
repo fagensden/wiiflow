@@ -53,23 +53,46 @@ typedef struct
 	u32 size;
 } SWaveChunk;
 
+typedef struct
+{
+	u32 magicDATA;
+	u32 size;
+	/* Bleh */
+	u32 Manufacturer;
+	u32 Product;
+	u32 SamplePeriod;
+	u32 MIDIUnityNote;
+	u32 MIDIPitchFraction;
+	u32 SMPTEFormat;
+	u32 SMPTEOffset;
+	u32 SampleLoops;
+	u32 SamplerData;
+	/* The important stuff */
+	u32 Identifier;
+	u32 Type;
+	u32 Start;
+	u32 End;
+	u32 Fraction;
+	u32 PlayCount;
+} SWaveSmplChunk;
+
 class WavDecoder : public SoundDecoder
 {
-    public:
-        WavDecoder(const char * filepath);
-        WavDecoder(const u8 * snd, int len);
-        ~WavDecoder();
-        int GetFormat() { return Format; };
-        int GetSampleRate() { return SampleRate; };
-        int Read(u8 * buffer, int buffer_size, int pos);
-    protected:
-        void OpenFile();
-        void CloseFile();
-        u32 DataOffset;
-        u32 DataSize;
-        u32 SampleRate;
-        u8 Format;
-        bool Is16Bit;
+public:
+	WavDecoder(const char * filepath);
+	WavDecoder(const u8 * snd, int len);
+	~WavDecoder();
+	int GetFormat() { return Format; };
+	int GetSampleRate() { return SampleRate; };
+	int Read(u8 * buffer, int buffer_size, int pos);
+protected:
+	void OpenFile();
+	void CloseFile();
+	u32 DataOffset;
+	u32 DataSize;
+	u32 SampleRate;
+	u8 Format;
+	bool Is16Bit;
 };
 
 #endif

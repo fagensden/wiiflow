@@ -25,31 +25,24 @@
  *
  * for WiiXplorer 2010
  ***************************************************************************/
-
-#include "mem2.hpp"
-
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 
+#include "channel_launcher.h"
 #include "channels.h"
 #include "banner.h"
-#include "wstringEx.hpp"
-#include "gecko.h"
-#include "utils.h"
-#include "fs.h"
-#include "config.hpp"
-#include "text.hpp"
-
-#include "channel_launcher.h"
+#include "config/config.hpp"
+#include "gecko/gecko.h"
+#include "gui/text.hpp"
+#include "loader/fs.h"
+#include "memory/mem2.hpp"
+#include "wstringEx/wstringEx.hpp"
 
 #define DOWNLOADED_CHANNELS	0x00010001
 #define SYSTEM_CHANNELS		0x00010002
 #define RF_NEWS_CHANNEL		0x48414741
 #define RF_FORECAST_CHANNEL	0x48414641
-
-extern "C" void ShowError(const wstringEx &error);
-#define error(x) //ShowError(x)
 
 Channels::Channels()
 {
@@ -74,15 +67,22 @@ Channels::~Channels()
 {
 }
 
-u8 * Channels::Load(u64 title, char *id)
+u32 Channels::Load(u64 title)
 {
 	char app[ISFS_MAXPATH] ATTRIBUTE_ALIGN(32);
 	u32 bootcontent;
+	u32 entry = 0;
 
 	if(!GetAppNameFromTmd(title, app, true, &bootcontent))
-		return NULL;
+		return entry;
 
-	return GetDol(title, id, bootcontent);	
+	u8 *data = GetDol(title, bootcontent);
+
+	Identify(title);
+	entry = LoadChannel(data);
+	free(data);
+
+	return entry;
 }
 
 u8 Channels::GetRequestedIOS(u64 title)
@@ -93,19 +93,16 @@ u8 Channels::GetRequestedIOS(u64 title)
 	sprintf(tmd, "/title/%08x/%08x/content/title.tmd", TITLE_UPPER(title), TITLE_LOWER(title));
 
 	u32 size;
-	u8 *titleTMD = (u8 *) ISFS_GetFile((u8 *) &tmd, &size, -1);
+	u8 *titleTMD = (u8 *)ISFS_GetFile((u8 *) &tmd, &size, -1);
+	if(titleTMD == NULL)
+		return 0;
 
 	if(size > 0x18B)
 		IOS = titleTMD[0x18B];
-		
-	SAFE_FREE(titleTMD);
 
+	free(titleTMD);
+	gprintf("Requested Game IOS: %i\n", IOS);
 	return IOS;
-}
-
-bool Channels::Launch(u8 *data, u64 chantitle, u8 vidMode, bool vipatch, bool countryString, u8 patchVidMode, bool disableIOSreload, int aspectRatio)
-{
-	return BootChannel(data, chantitle, vidMode, vipatch, countryString, patchVidMode, disableIOSreload, aspectRatio);
 }
 
 u64* Channels::GetChannelList(u32* count)
@@ -114,20 +111,18 @@ u64* Channels::GetChannelList(u32* count)
 	if (ES_GetNumTitles(&countall) < 0 || !countall) return NULL;
 
 	u64* titles = (u64*)MEM2_alloc(countall * sizeof(u64));
-	if (!titles) return NULL;
+	if (!titles)
+		return NULL;
 
 	if(ES_GetTitles(titles, countall) < 0)
 	{
-		SAFE_FREE(titles);
+		free(titles);
 		return NULL;
 	}
 
 	u64* channels = (u64*)MEM2_alloc(countall * sizeof(u64));
 	if (!channels)
-	{
-		SAFE_FREE(titles);
 		return NULL;
-	}
 
 	*count = 0;
 	for (u32 i = 0; i < countall; i++)
@@ -139,16 +134,15 @@ u64* Channels::GetChannelList(u32* count)
  			if (TITLE_LOWER(titles[i]) == RF_NEWS_CHANNEL ||	// skip region free news and forecast channel
 				TITLE_LOWER(titles[i]) == RF_FORECAST_CHANNEL)
 				continue;
-
 			channels[(*count)++] = titles[i];
 		}
 	}
-	SAFE_FREE(titles);
+	free(titles);
 
-	return (u64*)MEM2_realloc(channels, *count * sizeof(u64));
+	return(u64*)MEM2_realloc(channels, *count * sizeof(u64));
 }
 
-bool Channels::GetAppNameFromTmd(u64 title, char* app, bool dol, u32* bootcontent)
+bool Channels::GetAppNameFromTmd(u64 title, char *app, bool dol, u32 *bootcontent)
 {
 	bool ret = false;
 
@@ -157,11 +151,13 @@ bool Channels::GetAppNameFromTmd(u64 title, char* app, bool dol, u32* bootconten
 
 	u32 size;
 	u8 *data = ISFS_GetFile((u8 *) &tmd, &size, -1);
-	if (data == NULL || size < 0x208) return ret;
+	if (data == NULL || size < 0x208)
+		return ret;
 
-	_tmd * tmd_file = (_tmd *) SIGNATURE_PAYLOAD((u32 *)data);
+	_tmd *tmd_file = (_tmd *)SIGNATURE_PAYLOAD((u32 *)data);
 	u16 i;
 	for(i = 0; i < tmd_file->num_contents; ++i)
+	{
 		if(tmd_file->contents[i].index == (dol ? tmd_file->boot_index : 0))
 		{
 			*bootcontent = tmd_file->contents[i].cid;
@@ -169,8 +165,9 @@ bool Channels::GetAppNameFromTmd(u64 title, char* app, bool dol, u32* bootconten
 			ret = true;
 			break;
 		}
+	}
 
-	SAFE_FREE(data);
+	free(data);
 
 	return ret;
 }
@@ -225,7 +222,8 @@ void Channels::Search(u32 channelType, string lang)
 {
 	u32 count;
 	u64* list = GetChannelList(&count);
-	if (!list) return;
+	if (list == NULL)
+		return;
 
 	int language = lang.size() == 0 ? CONF_GetLanguage() : GetLanguage(lang.c_str());
 
@@ -246,7 +244,7 @@ void Channels::Search(u32 channelType, string lang)
 		}
 	}
 
-	SAFE_FREE(list);
+	free(list);
 }
 
 wchar_t * Channels::GetName(int index)

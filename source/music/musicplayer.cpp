@@ -1,80 +1,72 @@
+
+#include <dirent.h>
+#include <cstdio>
+
 #include "musicplayer.h"
+#include "fileOps/fileOps.h"
+#include "gui/text.hpp"
 
-using namespace std;
+MusicPlayer m_music;
 
-MusicPlayer *MusicPlayer::instance = NULL;
-
-MusicPlayer *MusicPlayer::Instance() 
+void MusicPlayer::cleanup()
 {
-	if (instance == NULL)
-		instance = new MusicPlayer();
-
-	return instance; 
-}
-
-void MusicPlayer::DestroyInstance()
-{
-	if (instance != NULL)
-		delete instance;
-
-	instance = NULL;
+	MusicFile.FreeMemory();
 }
 
 void MusicPlayer::Init(Config &cfg, string musicDir, string themeMusicDir) 
 {
-	m_music = NULL;
-	m_manual_stop = true;
 	m_stopped = true;
 	m_fade_rate = cfg.getInt("GENERAL", "music_fade_rate", 8);
 	m_music_volume = cfg.getInt("GENERAL", "sound_volume_music", 255);
 
-	SetVolume(0); // Fades in with tick()
+	SetVolume(0);
+	MusicFile.SetVoice(0);
+	m_music_files.clear();
+	ScanDirectories(themeMusicDir.c_str());
+	ScanDirectories(musicDir.c_str());
 	
-	MusicDirectory dir = (MusicDirectory) cfg.getInt("GENERAL", "music_directories", NORMAL_MUSIC | THEME_MUSIC);
-	m_music_files.Init(cfg.getString("GENERAL", "dir_list_cache"), std::string(), std::string(), std::string(), false);
-
-	if (dir & THEME_MUSIC)
-		m_music_files.Load(themeMusicDir, ".ogg|.mp3", "EN"); //|.mod|.xm|.s3m|.wav|.aiff");
-
-	if (dir & NORMAL_MUSIC)
-		m_music_files.Load(musicDir, ".ogg|.mp3", "EN"); //|.mod|.xm|.s3m|.wav|.aiff");
-	
-	if (cfg.getBool("GENERAL", "randomize_music", false) && m_music_files.size() > 0)
+	if(cfg.getBool("GENERAL", "randomize_music", true) && m_music_files.size() > 0)
 	{
 		srand(unsigned(time(NULL)));
 		random_shuffle(m_music_files.begin(), m_music_files.end());
 	}
-
 	m_current_music = m_music_files.begin();
 }
 
-MusicPlayer::~MusicPlayer()
+void MusicPlayer::ScanDirectories(const char *directory)
 {
-	if (m_music != NULL)
+	struct dirent *pent = NULL;
+	DIR *pdir = opendir(directory);
+	while((pent = readdir(pdir)) != NULL) 
 	{
-		m_music->Stop();
-		delete m_music;
+		if(strcmp(pent->d_name, ".") == 0 || strcmp(pent->d_name, "..") == 0)
+			continue;
+		string CurrentItem = sfmt("%s/%s", directory, pent->d_name);
+		if(fsop_DirExist(CurrentItem.c_str()))
+			ScanDirectories(CurrentItem.c_str());
+		else if(strcasestr(pent->d_name, ".mp3") != NULL || strcasestr(pent->d_name, ".ogg")  != NULL)
+			m_music_files.push_back(CurrentItem);
 	}
+	closedir(pdir);
 }
 
-void MusicPlayer::SetVolume(int volume)
+void MusicPlayer::SetMaxVolume(u8 volume)
 {
-	m_music_current_volume = volume > m_music_volume ? m_music_volume : volume;
-	if (m_music != NULL)
-		m_music->SetVolume(m_music_current_volume);
-}
-
-void MusicPlayer::SetVolume(int volume, int max_volume)
-{
-	m_music_volume = max_volume;
+	m_music_volume = volume;
 	SetVolume(volume);
+}
+
+void MusicPlayer::SetVolume(u8 volume)
+{
+	m_music_current_volume = volume;
+	MusicFile.SetVolume(m_music_current_volume);
 }
 
 void MusicPlayer::Previous()
 {
-	if (m_music_files.empty()) return;
-
-	if (m_current_music == m_music_files.begin())
+	if(m_music_files.empty())
+		return;
+	if(m_current_music == m_music_files.begin())
 		m_current_music = m_music_files.end();
 
 	m_current_music--;
@@ -84,7 +76,8 @@ void MusicPlayer::Previous()
 
 void MusicPlayer::Next()
 {
-	if (m_music_files.empty()) return;
+	if(m_music_files.empty())
+		return;
 
 	m_current_music++;
 	if (m_current_music == m_music_files.end())
@@ -93,75 +86,40 @@ void MusicPlayer::Next()
 	LoadCurrentFile();
 }
 
-void MusicPlayer::Pause()
-{
-	if (m_music != NULL)
-		m_music->Pause();
-
-	m_paused = true;
-}
-
 void MusicPlayer::Play()
 {
-	m_manual_stop = m_paused = false; // Next tick will start the music
-	if (m_music != NULL)
-		m_music->SetVolume(m_music_current_volume);
+	SetVolume(m_music_current_volume);
+	MusicFile.Play();
+	m_stopped = false;
 }
-	
+
 void MusicPlayer::Stop()
 {
-	m_manual_stop = true;
-	if (m_music != NULL)
-	{
-		m_music->Pause();
-		m_music->Stop();
-		delete m_music;
-		m_music = NULL;
-	}
+	MusicFile.Pause();
+	MusicFile.Stop();
 	m_stopped = true;
 }
 
 void MusicPlayer::Tick(bool attenuate)
 {
-	if (m_music_files.empty()) return;
-	if (m_music_current_volume == 0 && attenuate) return;
-
-	if (m_music != NULL)
+	if(m_music_files.empty())
+		return;
+	if(!attenuate && m_music_current_volume < m_music_volume)
 	{
-		if (!attenuate && m_music_current_volume < m_music_volume)
-		{
-			int volume = m_music_current_volume + m_fade_rate > m_music_volume ?
-				m_music_volume : m_music_current_volume + m_fade_rate;
-			SetVolume(volume);
-		}
-		else if (attenuate && m_music_current_volume > 0)
-		{
-			int volume = m_music_current_volume - m_fade_rate < 0 ?
-				0 : m_music_current_volume - m_fade_rate;
-			SetVolume(volume);
-		}
+		SetVolume(m_music_current_volume + m_fade_rate > m_music_volume ? m_music_volume
+				: m_music_current_volume + m_fade_rate);
 	}
-		
-	if (!attenuate && !m_manual_stop && (m_music == NULL || m_stopped || !m_music->IsPlaying()))
+	else if(attenuate && m_music_current_volume > 0)
+	{
+		SetVolume(m_music_current_volume - m_fade_rate < 0 ? 0
+				: m_music_current_volume - m_fade_rate);
+	}
+	if(!attenuate && !MusicFile.IsPlaying())
 		Next();
 }
 
 void MusicPlayer::LoadCurrentFile()
 {
-	if (m_music_files.empty()) return;
-
-	if (m_music != NULL)
-		m_music->Stop();
-	
-	if (m_music == NULL)
-		m_music = new GuiSound((*m_current_music).c_str(), ASND_MUSIC_VOICE);
-	else
-		m_music->Load((*m_current_music).c_str());
-
-	if (m_music != NULL && !m_manual_stop)
-	{
-		m_music->SetVolume(m_music_current_volume);
-		m_music->Play();
-		m_stopped = false;
-	}
+	MusicFile.Load((*m_current_music).c_str());
+	Play();
 }
