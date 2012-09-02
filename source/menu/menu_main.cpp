@@ -528,17 +528,6 @@ int CMenu::main(void)
 					m_btnMgr.show(m_mainLblNotice);
 				}
 			}
-			else if(enable_wmote_roll && m_btnMgr.selected(m_mainBtnQuit))
-			{
-				_hideMain();
-				if(!_Source()) //Different source selected
-					LoadView();
-				else
-					_showMain();
-				if(BTN_B_HELD)
-					bUsed = true;
-				continue;
-			}
 		}
 		else if(WROLL_LEFT)
 		{
@@ -552,7 +541,6 @@ int CMenu::main(void)
 		}
 		if(!BTN_B_HELD)
 		{
-			//SourceMenuTimeout = 0;
 			if(BTN_UP_REPEAT || RIGHT_STICK_UP)
 				m_cf.up();
 			else if(BTN_RIGHT_REPEAT || RIGHT_STICK_RIGHT)
@@ -717,7 +705,7 @@ int CMenu::main(void)
 			}
 		}
 
-		if(done==0 && m_cat.getBool("GENERAL", "category_on_start", false))
+		if(done==0 && m_cfg.getBool("GENERAL", "category_on_start", false))
 		{
 			done = 1; //set done so it doesnt keep doing it
 			// show categories menu

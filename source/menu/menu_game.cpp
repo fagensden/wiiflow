@@ -868,11 +868,7 @@ void CMenu::_launchGC(dir_discHdr *hdr, bool disc)
 			DML_Old_SetOptions(newPath.c_str());
 
 		if(!nodisc || !m_new_dml)
-		{
-			WDVD_Init();
 			WDVD_StopMotor();
-			WDVD_Close();
-		}
 	}
 	else if(loader == 2 || (loader == 0 && m_devo_installed && strcasestr(path.c_str(), "boot.bin") == NULL))
 	{
@@ -886,35 +882,24 @@ void CMenu::_launchGC(dir_discHdr *hdr, bool disc)
 	m_cfg.save(true);
 	cleanup();
 
-	DeviceHandler::Instance()->UnMountAll();
 	GC_SetVideoMode(videoMode, videoSetting);
 	GC_SetLanguage(GClanguage);
-	if(loader == 2)
+
+	if(loader == 2 && !disc)
 	{
 		if(AHBRPOT_Patched())
 			loadIOS(58, false);
 		else //use cIOS instead to make sure Devolution works anyways
 			loadIOS(mainIOS, false);
-		USBStorage2_Deinit();
-		USB_Deinitialize();
-		SDHC_Close();
-		DEVO_SetOptions(path.c_str(), DeviceName[currentPartition], id.c_str(), memcard_emu);
-	}
-
-#ifndef DOLPHIN
-	USBStorage2_Deinit();
-	USB_Deinitialize();
-	SDHC_Close();
-#endif
-	Nand::Instance()->DeInit_ISFS();
-	if(loader == 2)
-	{
+		ShutdownBeforeExit();
+		DEVO_SetOptions(path.c_str(), currentPartition, id.c_str(), memcard_emu);
 		writeStub();
 		DEVO_Boot();
 	}
 	else
 	{
 		DML_New_WriteOptions();
+		ShutdownBeforeExit();
 		WII_Initialize();
 		WII_LaunchTitle(0x100000100LL);
 	}
@@ -930,19 +915,14 @@ void CMenu::_launchHomebrew(const char *filepath, vector<string> arguments)
 
 	Playlog_Delete();
 	cleanup(); // wifi and sd gecko doesnt work anymore after cleanup
-	LoadHomebrew(filepath);
-	DeviceHandler::Instance()->UnMountAll(); //homebrew loaded, we can unmount devices now
 
+	LoadHomebrew(filepath);
 	AddBootArgument(filepath);
 	for(u32 i = 0; i < arguments.size(); ++i)
 		AddBootArgument(arguments[i].c_str());
+
 	loadIOS(58, false);
-#ifndef DOLPHIN
-	USBStorage2_Deinit();
-	USB_Deinitialize();
-	SDHC_Close();
-#endif
-	Nand::Instance()->DeInit_ISFS();
+	ShutdownBeforeExit();
 	writeStub();
 	BootHomebrew();
 }
@@ -1100,7 +1080,7 @@ void CMenu::_launchChannel(dir_discHdr *hdr)
 			error(_t("errneek1", L"Cannot launch neek2o. Verify your neek2o setup"));
 			Sys_LoadMenu();
 		}
-		DeviceHandler::Instance()->UnMountAll();
+		ShutdownBeforeExit();
 		Launch_nk(gameTitle, emuPath.size() > 1 ? emuPath.c_str() : NULL);
 	}
 	DeviceHandler::Instance()->UnMountAll();
@@ -1152,7 +1132,7 @@ void CMenu::_launchChannel(dir_discHdr *hdr)
 	}
 	if(forwarder)
 	{
-		Nand::Instance()->DeInit_ISFS();
+		ShutdownBeforeExit();
 		WII_Initialize();
 		if(WII_LaunchTitle(gameTitle) < 0)
 			Sys_LoadMenu();	
@@ -1186,23 +1166,26 @@ void CMenu::_launchGame(dir_discHdr *hdr, bool dvd)
 	{
 		u32 cover = 0;
 		#ifndef DOLPHIN
-		Disc_Init();
 		if(!neek2o())
 		{
 			Disc_SetUSB(NULL, false);
-			if (WDVD_GetCoverStatus(&cover) < 0)
+			if(WDVD_GetCoverStatus(&cover) < 0)
 			{
 				error(_t("errgame7", L"WDVDGetCoverStatus Failed!"));
 				if (BTN_B_PRESSED) return;
 			}
-			if (!(cover & 0x2))
+			if(!(cover & 0x2))
 			{
 				error(_t("errgame8", L"Please insert a game disc."));
-				do {
+				do
+				{
 					WDVD_GetCoverStatus(&cover);
-					if (BTN_B_PRESSED) return;
+					if(BTN_B_PRESSED)
+						return;
 				} while(!(cover & 0x2));
 			}
+			if(CurrentIOS.Version != mainIOS)
+				loadIOS(mainIOS, true);
 		}
 		#endif
 		/* Open Disc */

@@ -12,7 +12,8 @@
 #include "gui/video.hpp"
 #include "gui/text.hpp"
 #include "homebrew/homebrew.h"
-#include "loader/disc.h"
+#include "loader/external_booter.hpp"
+#include "loader/wdvd.h"
 #include "loader/alt_ios.h"
 #include "loader/sys.h"
 #include "loader/wbfs.h"
@@ -92,19 +93,10 @@ int main(int argc, char **argv)
 	// Init
 	Sys_Init();
 	Sys_ExitTo(EXIT_TO_HBC);
-#ifndef DOLPHIN
-	const DISC_INTERFACE *handle = DeviceHandler::GetUSB0Interface();
-	u8 timeout = time(NULL);
-	while(time(NULL) - timeout < 20)
-	{
-		if(handle->startup() && handle->isInserted())
-			break;
-		usleep(50000);
-	}
-#endif
+
 	DeviceHandler::Instance()->MountAll();
 	vid.waitMessage(0.15f);
-	bool dipOK = Disc_Init() >= 0;
+	bool dipOK = WDVD_Init() >= 0;
 
 	mainMenu = new CMenu(vid);
 	Open_Inputs();
@@ -134,8 +126,7 @@ int main(int argc, char **argv)
 	}
 	//Exit WiiFlow, no game booted...
 	mainMenu->cleanup();
-	DeviceHandler::Instance()->UnMountAll();
-	Nand::Instance()->DeInit_ISFS();
+	ShutdownBeforeExit();
 	Sys_Exit();
 	exit(1);
 	return 0;

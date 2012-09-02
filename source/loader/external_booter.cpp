@@ -19,9 +19,9 @@
 #include "external_booter.hpp"
 #include "cios.h"
 #include "fst.h"
+#include "wdvd.h"
 #include "channel/nand.hpp"
-#include "devicemounter/sdhc.h"
-#include "devicemounter/usbstorage.h"
+#include "devicemounter/DeviceHandler.hpp"
 #include "homebrew/homebrew.h"
 
 /* External WiiFlow Game Booter */
@@ -92,13 +92,7 @@ void WiiFlow_ExternalBooter(u8 vidMode, bool vipatch, bool countryString, u8 pat
 	memcpy((void *)0x90000000, &normalCFG, sizeof(the_CFG));
 	DCFlushRange((void *)(0x90000000), sizeof(the_CFG));
 
-#ifndef DOLPHIN
-	USBStorage2_Deinit();
-	USB_Deinitialize();
-	SDHC_Close();
-#endif
-	Nand::Instance()->DeInit_ISFS(true); //cIOS loves magic :P
-
+	ShutdownBeforeExit(true);
 	memcpy(EXECUTE_ADDR, wii_game_booter_dol, wii_game_booter_dol_size);
 	DCFlushRange(EXECUTE_ADDR, wii_game_booter_dol_size);
 	BootHomebrew();
@@ -113,4 +107,11 @@ void ExternalBooter_ChannelSetup(void *dolchunkoffset[18], u32 dolchunksize[18],
 	}
 	normalCFG.dolchunkcount = dolchunkcount;
 	normalCFG.startPoint = StartPoint;
+}
+
+void ShutdownBeforeExit(bool KeepPatches)
+{
+	DeviceHandler::Instance()->UnMountAll(true); //Shutdown USB as well
+	Nand::Instance()->DeInit_ISFS(KeepPatches);
+	WDVD_Close();
 }
