@@ -32,7 +32,7 @@ void CMenu::_hideConfig(bool instant)
 	m_btnMgr.hide(m_configLblCfg4, instant);
 	m_btnMgr.hide(m_configBtnCfg4, instant);
 	for(u8 i = 0; i < ARRAY_SIZE(m_configLblUser); ++i)
-		if(m_configLblUser[i] != (u16)-1)
+		if(m_configLblUser[i] != -1)
 			m_btnMgr.hide(m_configLblUser[i], instant);
 }
 
@@ -67,7 +67,7 @@ void CMenu::_showConfig(void)
 			partitionname[i] = toupper(partitionname[i]);
 
 		for(u8 i = 0; i < ARRAY_SIZE(m_configLblUser); ++i)
-			if(m_configLblUser[i] != (u16)-1)
+			if(m_configLblUser[i] != -1)
 				m_btnMgr.show(m_configLblUser[i]);
 		
 		m_btnMgr.setText(m_configLblPartition, (string)partitionname);
@@ -91,9 +91,9 @@ void CMenu::_config(int page)
 	m_curGameId = m_cf.getId();
 	m_cfNeedsUpdate = false;
 	int change = CONFIG_PAGE_NO_CHANGE;
-	while (true)
+	while(!m_exit)
 	{
-		switch (page)
+		switch(page)
 		{
 			case 1:
 				change = _config1();
@@ -114,9 +114,9 @@ void CMenu::_config(int page)
 				change = _configScreen();
 				break;
 		}
-		if (change == CONFIG_PAGE_BACK)
+		if(change == CONFIG_PAGE_BACK)
 			break;
-		if (!m_locked)
+		if(!m_locked)
 		{
 			// assumes change is in the range of CONFIG_PAGE_DEC to CONFIG_PAGE_INC
 			page += change;
@@ -126,10 +126,10 @@ void CMenu::_config(int page)
 				page = _nbCfgPages;
 		}
 	}
-	if (m_cfNeedsUpdate)
+	if(m_cfNeedsUpdate)
 	{
-	m_cfg.save();
-	_initCF();
+		m_cfg.save();
+		_initCF();
 	}
 }
 
@@ -167,7 +167,7 @@ int CMenu::_config1(void)
 	_showConfig();
 	_textConfig();
 
-	while (true)
+	while(!m_exit)
 	{
 		change = _configCommon();
 		if (change != CONFIG_PAGE_NO_CHANGE)

@@ -9,29 +9,29 @@
 #include "loader/sys.h"
 
 // NandEmulation menu
-u16 m_nandemuLblTitle;
-u16 m_nandemuBtnBack;
-u16 m_nandemuLblEmulationVal;
-u16 m_nandemuLblEmulation;
-u16 m_nandemuBtnEmulationM;
-u16 m_nandemuBtnEmulationP;
-u16 m_nandemuLblSaveDump;
-u16 m_nandemuBtnAll;
-u16 m_nandemuBtnMissing;
-u16 m_nandemuLblNandDump;
-u16 m_nandemuBtnNandDump;
-u16 m_nandfileLblMessage;
-u16 m_nandemuLblMessage;
-u16 m_nandfileLblDialog;
-u16 m_nandfinLblDialog;
-u16 m_nandemuLblDialog;
-u16 m_nandfilePBar;
-u16 m_nandemuPBar;
-u16 m_nandemuBtnExtract;
-u16 m_nandemuBtnDisable;
-u16 m_nandemuBtnPartition;
-u16 m_nandemuLblInit;
-u16 m_nandemuLblUser[4];
+s16 m_nandemuLblTitle;
+s16 m_nandemuBtnBack;
+s16 m_nandemuLblEmulationVal;
+s16 m_nandemuLblEmulation;
+s16 m_nandemuBtnEmulationM;
+s16 m_nandemuBtnEmulationP;
+s16 m_nandemuLblSaveDump;
+s16 m_nandemuBtnAll;
+s16 m_nandemuBtnMissing;
+s16 m_nandemuLblNandDump;
+s16 m_nandemuBtnNandDump;
+s16 m_nandfileLblMessage;
+s16 m_nandemuLblMessage;
+s16 m_nandfileLblDialog;
+s16 m_nandfinLblDialog;
+s16 m_nandemuLblDialog;
+s16 m_nandfilePBar;
+s16 m_nandemuPBar;
+s16 m_nandemuBtnExtract;
+s16 m_nandemuBtnDisable;
+s16 m_nandemuBtnPartition;
+s16 m_nandemuLblInit;
+s16 m_nandemuLblUser[4];
 STexture m_nandemuBg;
 
 bool m_nandext;
@@ -61,14 +61,14 @@ static bool _saveExists(const char *path)
 
 bool CMenu::_TestEmuNand(int epart, const char *path, bool indept)
 {
-	bool haveValidENand = true;
 	char basepath[64];
 	char testpath[MAX_FAT_PATH];
 	snprintf(basepath, sizeof(basepath), "%s:%s", DeviceName[epart], path);
+
 	DIR *d;
 	d = opendir(basepath);
 	if(!d)
-		haveValidENand = false;
+		return false;
 	else
 		closedir(d);
 		
@@ -77,29 +77,22 @@ bool CMenu::_TestEmuNand(int epart, const char *path, bool indept)
 		// Check Wiimotes && Region
 		snprintf(testpath, sizeof(testpath), "%s:%s/shared2/sys/SYSCONF", DeviceName[epart], path);
 		if(!fsop_FileExist(testpath))
-		{
-			//gprintf("Nandcheck: SYSCONF not found\n");
-			haveValidENand = false;
-		}
+			return false;
 		snprintf(testpath, sizeof(testpath), "%s:%s/title/00000001/00000002/data/setting.txt", DeviceName[epart], path);
 		if(!fsop_FileExist(testpath))
-		{
-			//gprintf("Nandcheck: setting.txt not found\n");
-			haveValidENand = false;
-		}
+			return false;
 		// Check Mii's
 		snprintf(testpath, sizeof(testpath), "%s:%s/shared2/menu/FaceLib/RFL_DB.dat", DeviceName[epart], path);
 		if(!fsop_FileExist(testpath))
-		{
-			//gprintf("Nandcheck: Mii's not found\n");
-			haveValidENand = false;
-		}
+			return false;
 	}
-	return haveValidENand;
+	return true;
 }
 
 int CMenu::_FindEmuPart(string *emuPath, int part, bool searchvalid)
 {
+	Nand::Instance()->Disable_Emu();
+
 	int emuPartition = -1;	
 	string tmpPath;
 	if(m_current_view == COVERFLOW_CHANNEL)
@@ -124,42 +117,42 @@ int CMenu::_FindEmuPart(string *emuPath, int part, bool searchvalid)
 			tmpPath = m_cfg.getString("GAMES", "savepath", STDEMU_DIR);
 		}
 	}
-
-	if(_TestEmuNand(emuPartition, tmpPath.c_str(), true) && DeviceHandler::Instance()->IsInserted(emuPartition) && DeviceHandler::Instance()->GetFSType(emuPartition) == PART_FS_FAT)
+	
+	if(!DeviceHandle.IsInserted(emuPartition))
+		DeviceHandle.Mount(emuPartition);
+		
+	if(_TestEmuNand(emuPartition, tmpPath.c_str(), true) && DeviceHandle.PartitionUsableForNandEmu(emuPartition))
 	{
 		*emuPath = tmpPath;
 		return emuPartition;
 	}
 	else
 	{
-		emuPartition = part;
 		bool fllscn = emuPartition == -1;
-		for(u8 i = emuPartition; i <= USB8; ++i)
+		for(u8 i = part; i <= USB8; ++i)
 		{
-			if(!DeviceHandler::Instance()->IsInserted(emuPartition) || DeviceHandler::Instance()->GetFSType(emuPartition) != PART_FS_FAT)
-			{
-				emuPartition++;
+			if(!DeviceHandle.IsInserted(i))
+				DeviceHandle.Mount(i);
+
+			if(!DeviceHandle.PartitionUsableForNandEmu(i))
 				continue;
-			}
-			else
+
+			if(_TestEmuNand(i, tmpPath.c_str(), true) || searchvalid)
 			{
-				if(_TestEmuNand(i, tmpPath.c_str(), true) || searchvalid)
-				{
-					if(m_current_view == COVERFLOW_CHANNEL)
-						m_cfg.setInt("NAND", "partition", i);
-					else if(m_current_view == COVERFLOW_USB)
-						m_cfg.setInt("GAMES", "savepartition", i);
+				if(m_current_view == COVERFLOW_CHANNEL)
+					m_cfg.setInt("NAND", "partition", i);
+				else if(m_current_view == COVERFLOW_USB)
+					m_cfg.setInt("GAMES", "savepartition", i);
 					
-					*emuPath = tmpPath;
-					m_cfg.save();
+				*emuPath = tmpPath;
+				m_cfg.save();
 		
-					return i;
-				}
+				return i;
 			}
 		
 			if(i == USB8 && !fllscn)
 			{
-				i = 0;
+				i = -1;
 				fllscn = true;
 			}
 		}
@@ -210,11 +203,11 @@ void CMenu::_enableNandEmu(bool fromconfig)
 		if (!fromconfig)
 			direction = 0;
 		currentPartition = loopNum(currentPartition + direction, (int)USB8);
-		while(!DeviceHandler::Instance()->IsInserted(currentPartition) ||
-			(m_current_view == COVERFLOW_CHANNEL && (DeviceHandler::Instance()->GetFSType(currentPartition) != PART_FS_FAT ||
-				(!isD2XnewerThanV6 && DeviceHandler::Instance()->PathToDriveType(m_appDir.c_str()) == currentPartition) ||
-				(!isD2XnewerThanV6 && DeviceHandler::Instance()->PathToDriveType(m_dataDir.c_str()) == currentPartition))) ||
-			((m_current_view == COVERFLOW_HOMEBREW || m_current_view == COVERFLOW_DML) && DeviceHandler::Instance()->GetFSType(currentPartition) == PART_FS_WBFS))
+		while(!DeviceHandle.IsInserted(currentPartition) ||
+			(m_current_view == COVERFLOW_CHANNEL && (DeviceHandle.GetFSType(currentPartition) != PART_FS_FAT ||
+				(!isD2XnewerThanV6 && DeviceHandle.PathToDriveType(m_appDir.c_str()) == currentPartition) ||
+				(!isD2XnewerThanV6 && DeviceHandle.PathToDriveType(m_dataDir.c_str()) == currentPartition))) ||
+			((m_current_view == COVERFLOW_HOMEBREW || m_current_view == COVERFLOW_DML) && DeviceHandle.GetFSType(currentPartition) == PART_FS_WBFS))
 		{
 			currentPartition = loopNum(currentPartition + direction, (int)USB8);
 			if (limiter > 10) break;
@@ -325,9 +318,9 @@ int CMenu::_NandEmuCfg(void)
 	m_thrdMessageAdded = false;
 	m_nandext = false;
 
-	while(true)
+	while(!m_exit)
 	{
-		_mainLoopCommon(false, m_thrdWorking);
+		_mainLoopCommon();
 		if((BTN_HOME_PRESSED || BTN_B_PRESSED) && !m_thrdWorking)
 			break;
 		else if(BTN_UP_PRESSED)
@@ -428,9 +421,9 @@ int CMenu::_FlashSave(string gameId)
 
 	m_saveExtGameId = gameId;
 
-	while(true)
+	while(!m_exit)
 	{
-		_mainLoopCommon(false, m_thrdWorking);
+		_mainLoopCommon();
 		if(m_forceext)
 		{
 			m_forceext = false;	
@@ -523,9 +516,9 @@ int CMenu::_AutoExtractSave(string gameId)
 
 	m_saveExtGameId = gameId;
 
-	while(true)
+	while(!m_exit)
 	{
-		_mainLoopCommon(false, m_thrdWorking);
+		_mainLoopCommon();
 		if((BTN_A_PRESSED && (m_btnMgr.selected(m_nandemuBtnExtract))) || m_forceext)
 		{
 			m_forceext = false;
@@ -618,9 +611,9 @@ int CMenu::_AutoCreateNand(void)
 	m_btnMgr.show(m_nandemuBtnPartition);	
 	m_btnMgr.show(m_nandemuLblInit);	
 
-	while(true)
+	while(!m_exit)
 	{
-		_mainLoopCommon(false, m_thrdWorking);
+		_mainLoopCommon();
 		if(BTN_A_PRESSED && (m_btnMgr.selected(m_nandemuBtnExtract)))
 		{
 			m_fulldump =  true;

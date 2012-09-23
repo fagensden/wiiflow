@@ -21,43 +21,17 @@
 #include <unistd.h>
 #include <malloc.h>
 
+#include "Config.hpp"
+#include "ChannelHandler.hpp"
+
 #include "apploader.h"
-#include "wdvd.h"
 #include "patchcode.h"
-#include "cios.h"
 #include "disc.h"
 #include "fst.h"
-#include "videopatch.h"
+#include "wdvd.h"
 
 using namespace std;
 IOS_Info CurrentIOS;
-
-typedef struct _the_CFG {
-	u8 vidMode;
-	bool vipatch;
-	bool countryString;
-	u8 patchVidMode;
-	int aspectRatio;
-	u32 returnTo;
-	u8 configbytes[2];
-	IOS_Info IOS;
-	void *codelist;
-	u8 *codelistend;
-	u8 *cheats;
-	u32 cheatSize;
-	u32 hooktype;
-	u8 debugger;
-	u32 *gameconf;
-	u32 gameconfsize;
-	u8 BootType;
-	/* needed for channels */
-	void *dolchunkoffset[18];
-	u32	dolchunksize[18];
-	u32	dolchunkcount;
-	u32 startPoint;
-} the_CFG;
-
-static the_CFG *conf = (the_CFG*)0x90000000;
 
 /* Boot Variables */
 u32 vmode_reg = 0;
@@ -67,21 +41,6 @@ GXRModeObj *vmode = NULL;
 u32 AppEntrypoint;
 
 extern "C" { extern void __exception_closeall(); }
-
-void PatchChannel(u8 vidMode, GXRModeObj *vmode, bool vipatch, bool countryString, u8 patchVidModes, int aspectRatio)
-{
-	for(u32 i = 0; i < conf->dolchunkcount; i++)
-	{		
-		patchVideoModes(conf->dolchunkoffset[i], conf->dolchunksize[i], vidMode, vmode, patchVidModes);
-		if(vipatch) vidolpatcher(conf->dolchunkoffset[i], conf->dolchunksize[i]);
-		if(configbytes[0] != 0xCD) langpatcher(conf->dolchunkoffset[i], conf->dolchunksize[i]);
-		if(countryString) PatchCountryStrings(conf->dolchunkoffset[i], conf->dolchunksize[i]);
-		if(aspectRatio != -1) PatchAspectRatio(conf->dolchunkoffset[i], conf->dolchunksize[i], aspectRatio);
-
-		if(hooktype != 0)
-			dogamehooks(conf->dolchunkoffset[i], conf->dolchunksize[i], true);
-	}
-}
 
 int main()
 {
@@ -102,6 +61,7 @@ int main()
 
 	if(conf->BootType == TYPE_WII_GAME)
 	{
+		/* Re-Init DI */
 		WDVD_Init();
 
 		/* Find Partition */
@@ -115,15 +75,22 @@ int main()
 		Apploader_Run(&p_entry, conf->vidMode, vmode, conf->vipatch, conf->countryString, conf->patchVidMode, 
 					conf->aspectRatio, conf->returnTo);
 		AppEntrypoint = (u32)p_entry;
+
+		/* De-Init DI */
+		WDVD_Close();
 	}
 	else if(conf->BootType == TYPE_CHANNEL)
 	{
-		if(hooktype != 0)
-			ocarina_do_code();
+		/* Re-Init ISFS */
+		ISFS_Initialize();
 
+		/* Load and Patch Channel */
+		AppEntrypoint = LoadChannel();
 		PatchChannel(conf->vidMode, vmode, conf->vipatch, conf->countryString, 
 					conf->patchVidMode, conf->aspectRatio);
-		AppEntrypoint = conf->startPoint;
+
+		/* De-Init ISFS */
+		ISFS_Deinitialize();
 	}
 
 	/* Set time */

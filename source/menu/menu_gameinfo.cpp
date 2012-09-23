@@ -1,4 +1,3 @@
-
 #include "menu.hpp"
 
 #include "gui/GameTDB.hpp"
@@ -147,11 +146,11 @@ void CMenu::_gameinfo(void)
 			m_btnMgr.hide(m_gameinfoLblWifiplayers, true);
 
 			for(u8 i = 0; i < ARRAY_SIZE(m_gameinfoLblControlsReq); ++i)
-				if(m_gameinfoLblControlsReq[i] != (u16)-1)
+				if(m_gameinfoLblControlsReq[i] != -1)
 					m_btnMgr.hide(m_gameinfoLblControlsReq[i], true);
 			
 			for(u8 i = 0; i < ARRAY_SIZE(m_gameinfoLblControls); ++i)
-				if(m_gameinfoLblControls[i] != (u16)-1)
+				if(m_gameinfoLblControls[i] != -1)
 					m_btnMgr.hide(m_gameinfoLblControls[i], true);
 			
 			// When showing synopsis, only show user labels 2 and 3
@@ -177,11 +176,11 @@ void CMenu::_gameinfo(void)
 			m_btnMgr.show(m_gameinfoLblWifiplayers);
 
 			for(u8 i = 0; i < ARRAY_SIZE(m_gameinfoLblControlsReq); ++i)
-				if(m_gameinfoLblControlsReq[i] != (u16)-1 && i < cnt_controlsreq)
+				if(m_gameinfoLblControlsReq[i] != -1 && i < cnt_controlsreq)
 					m_btnMgr.show(m_gameinfoLblControlsReq[i]);
 
 			for(u8 i = 0; i < ARRAY_SIZE(m_gameinfoLblControls); ++i)
-				if(m_gameinfoLblControls[i] != (u16)-1 && i < cnt_controls)
+				if(m_gameinfoLblControls[i] != -1 && i < cnt_controls)
 					m_btnMgr.show(m_gameinfoLblControls[i]);
 
 			// When showing synopsis, only show user labels 2 and 3
@@ -213,14 +212,14 @@ void CMenu::_hideGameInfo(bool instant)
 	m_btnMgr.hide(m_gameinfoLblWifiplayers, instant);
 	
 	for(u8 i = 0; i < ARRAY_SIZE(m_gameinfoLblControlsReq); ++i)
-		if(m_gameinfoLblControlsReq[i] != (u16)-1)
+		if(m_gameinfoLblControlsReq[i] != -1)
 			m_btnMgr.hide(m_gameinfoLblControlsReq[i], instant);
 
 	for(u8 i = 0; i < ARRAY_SIZE(m_gameinfoLblUser); ++i)
 		m_btnMgr.hide(m_gameinfoLblUser[i], instant);
 
 	for(u8 i = 0; i < ARRAY_SIZE(m_gameinfoLblControls); ++i)
-		if(m_gameinfoLblControls[i] != (u16)-1)
+		if(m_gameinfoLblControls[i] != -1)
 			m_btnMgr.hide(m_gameinfoLblControls[i], instant);
 }
 
@@ -247,11 +246,11 @@ void CMenu::_showGameInfo(void)
 				m_btnMgr.show(m_gameinfoLblUser[i]);
 		
 		for(u8 i = 0; i < ARRAY_SIZE(m_gameinfoLblControlsReq); ++i)
-			if(m_gameinfoLblControlsReq[i] != (u16)-1 && i < cnt_controlsreq)
+			if(m_gameinfoLblControlsReq[i] != -1 && i < cnt_controlsreq)
 				m_btnMgr.show(m_gameinfoLblControlsReq[i]);
 			
 		for(u8 i = 0; i < ARRAY_SIZE(m_gameinfoLblControls); ++i)
-			if(m_gameinfoLblControls[i] != (u16)-1 && i < cnt_controls)
+			if(m_gameinfoLblControls[i] != -1 && i < cnt_controls)
 				m_btnMgr.show(m_gameinfoLblControls[i]);
 	}
 }
@@ -546,9 +545,6 @@ void CMenu::_textGameInfo(void)
 
 		cnt_controlsreq = x;
 
-		//for(unsigned int i = 0;i<ARRAY_SIZE(m_gameinfoLblControlsReq);i++)
-			//m_btnMgr.setTexture(m_gameinfoLblControlsReq[i] ,m_controlsreq[i]);
-
 		//check optional controlls
 		wiimote=0,
 		nunchuk=0,
@@ -680,11 +676,9 @@ void CMenu::_textGameInfo(void)
 		}
 
 		cnt_controls = x;
-		//for(unsigned int i = 0;i<ARRAY_SIZE(m_gameinfoLblControls);i++)
-			//m_btnMgr.setTexture(m_gameinfoLblControls[i] ,m_controls[i]);
 	}
 	else
-		m_btnMgr.setText(m_gameinfoLblTitle, wfmt(L"%s", "No Gameinfo"), true);
+		m_btnMgr.setText(m_gameinfoLblTitle, wfmt(_fmt("gameinfo6",L"No Gameinfo"), true));
 
 	gametdb.CloseFile();
 

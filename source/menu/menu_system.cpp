@@ -29,15 +29,11 @@ void CMenu::_system()
 	m_thrdStop = false;
 	m_thrdMessageAdded = false;
 	m_showtimer = -1;
-	while (true)
+	while(!m_exit)
 	{
-		_mainLoopCommon(false, m_thrdWorking);
-
-		if (amount_of_skips == 0)
-		{
-			// Check dimensions in the loop, because the animation can have an effect
+		_mainLoopCommon();
+		if(amount_of_skips == 0) // Check dimensions in the loop, because the animation can have an effect
 			m_btnMgr.getDimensions(m_systemLblInfo, update_x, update_y, update_w, update_h); // Get original dimensions
-		}
 		if(first)
 		{
 			m_btnMgr.moveBy(m_systemLblInfo, 0, -(pixels_to_skip * 10));
@@ -223,7 +219,7 @@ void CMenu::_hideSystem(bool instant)
 	m_btnMgr.hide(m_systemBtnVerSelectM);
 	m_btnMgr.hide(m_systemBtnVerSelectP);
 	for(u8 i = 0; i < ARRAY_SIZE(m_systemLblUser); ++i)
-		if(m_systemLblUser[i] != (u16)-1)
+		if(m_systemLblUser[i] != -1)
 			m_btnMgr.hide(m_systemLblUser[i], instant);
 }
 
@@ -240,7 +236,7 @@ void CMenu::_showSystem(void)
 	m_btnMgr.show(m_systemBtnVerSelectP);
 	m_btnMgr.show(m_systemBtnDownload);
 	for(u8 i = 0; i < ARRAY_SIZE(m_systemLblUser); ++i)
-		if(m_systemLblUser[i] != (u16)-1)
+		if(m_systemLblUser[i] != -1)
 			m_btnMgr.show(m_systemLblUser[i]);
 	_textSystem();
 }

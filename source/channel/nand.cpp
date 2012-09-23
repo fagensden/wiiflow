@@ -119,10 +119,13 @@ s32 Nand::Nand_Unmount(NandDevice *Device)
 
 s32 Nand::Nand_Enable(NandDevice *Device)
 {
-	gprintf("Enabling NAND Emulator\n");
+	gprintf("Enabling NAND Emulator...");
 	s32 fd = IOS_Open("/dev/fs", 0);
 	if(fd < 0)
+	{
+		gprintf(" failed!\n");
 		return fd;
+	}
 
 	int NandPathlen = strlen(NandPath) + 1;
 
@@ -137,7 +140,8 @@ s32 Nand::Nand_Enable(NandDevice *Device)
 
 	s32 ret = IOS_Ioctlv(fd, 100, 2, 0, vector);
 	IOS_Close(fd);
-
+	
+	gprintf(" %s!\n", ret < 0 ? "failed" : "OK");
 	return ret;
 } 
 
@@ -188,7 +192,13 @@ s32 Nand::Disable_Emu()
 	MountedDevice = 0;
 
 	emu_enabled = false;
+	usleep(1000);
 	return 0;
+}
+
+bool Nand::EmulationEnabled(void)
+{
+	return emu_enabled;
 }
 
 void Nand::Set_NandPath(string path)
@@ -1044,7 +1054,7 @@ extern "C" { extern s32 MagicPatches(s32); }
 
 void Nand::Init_ISFS()
 {
-	gprintf("Init ISFS\n");
+	//gprintf("Init ISFS\n");
 	ISFS_Initialize();
 	if(AHBRPOT_Patched())
 	{
@@ -1060,7 +1070,7 @@ void Nand::Init_ISFS()
 
 void Nand::DeInit_ISFS(bool KeepPatches)
 {
-	gprintf("Deinit ISFS\n");
+	//gprintf("Deinit ISFS\n");
 	if(AHBRPOT_Patched())
 	{
 		// Disable memory protection

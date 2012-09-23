@@ -24,7 +24,7 @@ void CMenu::_hideConfigSnd(bool instant)
 	m_btnMgr.hide(m_configSndBtnCFVolP, instant);
 	m_btnMgr.hide(m_configSndBtnCFVolM, instant);
 	for(u8 i = 0; i < ARRAY_SIZE(m_configSndLblUser); ++i)
-		if(m_configSndLblUser[i] != (u16)-1)
+		if(m_configSndLblUser[i] != -1)
 			m_btnMgr.hide(m_configSndLblUser[i], instant);
 }
 
@@ -49,7 +49,7 @@ void CMenu::_showConfigSnd(void)
 	m_btnMgr.show(m_configSndBtnCFVolP);
 	m_btnMgr.show(m_configSndBtnCFVolM);
 	for(u8 i = 0; i < ARRAY_SIZE(m_configSndLblUser); ++i)
-		if(m_configSndLblUser[i] != (u16)-1)
+		if(m_configSndLblUser[i] != -1)
 			m_btnMgr.show(m_configSndLblUser[i]);
 
 	m_btnMgr.setText(m_configSndLblGuiVolVal, wfmt(L"%i", m_cfg.getInt("GENERAL", "sound_volume_gui", 255)));
@@ -65,7 +65,7 @@ int CMenu::_configSnd(void)
 	int step = 1;
 
 	_showConfigSnd();
-	while (true)
+	while(!m_exit)
 	{
 		change = _configCommon();
 		if (change != CONFIG_PAGE_NO_CHANGE)
@@ -101,14 +101,14 @@ int CMenu::_configSnd(void)
 				int musicVol = min(m_cfg.getInt("GENERAL", "sound_volume_music", 255) + step, 255);
 				m_cfg.setInt("GENERAL", "sound_volume_music", musicVol);
 				_showConfigSnd();
-				m_music.SetMaxVolume(musicVol);
+				MusicPlayer.SetMaxVolume(musicVol);
 			}
 			else if (m_btnMgr.selected(m_configSndBtnMusicVolM))
 			{
 				int musicVol = max(m_cfg.getInt("GENERAL", "sound_volume_music", 255) - step, 0);
 				m_cfg.setInt("GENERAL", "sound_volume_music", musicVol);
 				_showConfigSnd();
-				m_music.SetMaxVolume(musicVol);
+				MusicPlayer.SetMaxVolume(musicVol);
 			}
 			else if (m_btnMgr.selected(m_configSndBtnCFVolP))
 			{

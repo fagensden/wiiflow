@@ -19,7 +19,7 @@ void CMenu::_hideWBFS(bool instant)
 	m_btnMgr.hide(m_wbfsLblDialog);
 	m_btnMgr.hide(m_wbfsLblMessage);
 	for(u8 i = 0; i < ARRAY_SIZE(m_wbfsLblUser); ++i)
-		if(m_wbfsLblUser[i] != (u16)-1)
+		if(m_wbfsLblUser[i] != -1)
 			m_btnMgr.hide(m_wbfsLblUser[i], instant);
 }
 
@@ -46,16 +46,16 @@ void CMenu::_showWBFS(CMenu::WBFS_OP op)
 	m_btnMgr.show(m_wbfsBtnGo);
 	m_btnMgr.show(m_wbfsLblDialog);
 	for(u8 i = 0; i < ARRAY_SIZE(m_wbfsLblUser); ++i)
-		if(m_wbfsLblUser[i] != (u16)-1)
+		if(m_wbfsLblUser[i] != -1)
 			m_btnMgr.show(m_wbfsLblUser[i]);
 }
 
 static void slotLight(bool state)
 {
 	if (state)
-		*(u32 *)0xCD0000C0 |= 0x20;        
+		*(u32 *)0xCD0000C0 |= 0x20;
 	else
-		*(u32 *)0xCD0000C0 &= ~0x20;        
+		*(u32 *)0xCD0000C0 &= ~0x20;
 }
 
 void CMenu::_addDiscProgress(int status, int total, void *user_data)
@@ -115,17 +115,16 @@ int CMenu::_gameInstaller(void *obj)
 	CMenu &m = *(CMenu *)obj;
 	int ret;
 
-	if (!WBFS_Mounted())
+	DeviceHandle.OpenWBFS(currentPartition);
+	if(!WBFS_Mounted())
 	{
 		m.m_thrdWorking = false;
 		return -1;
 	}
-
 	u64 comp_size = 0, real_size = 0;
 	f32 free, used;
 	WBFS_DiskSpace(&used, &free);
 	WBFS_DVD_Size(&comp_size, &real_size);
-
 	if((f32)comp_size + (f32)128*1024 >= free * GB_SIZE)
 	{
 		LWP_MutexLock(m.m_mutex);
@@ -148,6 +147,7 @@ int CMenu::_gameInstaller(void *obj)
 		LWP_MutexUnlock(m.m_mutex);
 		slotLight(true);
 	}
+	WBFS_Close();
 	m.m_thrdWorking = false;
 	return ret;
 }
@@ -172,7 +172,7 @@ int CMenu::_GCgameInstaller(void *obj)
 	int ret;	
 	m.m_progress = 0.f;
 
-	if (!DeviceHandler::Instance()->IsInserted(currentPartition))
+	if (!DeviceHandle.IsInserted(currentPartition))
 	{
 		m.m_thrdWorking = false;
 		return -1;
@@ -288,9 +288,9 @@ bool CMenu::_wbfsOp(CMenu::WBFS_OP op)
 	}
 	m_thrdStop = false;
 	m_thrdMessageAdded = false;
-	while(true)
+	while(!m_exit)
 	{
-		_mainLoopCommon(false, m_thrdWorking);
+		_mainLoopCommon();
 		if((BTN_HOME_PRESSED || BTN_B_PRESSED) && !m_thrdWorking)
 			break;
 		else if(BTN_UP_PRESSED)
@@ -306,6 +306,8 @@ bool CMenu::_wbfsOp(CMenu::WBFS_OP op)
 				switch(op)
 				{
 					case CMenu::WO_ADD_GAME:
+						MusicPlayer.Stop();
+						_TempLoadIOS();
 						m_btnMgr.show(m_wbfsPBar);
 						m_btnMgr.setProgress(m_wbfsPBar, 0.f);
 						m_btnMgr.hide(m_wbfsBtnGo);
@@ -370,7 +372,6 @@ bool CMenu::_wbfsOp(CMenu::WBFS_OP op)
 						{
 							error(_t("wbfsoperr3", L"This is not a Wii or GC disc!"));
 							out = true;
-							break;
 						}
 						break;
 					case CMenu::WO_REMOVE_GAME:
@@ -435,7 +436,7 @@ bool CMenu::_wbfsOp(CMenu::WBFS_OP op)
 						m_thrdMessageAdded = false;
 						m_cf.stopCoverLoader();
 						_stopSounds();
-						m_music.cleanup();
+						MusicPlayer.Cleanup();
 						SoundHandler::DestroyInstance();
 						soundDeinit();
 						Nand::Instance()->Disable_Emu();
@@ -458,7 +459,11 @@ bool CMenu::_wbfsOp(CMenu::WBFS_OP op)
 			if(!m_thrdWorking)
 			{
 				if(op == CMenu::WO_ADD_GAME)
+				{
 					WDVD_StopMotor();
+					MusicPlayer.Stop();
+					_TempLoadIOS(IOS_TYPE_NORMAL_IOS);
+				}
 				m_btnMgr.show(m_wbfsBtnBack);
 			}
 		}

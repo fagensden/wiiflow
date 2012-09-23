@@ -112,9 +112,6 @@ extern const u8 checkboxs_png[];
 extern const u8 checkboxhid_png[];
 extern const u8 checkboxreq_png[];
 
-SmartBuf m_wbf1_font;
-SmartBuf m_wbf2_font;
-
 CMenu::CMenu(CVideo &vid) :
 	m_vid(vid)
 {
@@ -135,14 +132,16 @@ CMenu::CMenu(CVideo &vid) :
 	m_numCFVersions = 0;
 	m_bgCrossFade = 0;
 	m_bnrSndVol = 0;
-	m_gameSettingsPage = 0;
 	m_bnr_settings = true;
 	m_directLaunch = false;
 	m_exit = false;
 	m_reload = false;
 	m_gamesound_changed = false;
 	m_video_playing = false;
+	m_base_font = NULL;
 	m_base_font_size = 0;
+	m_wbf1_font = NULL;
+	m_wbf2_font = NULL;
 	m_current_view = COVERFLOW_USB;
 	m_Emulator_boot = false;
 	m_banner = new BannerWindow;
@@ -159,7 +158,7 @@ void CMenu::init(void)
 	Playlog_Delete();
 
 	for(int i = SD; i <= USB8; i++) //Find the first partition with a wiiflow.ini
-		if (DeviceHandler::Instance()->IsInserted(i) && DeviceHandler::Instance()->GetFSType(i) != PART_FS_WBFS && stat(fmt("%s:/%s/" CFG_FILENAME, DeviceName[i], APPDATA_DIR2), &dummy) == 0)
+		if (DeviceHandle.IsInserted(i) && DeviceHandle.GetFSType(i) != PART_FS_WBFS && stat(fmt("%s:/%s/" CFG_FILENAME, DeviceName[i], APPDATA_DIR2), &dummy) == 0)
 		{
 			drive = DeviceName[i];
 			break;
@@ -167,7 +166,7 @@ void CMenu::init(void)
 
 	if(drive == check) //No wiiflow.ini found
 		for(int i = SD; i <= USB8; i++) //Find the first partition with a boot.dol
-			if (DeviceHandler::Instance()->IsInserted(i) && DeviceHandler::Instance()->GetFSType(i) != PART_FS_WBFS && stat(fmt("%s:/%s/boot.dol", DeviceName[i], APPDATA_DIR2), &dummy) == 0)
+			if (DeviceHandle.IsInserted(i) && DeviceHandle.GetFSType(i) != PART_FS_WBFS && stat(fmt("%s:/%s/boot.dol", DeviceName[i], APPDATA_DIR2), &dummy) == 0)
 			{
 				drive = DeviceName[i];
 				break;
@@ -175,7 +174,7 @@ void CMenu::init(void)
 			
 	if(drive == check) //No boot.dol found
 		for(int i = SD; i <= USB8; i++) //Find the first partition with apps/wiiflow folder
-			if (DeviceHandler::Instance()->IsInserted(i) && DeviceHandler::Instance()->GetFSType(i) != PART_FS_WBFS && stat(fmt("%s:/%s", DeviceName[i], APPDATA_DIR2), &dummy) == 0)
+			if (DeviceHandle.IsInserted(i) && DeviceHandle.GetFSType(i) != PART_FS_WBFS && stat(fmt("%s:/%s", DeviceName[i], APPDATA_DIR2), &dummy) == 0)
 			{
 				drive = DeviceName[i];
 				break;
@@ -183,7 +182,7 @@ void CMenu::init(void)
 
 	if(drive == check) //No apps/wiiflow folder found
 		for(int i = SD; i <= USB8; i++) // Find the first writable partition
-			if (DeviceHandler::Instance()->IsInserted(i) && DeviceHandler::Instance()->GetFSType(i) != PART_FS_WBFS)
+			if (DeviceHandle.IsInserted(i) && DeviceHandle.GetFSType(i) != PART_FS_WBFS)
 			{
 				drive = DeviceName[i];
 				fsop_MakeFolder((char *)fmt("%s:/%s", DeviceName[i], APPDATA_DIR2)); //Make the apps dir, so saving wiiflow.ini does not fail.
@@ -195,7 +194,7 @@ void CMenu::init(void)
 	if(drive == check) // Should not happen
 	{
 		_buildMenus();
-		error(L"No available partitions found!");
+		error(_fmt("errboot4", L"No available partitions found!"));
 		m_exit = true;
 		return;
 	}
@@ -222,17 +221,17 @@ void CMenu::init(void)
 	if (onUSB)
 	{
 		for(int i = USB1; i <= USB8; i++) //Look for first partition with a wiiflow folder in root
-			if (DeviceHandler::Instance()->IsInserted(i) && DeviceHandler::Instance()->GetFSType(i) != PART_FS_WBFS && stat(fmt("%s:/%s", DeviceName[i], APPDATA_DIR), &dummy) == 0)
+			if (DeviceHandle.IsInserted(i) && DeviceHandle.GetFSType(i) != PART_FS_WBFS && stat(fmt("%s:/%s", DeviceName[i], APPDATA_DIR), &dummy) == 0)
 			{
 				drive = DeviceName[i];
 				break;
 			}
 	}
-	else if(DeviceHandler::Instance()->IsInserted(SD)) drive = DeviceName[SD];
+	else if(DeviceHandle.IsInserted(SD)) drive = DeviceName[SD];
 
 	if(drive == check && onUSB) //No wiiflow folder found in root of any usb partition, and data_on_usb=yes
 		for(int i = USB1; i <= USB8; i++) // Try first USB partition with wbfs folder.
-			if (DeviceHandler::Instance()->IsInserted(i) && DeviceHandler::Instance()->GetFSType(i) != PART_FS_WBFS && stat(fmt(GAMES_DIR, DeviceName[i]), &dummy) == 0)
+			if (DeviceHandle.IsInserted(i) && DeviceHandle.GetFSType(i) != PART_FS_WBFS && stat(fmt(GAMES_DIR, DeviceName[i]), &dummy) == 0)
 			{
 				drive = DeviceName[i];
 				break;
@@ -240,7 +239,7 @@ void CMenu::init(void)
 
 	if(drive == check && onUSB) // No wbfs folder found and data_on_usb=yes
 		for(int i = USB1; i <= USB8; i++) // Try first available USB partition.
-			if (DeviceHandler::Instance()->IsInserted(i) && DeviceHandler::Instance()->GetFSType(i) != PART_FS_WBFS)
+			if (DeviceHandle.IsInserted(i) && DeviceHandle.GetFSType(i) != PART_FS_WBFS)
 			{
 				drive = DeviceName[i];
 				break;
@@ -249,14 +248,14 @@ void CMenu::init(void)
 	if(drive == check)
 	{	
 		_buildMenus();
-		if(DeviceHandler::Instance()->IsInserted(SD))
+		if(DeviceHandle.IsInserted(SD))
 		{
-			error(L"data_on_usb=yes and No available usb partitions for data!\nUsing SD.");
+			error(_fmt("errboot5", L"data_on_usb=yes and No available usb partitions for data!\nUsing SD."));
 			drive = DeviceName[SD];
 		}
 		else
 		{
-			error(L"No available usb partitions for data and no SD inserted!\nExitting.");
+			error(_fmt("errboot6", L"No available usb partitions for data and no SD inserted!\nExiting."));
 			m_exit = true;
 			return;
 		}
@@ -275,7 +274,7 @@ void CMenu::init(void)
 	m_DMLgameDir = sfmt("%%s:/%s", m_cfg.getString("DML", "dir_usb_games", "games").c_str());
 
 	m_cfg.getString("NAND", "path", "");
-	m_cfg.getInt("NAND", "partition", 0);
+	m_cfg.getInt("NAND", "partition", 1);
 	m_cfg.getBool("NAND", "disable", true);
 
 	_installed_cios.clear();
@@ -321,7 +320,7 @@ void CMenu::init(void)
 	const char *checkDir = m_current_view == COVERFLOW_HOMEBREW ? HOMEBREW_DIR : GAMES_DIR;
 
 	u8 partition = m_cfg.getInt(domain, "partition", 0);  //Auto find a valid partition and fix old ini partition settings.
-	if(m_current_view != COVERFLOW_CHANNEL && (partition > USB8 || !DeviceHandler::Instance()->IsInserted(partition)))
+	if(m_current_view != COVERFLOW_CHANNEL && (partition > USB8 || !DeviceHandle.IsInserted(partition)))
 	{
 		m_cfg.remove(domain, "partition");
 		for(int i = SD; i <= USB8+1; i++) // Find a usb partition with the wbfs folder or wbfs file system, else leave it blank (defaults to 1 later)
@@ -331,8 +330,8 @@ void CMenu::init(void)
 				m_current_view = COVERFLOW_CHANNEL;
 				break;
 			}
-			if (DeviceHandler::Instance()->IsInserted(i)
-				&& ((m_current_view == COVERFLOW_USB && DeviceHandler::Instance()->GetFSType(i) == PART_FS_WBFS)
+			if (DeviceHandle.IsInserted(i)
+				&& ((m_current_view == COVERFLOW_USB && DeviceHandle.GetFSType(i) == PART_FS_WBFS)
 				|| stat(fmt(checkDir, DeviceName[i]), &dummy) == 0))
 			{
 				gprintf("Setting Emu NAND to Partition: %i\n",currentPartition);
@@ -438,7 +437,7 @@ void CMenu::init(void)
 	}
 
 	m_btnMgr.init(m_vid);
-	m_music.Init(m_cfg, m_musicDir, sfmt("%s/music", m_themeDataDir.c_str()));
+	MusicPlayer.Init(m_cfg, m_musicDir, sfmt("%s/music", m_themeDataDir.c_str()));
 
 	_buildMenus();
 
@@ -446,9 +445,7 @@ void CMenu::init(void)
 	m_btnMgr.setRumble(m_cfg.getBool("GENERAL", "rumble", true));
 
 	int exit_to = m_cfg.getInt("GENERAL", "exit_to", 0);
-	m_disable_exit = exit_to == EXIT_TO_DISABLE;
-
-	if(exit_to == EXIT_TO_BOOTMII && (!DeviceHandler::Instance()->IsInserted(SD) || 
+	if(exit_to == EXIT_TO_BOOTMII && (!DeviceHandle.IsInserted(SD) || 
 	stat(fmt("%s:/bootmii/armboot.bin",DeviceName[SD]), &dummy) != 0 || 
 	stat(fmt("%s:/bootmii/ppcboot.elf", DeviceName[SD]), &dummy) != 0))
 		exit_to = EXIT_TO_HBC;
@@ -459,10 +456,6 @@ void CMenu::init(void)
 	m_cf.setSoundVolume(m_cfg.getInt("GENERAL", "sound_volume_coverflow", 255));
 	m_btnMgr.setSoundVolume(m_cfg.getInt("GENERAL", "sound_volume_gui", 255));
 	m_bnrSndVol = m_cfg.getInt("GENERAL", "sound_volume_bnr", 255);
-	
-	if (m_cfg.getBool("GENERAL", "favorites_on_startup", false))
-		m_favorites = m_cfg.getBool(domain, "favorites", false);
-
 	m_bnr_settings = m_cfg.getBool("GENERAL", "banner_in_settings", true);
 
 	m_cfg.setString("GAMERCARD", "gamercards", "wiinnertag|dutag");
@@ -496,13 +489,14 @@ void CMenu::cleanup()
 {
 	if(cleaned_up)
 		return;
-	gprintf("MEM1_freesize(): %i\nMEM2_freesize(): %i\n", MEM1_freesize(), MEM2_freesize());
+	//gprintf("MEM1_freesize(): %i\nMEM2_freesize(): %i\n", MEM1_freesize(), MEM2_freesize());
+	m_btnMgr.hide(m_mainLblCurMusic);
 	_cleanupDefaultFont();
 	m_banner->DeleteBanner();
 	m_plugin.Cleanup();
 
 	_stopSounds();
-	m_music.cleanup();
+	MusicPlayer.Cleanup();
 	m_cameraSound.release();
 	ClearGameSoundThreadStack();
 	SoundHandler::DestroyInstance();
@@ -538,7 +532,7 @@ void CMenu::cleanup()
 	theme.soundSet.clear();
 
 	cleaned_up = true;
-	gprintf(" \nMemory cleaned up\n");
+	//gprintf(" \nMemory cleaned up\n");
 	gprintf("MEM1_freesize(): %i\nMEM2_freesize(): %i\n", MEM1_freesize(), MEM2_freesize());
 }
 
@@ -872,7 +866,7 @@ void CMenu::_loadCFLayout(int version, bool forceAA, bool otherScrnFmt)
 
 void CMenu::_buildMenus(void)
 {
-	if(!m_base_font.get())
+	if(!m_base_font)
 		_loadDefaultFont(CONF_GetLanguage() == CONF_LANG_KOREAN);
 
 	// Default fonts
@@ -1278,7 +1272,7 @@ u16 CMenu::_textStyle(const char *domain, const char *key, u16 def)
 	return textStyle;
 }
 
-u16 CMenu::_addButton(CMenu::SThemeData &theme, const char *domain, SFont font, const wstringEx &text, int x, int y, u32 width, u32 height, const CColor &color)
+s16 CMenu::_addButton(CMenu::SThemeData &theme, const char *domain, SFont font, const wstringEx &text, int x, int y, u32 width, u32 height, const CColor &color)
 {
 	SButtonTextureSet btnTexSet;
 	CColor c(color);
@@ -1309,7 +1303,7 @@ u16 CMenu::_addButton(CMenu::SThemeData &theme, const char *domain, SFont font, 
 	return m_btnMgr.addButton(font, text, x, y, width, height, c, btnTexSet, clickSound, hoverSound);
 }
 
-u16 CMenu::_addSelButton(CMenu::SThemeData &theme, const char *domain, SFont font, const wstringEx &text, int x, int y, u32 width, u32 height, const CColor &color)
+s16 CMenu::_addSelButton(CMenu::SThemeData &theme, const char *domain, SFont font, const wstringEx &text, int x, int y, u32 width, u32 height, const CColor &color)
 {
 	SButtonTextureSet btnTexSet;
 	CColor c(color);
@@ -1340,7 +1334,7 @@ u16 CMenu::_addSelButton(CMenu::SThemeData &theme, const char *domain, SFont fon
 	return m_btnMgr.addButton(font, text, x, y, width, height, c, btnTexSet, clickSound, hoverSound);
 }
 
-u16 CMenu::_addPicButton(CMenu::SThemeData &theme, const char *domain, STexture &texNormal, STexture &texSelected, int x, int y, u32 width, u32 height)
+s16 CMenu::_addPicButton(CMenu::SThemeData &theme, const char *domain, STexture &texNormal, STexture &texSelected, int x, int y, u32 width, u32 height)
 {
 	x = m_theme.getInt(domain, "x", x);
 	y = m_theme.getInt(domain, "y", y);
@@ -1360,7 +1354,7 @@ u16 CMenu::_addPicButton(CMenu::SThemeData &theme, const char *domain, STexture 
 	return m_btnMgr.addPicButton(tex1, tex2, x, y, width, height, clickSound, hoverSound);
 }
 
-u16 CMenu::_addTitle(CMenu::SThemeData &theme, const char *domain, SFont font, const wstringEx &text, int x, int y, u32 width, u32 height, const CColor &color, u16 style)
+s16 CMenu::_addTitle(CMenu::SThemeData &theme, const char *domain, SFont font, const wstringEx &text, int x, int y, u32 width, u32 height, const CColor &color, s16 style)
 {
 	CColor c(color);
 
@@ -1381,7 +1375,7 @@ u16 CMenu::_addTitle(CMenu::SThemeData &theme, const char *domain, SFont font, c
 	return m_btnMgr.addLabel(font, text, x, y, width, height, c, style);
 }
 
-u16 CMenu::_addText(CMenu::SThemeData &theme, const char *domain, SFont font, const wstringEx &text, int x, int y, u32 width, u32 height, const CColor &color, u16 style)
+s16 CMenu::_addText(CMenu::SThemeData &theme, const char *domain, SFont font, const wstringEx &text, int x, int y, u32 width, u32 height, const CColor &color, s16 style)
 {
 	CColor c(color);
 
@@ -1402,7 +1396,7 @@ u16 CMenu::_addText(CMenu::SThemeData &theme, const char *domain, SFont font, co
 	return m_btnMgr.addLabel(font, text, x, y, width, height, c, style);
 }
 
-u16 CMenu::_addLabel(CMenu::SThemeData &theme, const char *domain, SFont font, const wstringEx &text, int x, int y, u32 width, u32 height, const CColor &color, u16 style)
+s16 CMenu::_addLabel(CMenu::SThemeData &theme, const char *domain, SFont font, const wstringEx &text, int x, int y, u32 width, u32 height, const CColor &color, s16 style)
 {
 	CColor c(color);
 
@@ -1423,7 +1417,7 @@ u16 CMenu::_addLabel(CMenu::SThemeData &theme, const char *domain, SFont font, c
 	return m_btnMgr.addLabel(font, text, x, y, width, height, c, style);
 }
 
-u16 CMenu::_addLabel(CMenu::SThemeData &theme, const char *domain, SFont font, const wstringEx &text, int x, int y, u32 width, u32 height, const CColor &color, u16 style, STexture &bg)
+s16 CMenu::_addLabel(CMenu::SThemeData &theme, const char *domain, SFont font, const wstringEx &text, int x, int y, u32 width, u32 height, const CColor &color, s16 style, STexture &bg)
 {
 	CColor c(color);
 
@@ -1445,7 +1439,7 @@ u16 CMenu::_addLabel(CMenu::SThemeData &theme, const char *domain, SFont font, c
 	return m_btnMgr.addLabel(font, text, x, y, width, height, c, style, texBg);
 }
 
-u16 CMenu::_addProgressBar(CMenu::SThemeData &theme, const char *domain, int x, int y, u32 width, u32 height)
+s16 CMenu::_addProgressBar(CMenu::SThemeData &theme, const char *domain, int x, int y, u32 width, u32 height)
 {
 	SButtonTextureSet btnTexSet;
 
@@ -1469,7 +1463,7 @@ u16 CMenu::_addProgressBar(CMenu::SThemeData &theme, const char *domain, int x, 
 	return m_btnMgr.addProgressBar(x, y, width, height, btnTexSet);
 }
 
-void CMenu::_setHideAnim(u16 id, const char *domain, int dx, int dy, float scaleX, float scaleY)
+void CMenu::_setHideAnim(s16 id, const char *domain, int dx, int dy, float scaleX, float scaleY)
 {
 	dx = m_theme.getInt(domain, "effect_x", dx);
 	dy = m_theme.getInt(domain, "effect_y", dy);
@@ -1495,12 +1489,12 @@ void CMenu::_setHideAnim(u16 id, const char *domain, int dx, int dy, float scale
 	m_btnMgr.hide(id, dx, dy, scaleX, scaleY, true);
 }
 
-void CMenu::_addUserLabels(CMenu::SThemeData &theme, u16 *ids, u32 size, const char *domain)
+void CMenu::_addUserLabels(CMenu::SThemeData &theme, s16 *ids, u32 size, const char *domain)
 {
 	_addUserLabels(theme, ids, 0, size, domain);
 }
 
-void CMenu::_addUserLabels(CMenu::SThemeData &theme, u16 *ids, u32 start, u32 size, const char *domain)
+void CMenu::_addUserLabels(CMenu::SThemeData &theme, s16 *ids, u32 start, u32 size, const char *domain)
 {
 
 	for(u32 i = start; i < start + size; ++i)
@@ -1513,7 +1507,7 @@ void CMenu::_addUserLabels(CMenu::SThemeData &theme, u16 *ids, u32 start, u32 si
 			_setHideAnim(ids[i], dom.c_str(), -50, 0, 0.f, 0.f);
 		}
 		else
-			ids[i] = (u16)-1;
+			ids[i] = -1;
 	}
 }
 
@@ -1549,17 +1543,23 @@ void CMenu::_initCF(void)
 		}
 	}
 	
-	m_max_categories = m_cat.getInt(fmt("%s/GENERAL", domain), "numcategories", 6);
-	string catDef = "1";
-	catDef.append(m_max_categories - 1, '0');
-	string catSettings = m_cat.getString(fmt("%s/GENERAL", domain), "categories", catDef).c_str();
-		if (catSettings.length() < m_max_categories)  
+	// check for single plugin selected
+	u8 pos = 0;
+	u8 enabledPluginsCount = 0;
+	if(m_current_view == COVERFLOW_EMU && EnabledPlugins.size() != 0)
+	{
+		char PluginMagicWord[9];
+		for(u8 i = 0; i < EnabledPlugins.size(); i++)
 		{
-			catSettings.append((m_max_categories - catSettings.length()), '0');
-			m_cat.setString(fmt("%s/GENERAL", domain), "categories", catSettings);
+			snprintf(PluginMagicWord, sizeof(PluginMagicWord), "%08x", m_plugin.getPluginMagic(i));
+			if(m_cfg.getBool("PLUGIN", PluginMagicWord, true))
+			{
+				pos = i;
+				enabledPluginsCount++;
+			}
 		}
-	const char *categories = m_cat.getString(fmt("%s/GENERAL", domain), "categories").c_str();
-	
+	}
+
 	for (u32 i = 0; i < m_gameList.size(); ++i)
 	{
 		string id;
@@ -1607,7 +1607,7 @@ void CMenu::_initCF(void)
 		{
 			int ageRated = min(max(gameAgeList.getInt(domain, id), 0), 19);
 
-			if(ageRated == 0 && (m_current_view == COVERFLOW_USB || m_current_view == COVERFLOW_CHANNEL))
+			if(ageRated == 0 && (m_gameList[i].type == TYPE_WII_GAME || m_gameList[i].type == TYPE_CHANNEL))
 			{
 				GameXMLInfo gameinfo;
 				if(gametdb.IsLoaded() && gametdb.GetGameXMLInfo(id.c_str(), &gameinfo))
@@ -1679,54 +1679,99 @@ void CMenu::_initCF(void)
 			&& (!m_locked || !m_gcfg1.getBool("ADULTONLY", id, false))
 			&& !ageLocked)
 		{
-			string idcats = m_cat.getString(domain, id, catDef).c_str();
-			if (idcats.length() < m_max_categories)  
+			string catDomain;
+			switch(m_gameList[i].type)
 			{
-				idcats.append((m_max_categories - idcats.length()), '0');
-				m_cat.setString(domain, id, idcats);
+				case TYPE_CHANNEL:
+					catDomain = "NAND";
+					break;
+				case TYPE_HOMEBREW:
+					catDomain = "HOMEBREW";
+					break;
+				case TYPE_GC_GAME:
+					catDomain = "DML";
+					break;
+				case TYPE_PLUGIN:
+					catDomain = "EMULATOR";
+					break;
+				default:
+					catDomain = "GAMES";
 			}
-			if(categories[0] == '0')// if '1' skip checking cats and show all games
+			if(enabledPluginsCount == 1)
 			{
-				const char *idCats = m_cat.getString(domain, id).c_str();
+				catDomain = (m_plugin.GetPluginName(pos)).toUTF8();
+				if(m_gameList[i].settings[0] != m_plugin.getPluginMagic(pos))
+					continue;
+			}
+			const char *requiredCats = m_cat.getString(fmt("%s/GENERAL", catDomain.c_str()), "required_categories").c_str();
+			const char *selectedCats = m_cat.getString(fmt("%s/GENERAL", catDomain.c_str()), "selected_categories").c_str();
+			const char *hiddenCats = m_cat.getString(fmt("%s/GENERAL", catDomain.c_str()), "hidden_categories").c_str();
+			u8 numReqCats = strlen(requiredCats);
+			u8 numSelCats = strlen(selectedCats);
+			u8 numHidCats = strlen(hiddenCats);
+			
+			if(numReqCats != 0 || numSelCats != 0 || numHidCats != 0) // if all 0 skip checking cats and show all games
+			{
+				const char *idCats = m_cat.getString(catDomain, id).c_str();
+				u8 numIdCats = strlen(idCats);
 				bool inaCat = false;
 				bool inHiddenCat = false;
-				bool noHiddenCats = true;
-				bool SelectedCats = false;
-				int reqCount = 0;
 				int reqMatch = 0;
-				
-				for(u8 j = 1; j < m_max_categories; ++j)
+				if(numIdCats != 0)
 				{
-					if(categories[j] == '3')
+					for(u8 j = 0; j < numIdCats; ++j)
 					{
-						reqCount++;
-						if(idCats[j] == '1')
-							reqMatch++;
-							inaCat = true;
-					}
-					else if(categories[j] == '1')
-					{
-						SelectedCats = true;
-						if(idCats[j] == '1')
-							inaCat = true;
-					}
-					else if(categories[j] == '2')
-					{
-						noHiddenCats = false;
-						if(idCats[j] == '1')
-							inHiddenCat = true;
+						int k = (static_cast<int>(idCats[j])) - 32;
+						if(k <= 0)
+							continue;
+						bool match = false;
+						if(numReqCats != 0)
+						{
+							for(u8 l = 0; l < numReqCats; ++l)
+							{
+								if(k == (static_cast<int>(requiredCats[l]) - 32))
+								{
+									match = true;
+									reqMatch++;
+									inaCat = true;
+								}
+							}
+						}
+						if(match)
+							continue;
+						if(numSelCats != 0)
+						{
+							for(u8 l = 0; l < numSelCats; ++l)
+							{
+								if(k == (static_cast<int>(selectedCats[l]) - 32))
+								{
+									match = true;
+									inaCat = true;
+								}
+							}
+						}
+						if(match)
+							continue;
+						if(numHidCats != 0)
+						{
+							for(u8 l = 0; l < numHidCats; ++l)
+							{
+								if(k == (static_cast<int>(hiddenCats[l]) - 32))
+									inHiddenCat = true;
+							}
+						}
 					}
 				}
 				//continue; means don't add game to list (don't show)
 				if(inHiddenCat)
 					continue;
-				if(reqCount != reqMatch)
+				if(numReqCats != reqMatch)
 					continue;
 				if(!inaCat)
 				{
-					if(noHiddenCats)
+					if(numHidCats == 0)
 						continue;
-					else if(SelectedCats)
+					else if(numSelCats > 0)
 							continue;
 				}
 			}
@@ -1786,7 +1831,7 @@ void CMenu::_initCF(void)
 	m_cf.startCoverLoader();
 }
 
-void CMenu::_mainLoopCommon(bool withCF, bool blockReboot, bool adjusting)
+void CMenu::_mainLoopCommon(bool withCF, bool adjusting)
 {
 	if(withCF)
 		m_cf.tick();
@@ -1846,19 +1891,10 @@ void CMenu::_mainLoopCommon(bool withCF, bool blockReboot, bool adjusting)
 	if(!m_vid.showingWaitMessage())
 		m_vid.render();
 
-	if(!blockReboot)
-	{
-		if(withCF && Sys_Exiting())
-			m_cf.clear();
-		if(Sys_Exiting())
-		{
-			m_cat.save();
-			m_cfg.save();
-		}
-		Sys_Test();
-	}
+	if(Sys_Exiting())
+		exitHandler(BUTTON_CALLBACK);
 
-	if(withCF && m_gameSelected && m_gamesound_changed && (m_gameSoundHdr == NULL) && !m_gameSound.IsPlaying() && m_music.GetVolume() == 0)
+	if(withCF && m_gameSelected && m_gamesound_changed && (m_gameSoundHdr == NULL) && !m_gameSound.IsPlaying() && MusicPlayer.GetVolume() == 0)
 	{
 		CheckGameSoundThread();
 		m_gameSound.Play(m_bnrSndVol);
@@ -1867,8 +1903,20 @@ void CMenu::_mainLoopCommon(bool withCF, bool blockReboot, bool adjusting)
 	else if(!m_gameSelected)
 		m_gameSound.Stop();
 
-	m_music.Tick(m_video_playing || (m_gameSelected && 
+	MusicPlayer.Tick(m_video_playing || (m_gameSelected && 
 		m_gameSound.IsLoaded()) ||  m_gameSound.IsPlaying());
+
+	if(MusicPlayer.SongChanged())
+	{
+		m_btnMgr.setText(m_mainLblCurMusic, MusicPlayer.GetFileName(), true);
+		m_btnMgr.show(m_mainLblCurMusic);
+		MusicPlayer.DisplayTime = time(NULL);
+	}
+	else if(MusicPlayer.DisplayTime > 0 && time(NULL) - MusicPlayer.DisplayTime > 3)
+	{
+		MusicPlayer.DisplayTime = 0;
+		m_btnMgr.hide(m_mainLblCurMusic);
+	}
 
 	//Take Screenshot
 	if(gc_btnsPressed & PAD_TRIGGER_Z)
@@ -2062,30 +2110,35 @@ const wstringEx CMenu::_fmt(const char *key, const wchar_t *def)
 
 bool CMenu::_loadChannelList(void)
 {
-	string emuPath;
-
-	m_partRequest = m_cfg.getInt("NAND", "partition", 0);
-	int emuPartition = _FindEmuPart(&emuPath, m_partRequest, false);
+	string emuPath;	
+	int emuPartition = -1;
 
 	bool disable_emu = (m_cfg.getBool("NAND", "disable", true) || neek2o());
 	static bool last_emu_state = disable_emu;
 
-	if(emuPartition < 0)
-		emuPartition = _FindEmuPart(&emuPath, m_partRequest, true);
+	if(!disable_emu)
+	{
+		m_partRequest = m_cfg.getInt("NAND", "partition", 1);
+		emuPartition = _FindEmuPart(&emuPath, m_partRequest, false);
+	
+		if(emuPartition < 0)
+			emuPartition = _FindEmuPart(&emuPath, m_partRequest, true);
 
-	if(emuPartition < 0)
-		return false;
-	else
-		currentPartition = emuPartition; 
+		if(emuPartition < 0)
+			return false;
+		else
+			currentPartition = emuPartition;
+	}
 
 	static u8 lastPartition = currentPartition;
 
 	static bool first = true;
-	static bool failed = false;
 
-	bool changed = lastPartition != currentPartition || last_emu_state != disable_emu || first || failed;
+	bool changed = lastPartition != currentPartition || last_emu_state != disable_emu || first;
 
-	gprintf("%s, which is %s\n", disable_emu ? "NAND" : DeviceName[emuPartition], changed ? "refreshing." : "cached.");
+	if(changed)
+		UpdateCache(COVERFLOW_CHANNEL);
+	
 
 	if(first && !disable_emu)
 	{
@@ -2099,38 +2152,29 @@ bool CMenu::_loadChannelList(void)
 	Nand::Instance()->Disable_Emu();
 	if(!disable_emu)
 	{
-		if(CurrentIOS.Version != mainIOS)
-		{
-			loadIOS(mainIOS, true);
-			Open_Inputs();
-			for(int chan = WPAD_MAX_WIIMOTES-2; chan >= 0; chan--)
-				WPAD_SetVRes(chan, m_vid.width() + m_cursor[chan].width(), m_vid.height() + m_cursor[chan].height());
-		}
-		if(!DeviceHandler::Instance()->IsInserted(lastPartition))
-			DeviceHandler::Instance()->Mount(lastPartition);
+		MusicPlayer.Stop();
+		_TempLoadIOS();
+		if(!DeviceHandle.IsInserted(lastPartition))
+			DeviceHandle.Mount(lastPartition);
 
-		DeviceHandler::Instance()->UnMount(currentPartition);
+		DeviceHandle.UnMount(currentPartition);
 
 		Nand::Instance()->Init(emuPath.c_str(), currentPartition, disable_emu);
 		if(Nand::Instance()->Enable_Emu() < 0)
-		{
 			Nand::Instance()->Disable_Emu();
-			failed = true;
-		}
-		else
-			failed = false;
-		gprintf("nandpath = %s\n", nandpath.c_str());
+
+		gprintf("Using path: \"%s\" for NAND emulation\n", nandpath.c_str());
 	}
+	
+	if(!DeviceHandle.IsInserted(currentPartition))
+		DeviceHandle.Mount(currentPartition);
 
-	if(!DeviceHandler::Instance()->IsInserted(currentPartition))
-		DeviceHandler::Instance()->Mount(currentPartition);
-
-	if(!failed) 
+	if(Nand::Instance()->EmulationEnabled() || disable_emu) 
 	{
 		m_gameList.LoadChannels(disable_emu ? "" : nandpath, 0, m_cfg.getString("NAND", "lastlanguage", "EN").c_str());
 		m_cfg.setString("NAND", "lastlanguage", m_loc.getString(m_curLanguage, "gametdb_code", "EN"));
 		m_cfg.save();
-	}
+	}	
 
 	lastPartition = currentPartition;
 	last_emu_state = disable_emu;
@@ -2142,34 +2186,33 @@ bool CMenu::_loadList(void)
 {
 	m_cf.clear();
 	m_gameList.clear();
-	if((m_current_view == COVERFLOW_CHANNEL && m_cfg.getBool("NAND", "disable", true)) || m_current_view != COVERFLOW_CHANNEL)
+	if((m_current_view == COVERFLOW_CHANNEL && m_cfg.getBool("NAND", "disable", true))
+	|| (m_current_view != COVERFLOW_CHANNEL && Nand::Instance()->EmulationEnabled()))
+	{
+		MusicPlayer.Stop();
 		Nand::Instance()->Disable_Emu();
-
-	if(m_cfg.getBool(_domainFromView(), "update_cache")) m_gameList.Update(m_current_view);
-
-	gprintf("Loading items of ");
+		_TempLoadIOS(IOS_TYPE_NORMAL_IOS);
+	}
+	if(m_cfg.getBool(_domainFromView(), "update_cache"))
+		m_gameList.Update(m_current_view);
+	gprintf("Switching Views\n");
 
 	bool retval;
 	switch(m_current_view)
 	{
 		case COVERFLOW_CHANNEL:
-			gprintf("channel view from ");
 			retval = _loadChannelList();
 			break;
 		case COVERFLOW_HOMEBREW:
-			gprintf("homebrew view from ");
 			retval = _loadHomebrewList();
 			break;
 		case COVERFLOW_DML:
-			gprintf("dml view from ");
 			retval = _loadDmlList();
 			break;
 		case COVERFLOW_EMU:
-			gprintf("emu view from ");
 			retval = _loadEmuList();
 			break;
 		default:
-			gprintf("usb view from ");
 			retval = _loadGameList();
 			break;
 	}
@@ -2182,26 +2225,25 @@ bool CMenu::_loadList(void)
 bool CMenu::_loadGameList(void)
 {
 	currentPartition = m_cfg.getInt("GAMES", "partition", 1);
-	if(!DeviceHandler::Instance()->IsInserted(currentPartition))
+	if(!DeviceHandle.IsInserted(currentPartition))
 		return false;
 
 	Config tmpcfg;
-	gprintf("%s\n", DeviceName[currentPartition]);
-	DeviceHandler::Instance()->Open_WBFS(currentPartition);
+	DeviceHandle.OpenWBFS(currentPartition);
 	m_gameList.Load(sfmt(GAMES_DIR, DeviceName[currentPartition]), ".wbfs|.iso", m_cfg.getString("GAMES", "lastlanguage", "EN").c_str(), tmpcfg);
 	m_cfg.setString("GAMES", "lastlanguage", m_loc.getString(m_curLanguage, "gametdb_code", "EN"));
 	m_cfg.save();
+	WBFS_Close();
 	return m_gameList.size() > 0 ? true : false;
 }
 
 bool CMenu::_loadHomebrewList()
 {
-	currentPartition = m_cfg.getInt("HOMEBREW", "partition", DeviceHandler::Instance()->PathToDriveType(m_appDir.c_str()));
-	if(!DeviceHandler::Instance()->IsInserted(currentPartition))
+	currentPartition = m_cfg.getInt("HOMEBREW", "partition", DeviceHandle.PathToDriveType(m_appDir.c_str()));
+	if(!DeviceHandle.IsInserted(currentPartition))
 		return false;
 
 	Config tmpcfg;
-	gprintf("%s\n", DeviceName[currentPartition]);
 	m_gameList.Load(sfmt(HOMEBREW_DIR, DeviceName[currentPartition]), ".dol|.elf", m_cfg.getString("HOMEBREW", "lastlanguage", "EN").c_str(), tmpcfg);
 	m_cfg.setString("HOMEBREW", "lastlanguage", m_loc.getString(m_curLanguage, "gametdb_code", "EN"));
 	m_cfg.save();
@@ -2211,11 +2253,10 @@ bool CMenu::_loadHomebrewList()
 bool CMenu::_loadDmlList()
 {
 	currentPartition = m_cfg.getInt("DML", "partition", 0);
-	if(!DeviceHandler::Instance()->IsInserted(currentPartition))
+	if(!DeviceHandle.IsInserted(currentPartition))
 		return false;
 
 	Config tmpcfg;
-	gprintf("%s\n", DeviceName[currentPartition]);
 	if(currentPartition != SD)
 		m_gameList.Load(sfmt(m_DMLgameDir.c_str(), DeviceName[currentPartition]), "boot.bin|.iso", m_cfg.getString("DML", "lastlanguage", "EN").c_str(), tmpcfg);
 	else
@@ -2228,10 +2269,9 @@ bool CMenu::_loadDmlList()
 bool CMenu::_loadEmuList()
 {
 	currentPartition = m_cfg.getInt("EMULATOR", "partition", 0);
-	if(!DeviceHandler::Instance()->IsInserted(currentPartition))
+	if(!DeviceHandle.IsInserted(currentPartition))
 		return false;
 
-	gprintf("%s\n", DeviceName[currentPartition]);
 	DIR *pdir;
 	struct dirent *pent;
 
@@ -2290,11 +2330,11 @@ void CMenu::_stopSounds(void)
 	// Fade out sounds
 	int fade_rate = m_cfg.getInt("GENERAL", "music_fade_rate", 8);
 
-	if(!m_music.IsStopped())
+	if(!MusicPlayer.IsStopped())
 	{
-		while(m_music.GetVolume() > 0 || m_gameSound.GetVolume() > 0)
+		while(MusicPlayer.GetVolume() > 0 || m_gameSound.GetVolume() > 0)
 		{
-			m_music.Tick(true);
+			MusicPlayer.Tick(true);
 			if(m_gameSound.GetVolume() > 0)
 				m_gameSound.SetVolume(m_gameSound.GetVolume() < fade_rate ? 0 : m_gameSound.GetVolume() - fade_rate);
 			VIDEO_WaitVSync();
@@ -2302,8 +2342,6 @@ void CMenu::_stopSounds(void)
 	}
 	m_btnMgr.stopSounds();
 	m_cf.stopSound();
-
-	m_music.Stop();
 	m_gameSound.Stop();
 }
 
@@ -2400,7 +2438,7 @@ retry:
 			// Name found, load it and unpack it
 			char u8_font_filename[22] = {0};
 			strcpy(u8_font_filename, "/shared1/XXXXXXXX.app"); // Faster than sprintf
-            memcpy(u8_font_filename+9, cm[i].filename, 8);
+			memcpy(u8_font_filename+9, cm[i].filename, 8);
 
 			u8 *u8_font_archive = ISFS_GetFile((u8 *) u8_font_filename, &size, 0);
 			//gprintf("Opened fontfile: %s: %d bytes\n", u8_font_filename, size);
@@ -2409,10 +2447,12 @@ retry:
 			{
 				const u8 *font_file = u8_get_file_by_index(u8_font_archive, 1, &size); // There is only one file in that app
 				//gprintf("Extracted font: %d\n", size);
-				m_base_font = smartMem2Alloc(size);
-				memcpy(m_base_font.get(), font_file, size);
-				if(!!m_base_font)
-					m_base_font_size = size;
+				if(m_base_font)
+					MEM1_lo_free(m_base_font);
+				m_base_font = (u8*)MEM1_lo_alloc(size);
+				memcpy(m_base_font, font_file, size);
+				DCFlushRange(m_base_font, size);
+				m_base_font_size = size;
 				free(u8_font_archive);
 			}
 			break;
@@ -2427,12 +2467,18 @@ retry:
 			if(u8_font_archive != NULL)
 			{
 				const u8 *font_file1 = u8_get_file(u8_font_archive, "wbf1.brfna", &size);
-				m_wbf1_font = smartMem2Alloc(size);
-				memcpy(m_wbf1_font.get(), font_file1, size);
-
+				if(m_wbf1_font)
+					MEM1_lo_free(m_wbf1_font);
+				m_wbf1_font = (u8*)MEM1_lo_alloc(size);
+				memcpy(m_wbf1_font, font_file1, size);
+				DCFlushRange(m_wbf1_font, size);
+	
 				const u8 *font_file2 = u8_get_file(u8_font_archive, "wbf2.brfna", &size);
-				m_wbf2_font = smartMem2Alloc(size);
-				memcpy(m_wbf2_font.get(), font_file2, size);
+				if(m_wbf2_font)
+					MEM1_lo_free(m_wbf2_font);
+				m_wbf2_font = (u8*)MEM1_lo_alloc(size);
+				memcpy(m_wbf2_font, font_file2, size);
+				DCFlushRange(m_wbf2_font, size);
 
 				free(u8_font_archive);
 			}
@@ -2450,11 +2496,42 @@ retry:
 
 void CMenu::_cleanupDefaultFont()
 {
-	m_base_font.release();
+	MEM1_lo_free(m_base_font);
 	m_base_font_size = 0;
+	MEM1_lo_free(m_wbf1_font);
+	MEM1_lo_free(m_wbf2_font);
+}
 
-	m_wbf1_font.release();
-	m_wbf2_font.release();
+string CMenu::_getId()
+{
+	string id;
+	if(!NoGameID(m_cf.getHdr()->type))
+		id = m_cf.getId();
+	else
+	{
+		dir_discHdr *hdr = m_cf.getHdr();
+		string tempname(hdr->path);
+		if(hdr->type == TYPE_HOMEBREW)
+		{
+			tempname.assign(&tempname[tempname.find_last_of('/') + 1]);
+			id = tempname;
+		}
+		else if(hdr->type == TYPE_PLUGIN)
+		{
+			if(!m_plugin.isScummVM(hdr->settings[0]))
+			{
+				tempname.erase(0, tempname.find_first_of('/')+1);
+				string dirName = tempname.substr(0, tempname.find_first_of('/')+1);
+				tempname.assign(&tempname[tempname.find_last_of('/') + 1]);
+				if(tempname.find_last_of('.') != string::npos)
+				tempname.erase(tempname.find_last_of('.'), tempname.size() - tempname.find_last_of('.'));
+				id = dirName+tempname;
+			}
+			else
+				id = tempname;
+		}
+	}
+	return id;
 }
 
 const char *CMenu::_domainFromView()
@@ -2477,7 +2554,6 @@ const char *CMenu::_domainFromView()
 
 void CMenu::UpdateCache(u32 view)
 {
-	gprintf("UpdateCache(%ld)\n", view);
 	if(view == COVERFLOW_MAX)
 	{
 		UpdateCache(COVERFLOW_USB);
@@ -2562,4 +2638,24 @@ void CMenu::RemoveCover( char * id )
 		fclose(fp);
 		remove(fmt("%s/%s.wfc", m_cacheDir.c_str(), id));
 	}	
+}
+
+void CMenu::_TempLoadIOS(int IOS)
+{
+	/* Only temp reload in IOS58 mode */
+	if(useMainIOS || neek2o() || Sys_DolphinMode())
+		return;
+
+	if(IOS == IOS_TYPE_NORMAL_IOS)
+		IOS = 58;
+	else if(IOS == 0)
+		IOS = mainIOS;
+
+	if(CurrentIOS.Version != IOS)
+	{
+		loadIOS(IOS, true);
+		Open_Inputs();
+		for(int chan = WPAD_MAX_WIIMOTES-2; chan >= 0; chan--)
+			WPAD_SetVRes(chan, m_vid.width() + m_cursor[chan].width(), m_vid.height() + m_cursor[chan].height());
+	}
 }

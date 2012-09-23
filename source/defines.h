@@ -1,5 +1,5 @@
 #define APP_NAME				"WiiFlow"
-#define APP_VERSION				"4.0.1"
+#define APP_VERSION				"4.0.2"
 
 #define APPDATA_DIR				"wiiflow"
 #define APPDATA_DIR2			"apps/wiiflow"
@@ -52,5 +52,3 @@ postLoader"
 
 #define WIINNERTAG_URL 			"http://www.wiinnertag.com/wiinnertag_scripts/update_sign.php?key={KEY}&game_id={ID6}"
 #define DUTAG_URL				"http://tag.darkumbra.net/{KEY}.update={ID6}"
-
-//#define DOLPHIN				true

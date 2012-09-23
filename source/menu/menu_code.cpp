@@ -14,7 +14,7 @@ void CMenu::_hideCode(bool instant)
 	m_btnMgr.hide(m_codeBtnAge, instant);
 	m_btnMgr.hide(m_codeLblTitle, instant);
 	for(u8 i = 0; i < ARRAY_SIZE(m_codeLblUser); ++i)
-		if(m_codeLblUser[i] != (u16)-1)
+		if(m_codeLblUser[i] != -1)
 			m_btnMgr.hide(m_codeLblUser[i], instant);
 	m_btnMgr.hide(m_codeLblAge, true);
 }
@@ -27,7 +27,7 @@ void CMenu::_showCode(void)
 	m_btnMgr.show(m_codeBtnBack);
 	m_btnMgr.show(m_codeLblTitle);
 	for(u8 i = 0; i < ARRAY_SIZE(m_codeLblUser); ++i)
-		if(m_codeLblUser[i] != (u16)-1)
+		if(m_codeLblUser[i] != -1)
 			m_btnMgr.show(m_codeLblUser[i]);
 	m_btnMgr.hide(m_codeLblAge, true);
 }
@@ -53,13 +53,12 @@ void CMenu::_code(void)
 		m_btnMgr.show(m_codeBtnAge);
 		m_btnMgr.show(m_codeBtnErase);
 	}
-	while (true)
+	while(!m_exit)
 	{
 		int c = -1;
 		_mainLoopCommon();
 		if (BTN_HOME_PRESSED)
 			goBack = true;
-
 		if (WPadIR_ANY())
 		{
 			if (BTN_B_PRESSED)

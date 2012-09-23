@@ -70,7 +70,7 @@ void CMenu::_hideMain(bool instant)
 	m_btnMgr.hide(m_mainLblLetter, instant);
 	m_btnMgr.hide(m_mainLblNotice, instant);
 	for(u8 i = 0; i < ARRAY_SIZE(m_mainLblUser); ++i)
-		if(m_mainLblUser[i] != (u16)-1)
+		if(m_mainLblUser[i] != -1)
 			m_btnMgr.hide(m_mainLblUser[i], instant);
 }
 
@@ -136,7 +136,7 @@ void CMenu::_showMain(void)
 	}
 
 	for(u8 i = 0; i < ARRAY_SIZE(m_mainLblUser); ++i)
-		if(m_mainLblUser[i] != (u16)-1)
+		if(m_mainLblUser[i] != -1)
 			m_btnMgr.show(m_mainLblUser[i]);
 
 	if(m_gameList.empty())
@@ -154,7 +154,7 @@ void CMenu::_showMain(void)
 				if(!m_cfg.getBool("NAND", "disable", true))
 				{
 					Nand::Instance()->Disable_Emu();
-					DeviceHandler::Instance()->MountAll();
+					DeviceHandle.MountAll();
 					_hideMain();
 					if(!_AutoCreateNand())
 						m_cfg.setBool("NAND", "disable", true);
@@ -188,6 +188,9 @@ void CMenu::LoadView(void)
 	if(!m_vid.showingWaitMessage())
 		_showWaitMessage();
 
+	m_favorites = false;
+	if (m_cfg.getBool("GENERAL", "save_favorites_mode", false))
+		m_favorites = m_cfg.getBool(_domainFromView(), "favorites", false);
 	_loadList();
 	_showMain();
 	_initCF();
@@ -210,39 +213,19 @@ void CMenu::LoadView(void)
 
 void CMenu::exitHandler(int ExitTo)
 {
-	gprintf("Exit WiiFlow called\n");
-	Nand::Instance()->Disable_Emu();
-	if(!m_disable_exit || ExitTo == 0)
+	m_exit = true;
+	if(ExitTo == EXIT_TO_BOOTMII) //Bootmii, check that the files are there, or ios will hang.
 	{
-		m_exit = true;
-		if(ExitTo == 1) // HBC
-			Sys_ExitTo(EXIT_TO_HBC);
-		else if(ExitTo == 2) // System Menu
-			Sys_ExitTo(EXIT_TO_MENU);
-		else if(ExitTo == 3) // Priiloader
-			Sys_ExitTo(EXIT_TO_PRIILOADER);
-		else if(ExitTo == 4) //Bootmii, check that the files are there, or ios will hang.
-		{
-			struct stat dummy;
-			if(DeviceHandler::Instance()->IsInserted(SD) && 
-				stat(fmt("%s:/bootmii/armboot.bin", DeviceName[SD]), &dummy) == 0 && 
-				stat(fmt("%s:/bootmii/ppcboot.elf", DeviceName[SD]), &dummy) == 0)
-			{
-				Sys_ExitTo(EXIT_TO_BOOTMII);
-			}
-			else
-				Sys_ExitTo(EXIT_TO_HBC);
-		}
-		else if(ExitTo == 5) //Neek2o kernel
-			Sys_ExitTo(EXIT_TO_NEEK2O);
+		struct stat dummy;
+		if(!DeviceHandle.IsInserted(SD) || 
+		stat("sd:/bootmii/armboot.bin", &dummy) != 0 || 
+		stat("sd:/bootmii/ppcboot.elf", &dummy) != 0)
+			ExitTo = EXIT_TO_HBC;
 	}
-	m_reload = (BTN_B_HELD || m_disable_exit);
-	if(m_exit)
-	{
-		// Mark exiting to prevent soundhandler from restarting
-		extern bool exiting;
-		exiting = true;
-	}
+	Sys_ExitTo(ExitTo);
+	// Mark exiting to prevent soundhandler from restarting
+	extern bool exiting;
+	exiting = true;
 }
 
 int CMenu::main(void)
@@ -265,39 +248,37 @@ int CMenu::main(void)
 
 	if (m_cfg.getBool("GENERAL", "async_network", false) || has_enabled_providers())
 		_initAsyncNetwork();
-
 	SetupInput(true);
-	m_music.Play();
-	
+
 	GameTDB m_gametdb; 
  	m_gametdb.OpenFile(fmt("%s/wiitdb.xml", m_settingsDir.c_str()));
-	m_GameTDBLoaded=false;
+	m_GameTDBLoaded = false;
  	if(m_gametdb.IsLoaded())
 	{
-		m_GameTDBLoaded=true;
+		m_GameTDBLoaded = true;
 		m_gametdb.CloseFile();
 	}
 	if(m_Emulator_boot)
 		m_current_view = COVERFLOW_EMU;
 
-	if (m_cfg.getBool("GENERAL", "update_cache", false))
+	if(m_cfg.getBool("GENERAL", "update_cache", false))
 	{
 		UpdateCache();
 		m_gameList.Update();
 	}
 	LoadView();
-	if (m_cfg.getBool("GENERAL", "startup_menu", false)) 
+	if(m_cfg.getBool("GENERAL", "startup_menu", false)) 
 	{
 		_hideMain();
 		if(!_Source())
 			LoadView();
 		else
-		_showMain();
+			_showMain();
 		if(BTN_B_HELD)
 			bUsed = true;
 	}
 
-	while(true)
+	while(!m_exit)
 	{
 		/* IMPORTANT check if a disc is inserted */
 		WDVD_GetCoverStatus(&disc_check);
@@ -448,7 +429,7 @@ int CMenu::main(void)
 			else if(m_btnMgr.selected(m_mainBtnFavoritesOn) || m_btnMgr.selected(m_mainBtnFavoritesOff))
 			{
 				m_favorites = !m_favorites;
-				m_cfg.setInt("GENERAL", "favorites", m_favorites);
+				m_cfg.setBool(_domainFromView(), "favorites", m_favorites);
 				m_curGameId = m_cf.getId();
 				_initCF();
 			}
@@ -564,14 +545,14 @@ int CMenu::main(void)
 			else if(BTN_MINUS_PRESSED)
 			{
 				if(b_lr_mode)
-					m_music.Previous();
+					MusicPlayer.Previous();
 				else
 					m_cf.pageUp();
 			}
 			else if(BTN_PLUS_PRESSED)
 			{
 				if(b_lr_mode)
-					m_music.Next();
+					MusicPlayer.Next();
 				else
 					m_cf.pageDown();
 			}
@@ -615,7 +596,7 @@ int CMenu::main(void)
 				if(b_lr_mode)
 					m_cf.pageUp();
 				else
-					m_music.Previous();
+					MusicPlayer.Previous();
 			}
 			else if(BTN_RIGHT_PRESSED)
 			{
@@ -623,7 +604,7 @@ int CMenu::main(void)
 				if(b_lr_mode)
 					m_cf.pageDown();
 				else
-					m_music.Next();
+					MusicPlayer.Next();
 			}
 			else if(BTN_PLUS_PRESSED && !m_locked)
 			{
@@ -669,11 +650,11 @@ int CMenu::main(void)
 						Nand::Instance()->Enable_Emu();
 					u8 limiter = 0;
 					currentPartition = loopNum(currentPartition + 1, (int)USB8);
-					while(!DeviceHandler::Instance()->IsInserted(currentPartition) ||
-						((m_current_view == COVERFLOW_CHANNEL || m_current_view == COVERFLOW_EMU) && (DeviceHandler::Instance()->GetFSType(currentPartition) != PART_FS_FAT ||
-							(!isD2XnewerThanV6 && DeviceHandler::Instance()->PathToDriveType(m_appDir.c_str()) == currentPartition) ||
-							(!isD2XnewerThanV6 && DeviceHandler::Instance()->PathToDriveType(m_dataDir.c_str()) == currentPartition))) ||
-						((m_current_view == COVERFLOW_HOMEBREW || m_current_view == COVERFLOW_DML) && DeviceHandler::Instance()->GetFSType(currentPartition) == PART_FS_WBFS))
+					while(!DeviceHandle.IsInserted(currentPartition) ||
+						((m_current_view == COVERFLOW_CHANNEL || m_current_view == COVERFLOW_EMU) && (DeviceHandle.GetFSType(currentPartition) != PART_FS_FAT ||
+							(!isD2XnewerThanV6 && DeviceHandle.PathToDriveType(m_appDir.c_str()) == currentPartition) ||
+							(!isD2XnewerThanV6 && DeviceHandle.PathToDriveType(m_dataDir.c_str()) == currentPartition))) ||
+						((m_current_view == COVERFLOW_HOMEBREW || m_current_view == COVERFLOW_DML) && DeviceHandle.GetFSType(currentPartition) == PART_FS_WBFS))
 					{
 						currentPartition = loopNum(currentPartition + 1, (int)USB8);
 						if(limiter > 10) break;
@@ -838,11 +819,11 @@ int CMenu::main(void)
 	{
 		m_cf.clear();
 		_showWaitMessage();
-		exitHandler(0); //Making wiiflow ready to boot something
+		exitHandler(PRIILOADER_DEF); //Making wiiflow ready to boot something
 		_launchHomebrew(fmt("%s/boot.dol", m_appDir.c_str()), m_homebrewArgs);
 		return 0;
 	}
-	else if(Sys_GetExitTo() == EXIT_TO_NEEK2O)
+	else if(Sys_GetExitTo() == EXIT_TO_SMNK2O || Sys_GetExitTo() == EXIT_TO_WFNK2O)
 	{
 		string emuPath;
 		_FindEmuPart(&emuPath, m_cfg.getInt("NAND", "partition", 0), false);
@@ -850,7 +831,7 @@ int CMenu::main(void)
 	}
 	gprintf("Saving configuration files\n");
 	m_cfg.save();
-	m_cat.unload();
+	m_cat.save();
 //	m_loc.save();
 	return 0;
 }
@@ -937,6 +918,7 @@ void CMenu::_initMainMenu(CMenu::SThemeData &theme)
 	m_mainBtnFavoritesOff = _addPicButton(theme, "MAIN/FAVORITES_OFF", texFavOff, texFavOffS, 300, 400, 56, 56);
 	m_mainLblLetter = _addLabel(theme, "MAIN/LETTER", theme.titleFont, L"", 540, 40, 80, 80, theme.titleFontColor, FTGX_JUSTIFY_CENTER | FTGX_ALIGN_MIDDLE, emptyTex);
 	m_mainLblNotice = _addLabel(theme, "MAIN/NOTICE", theme.titleFont, L"", 340, 40, 280, 80, theme.titleFontColor, FTGX_JUSTIFY_RIGHT | FTGX_ALIGN_MIDDLE, emptyTex);
+	m_mainLblCurMusic = _addLabel(theme, "MAIN/MUSIC", theme.btnFont, L"", 0, 20, 640, 56, theme.btnFontColor, FTGX_JUSTIFY_CENTER | FTGX_ALIGN_MIDDLE, theme.btnTexC);
 #ifdef SHOWMEM	
 	m_mem2FreeSize = _addLabel(theme, "MEM2", theme.titleFont, L"", 40, 300, 480, 80, theme.titleFontColor, FTGX_JUSTIFY_CENTER | FTGX_ALIGN_MIDDLE, emptyTex);
 #endif
@@ -989,6 +971,7 @@ void CMenu::_initMainMenu(CMenu::SThemeData &theme)
 	_setHideAnim(m_mainLblInit, "MAIN/MESSAGE", 0, 0, 0.f, 0.f);
 	_setHideAnim(m_mainLblLetter, "MAIN/LETTER", 0, 0, 0.f, 0.f);
 	_setHideAnim(m_mainLblNotice, "MAIN/NOTICE", 0, 0, 0.f, 0.f);
+	_setHideAnim(m_mainLblCurMusic, "MAIN/MUSIC", 0, -100, 0.f, 0.f);
 #ifdef SHOWMEM
 	_setHideAnim(m_mem2FreeSize, "MEM2", 0, 0, 0.f, 0.f);
 #endif

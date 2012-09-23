@@ -10,6 +10,8 @@
 #define GECKOURL "http://geckocodes.org/codes/%c/%s.txt"
 #define CHEATSPERPAGE 4
 
+u8 m_cheatSettingsPage = 0;
+
 void CMenu::_hideCheatDownload(bool instant)
 {
 	m_btnMgr.hide(m_downloadBtnCancel, instant);
@@ -92,10 +94,10 @@ void CMenu::_CheatSettings()
 	else 
 		m_btnMgr.setText(m_cheatLblTitle,L"");
 	
-	while (true)
+	while(!m_exit)
 	{
 		_mainLoopCommon();
-		if (BTN_HOME_PRESSED || BTN_B_PRESSED)
+		if(BTN_HOME_PRESSED || BTN_B_PRESSED)
 			break;
 		else if (BTN_UP_PRESSED)
 			m_btnMgr.up();
@@ -185,9 +187,9 @@ void CMenu::_CheatSettings()
 				m_thrdWorking = true;
 				lwp_t thread = LWP_THREAD_NULL;
 				LWP_CreateThread(&thread, (void *(*)(void *))CMenu::_downloadCheatFileAsync, (void *)this, 0, 8192, 40);
-				while (m_thrdWorking)
+				while(m_thrdWorking)
 				{
-					_mainLoopCommon(false, m_thrdWorking);
+					_mainLoopCommon();
 					if ((BTN_HOME_PRESSED || BTN_B_PRESSED) && !m_thrdWorking)
 						break;
 					if (BTN_A_PRESSED && !(m_thrdWorking && m_thrdStop))
@@ -277,7 +279,7 @@ void CMenu::_hideCheatSettings(bool instant)
 	}
 	
 	for(u8 i = 0; i < ARRAY_SIZE(m_cheatLblUser); ++i)
-		if(m_cheatLblUser[i] != (u16)-1)
+		if(m_cheatLblUser[i] != -1)
 			m_btnMgr.hide(m_cheatLblUser[i], instant);
 }
 
@@ -288,7 +290,7 @@ void CMenu::_showCheatSettings(void)
 	m_btnMgr.show(m_cheatLblTitle);
 
 	for(u8 i = 0; i < ARRAY_SIZE(m_cheatLblUser); ++i)
-		if(m_cheatLblUser[i] != (u16)-1)
+		if(m_cheatLblUser[i] != -1)
 			m_btnMgr.show(m_cheatLblUser[i]);
 
 	if (m_cheatfile.getCnt() > 0)

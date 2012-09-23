@@ -20,12 +20,11 @@ int amountOfChannels = -1;
 
 Channels m_channels;
 
-const CMenu::SOption CMenu::_exitTo[6] = {
+const CMenu::SOption CMenu::_exitTo[5] = {
 	{ "def", L"Default" },
 	{ "menu", L"System Menu" },
 	{ "hbc", L"HBC" },
 	{ "prii", L"Priiloader" },
-	{ "disabled", L"Disabled" },
 	{ "bootmii", L"BootMii" }
 };
 
@@ -44,7 +43,7 @@ void CMenu::_hideConfig4(bool instant)
 	m_btnMgr.hide(m_config4BtnReturnToM, instant);
 	m_btnMgr.hide(m_config4BtnReturnToP, instant);
 	for(u8 i = 0; i < ARRAY_SIZE(m_config4LblUser); ++i)
-		if(m_config4LblUser[i] != (u16)-1)
+		if(m_config4LblUser[i] != -1)
 			m_btnMgr.hide(m_config4LblUser[i], instant);
 }
 
@@ -64,13 +63,13 @@ void CMenu::_showConfig4(void)
 	m_btnMgr.show(m_config4BtnReturnToP);
 
 	for(u32 i = 0; i < ARRAY_SIZE(m_config4LblUser); ++i)
-		if(m_config4LblUser[i] != (u16)-1)
+		if(m_config4LblUser[i] != -1)
 			m_btnMgr.show(m_config4LblUser[i]);
  
 	int i;
 	i = min(max(0, m_cfg.getInt("GENERAL", "exit_to", 0)), (int)ARRAY_SIZE(CMenu::_exitTo) - 1);
 	m_btnMgr.setText(m_config4BtnHome, _t(CMenu::_exitTo[i].id, CMenu::_exitTo[i].text));
-	m_btnMgr.setText(m_config4BtnSaveFavMode, m_cfg.getBool("GENERAL", "favorites_on_startup") ? _t("on", L"On") : _t("off", L"Off"));
+	m_btnMgr.setText(m_config4BtnSaveFavMode, m_cfg.getBool("GENERAL", "save_favorites_mode") ? _t("on", L"On") : _t("off", L"Off"));
 	m_btnMgr.setText(m_config4BtnCategoryOnBoot, m_cat.getBool("GENERAL", "category_on_start") ? _t("on", L"On") : _t("off", L"Off"));
 
 	Config titles, custom_titles;
@@ -110,7 +109,7 @@ int CMenu::_config4(void)
 	int change = CONFIG_PAGE_NO_CHANGE;
 
 	_showConfig4();
-	while (true)
+	while(!m_exit)
 	{
 		change = _configCommon();
 		if (change != CONFIG_PAGE_NO_CHANGE)
@@ -122,12 +121,11 @@ int CMenu::_config4(void)
 				int exit_to = (int)loopNum((u32)m_cfg.getInt("GENERAL", "exit_to", 0) + 1, ARRAY_SIZE(CMenu::_exitTo));
 				m_cfg.setInt("GENERAL", "exit_to", exit_to);
 				Sys_ExitTo(exit_to);
-				m_disable_exit = exit_to == EXIT_TO_DISABLE;
 				_showConfig4();
 			}
 			else if (m_btnMgr.selected(m_config4BtnSaveFavMode))
 			{
-				m_cfg.setBool("GENERAL", "favorites_on_startup", !m_cfg.getBool("GENERAL", "favorites_on_startup"));
+				m_cfg.setBool("GENERAL", "save_favorites_mode", !m_cfg.getBool("GENERAL", "save_favorites_mode"));
 				_showConfig4();
 			}
 			else if (m_btnMgr.selected(m_config4BtnCategoryOnBoot))

@@ -8,6 +8,7 @@
 #include "sys.h"
 #include "wbfs.h"
 #include "wdvd.h"
+#include "external_booter.hpp"
 #include "channel/nand.hpp"
 #include "devicemounter/DeviceHandler.hpp"
 #include "devicemounter/sdhc.h"
@@ -15,7 +16,6 @@
 #include "gecko/gecko.h"
 #include "memory/mem2.hpp"
 #include "memory/memory.h"
-#include "music/musicplayer.h"
 #include "types.h"
 
 // mload from uloader by Hermes
@@ -82,32 +82,29 @@ void load_dip_249()
 
 bool loadIOS(int ios, bool MountDevices)
 {
+	int CurIOS = IOS_GetVersion();
 	bool ret = true;
-	m_music.Stop();
-	DeviceHandler::Instance()->UnMountAll();
 
-#ifndef DOLPHIN
-	if(ios != IOS_GetVersion())
+	if(ios != CurIOS)
 	{
 		WDVD_Close();
 		Close_Inputs();
-		gprintf("Reloading into IOS %i from %i...\n", ios, IOS_GetVersion());
-		Nand::Instance()->DeInit_ISFS();
+		gprintf("Reloading into IOS %i from %i...\n", ios, CurIOS);
+		ShutdownBeforeExit();
 		ret = IOS_ReloadIOS(ios) == 0;
 		Nand::Instance()->Init_ISFS();
 		gprintf("AHBPROT after IOS Reload: %u\n", AHBRPOT_Patched());
 		WDVD_Init();
 	}
-#endif
 
 	IOS_GetCurrentIOSInfo();
 	if(CurrentIOS.Type == IOS_TYPE_HERMES)
 		load_ehc_module_ex();
 	else if(CurrentIOS.Type == IOS_TYPE_WANIN && CurrentIOS.Revision >= 18)
 		load_dip_249();
-	DeviceHandler::Instance()->SetModes();
-	if(MountDevices)
-		DeviceHandler::Instance()->MountAll();
+	DeviceHandle.SetModes();
+	if(MountDevices && ios != CurIOS)
+		DeviceHandle.MountAll();
 
 	return ret;
 }

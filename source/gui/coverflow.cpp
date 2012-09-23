@@ -227,7 +227,7 @@ CCoverFlow::CCoverFlow(void)
 	LWP_MutexInit(&m_mutex, 0);
 }
 
-bool CCoverFlow::init(const SmartBuf &font, u32 font_size, bool vid_50hz)
+bool CCoverFlow::init(u8 *font, u32 font_size, bool vid_50hz)
 {
 	// Load font
 	m_font.fromBuffer(font, font_size, TITLEFONT);
@@ -635,7 +635,7 @@ void CCoverFlow::stopCoverLoader(bool empty)
 				m_items[i].state = CCoverFlow::STATE_Loading;
 			}
 		}
-		gprintf("Coverflow stopped!\n");
+		//gprintf("Coverflow stopped!\n");
 	}
 }
 
@@ -649,7 +649,7 @@ void CCoverFlow::startCoverLoader(void)
 
 	unsigned int stack_size = (unsigned int)8192;
 	LWP_CreateThread(&coverLoaderThread, (void *(*)(void *))CCoverFlow::_coverLoader, (void *)this, 0, stack_size, 20);
-	gprintf("Coverflow started!\n");
+	//gprintf("Coverflow started!\n");
 }
 
 void CCoverFlow::clear(void)

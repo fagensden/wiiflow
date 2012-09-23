@@ -291,7 +291,7 @@ void CMenu::_hideDownload(bool instant)
 	m_btnMgr.hide(m_downloadLblGameTDBDownload, instant);
 	m_btnMgr.hide(m_downloadLblGameTDB, instant);
 	for(u8 i = 0; i < ARRAY_SIZE(m_downloadLblUser); ++i)
-		if(m_downloadLblUser[i] != (u16)-1)
+		if(m_downloadLblUser[i] != -1)
 			m_btnMgr.hide(m_downloadLblUser[i], instant);
 }
 
@@ -313,7 +313,7 @@ void CMenu::_showDownload(void)
 		m_btnMgr.show(m_downloadBtnGameTDBDownload);
 	}
 	for(u8 i = 0; i < ARRAY_SIZE(m_downloadLblUser); ++i)
-		if(m_downloadLblUser[i] != (u16)-1)
+		if(m_downloadLblUser[i] != -1)
 			m_btnMgr.show(m_downloadLblUser[i]);	
 }
 
@@ -1222,9 +1222,9 @@ void CMenu::_download(string gameId)
 	else
 		m_coverDLGameId = gameId;
 
-	while(true)
+	while(!m_exit)
 	{
-		_mainLoopCommon(false, m_thrdWorking);
+		_mainLoopCommon();
 		if ((BTN_HOME_PRESSED || BTN_B_PRESSED) && !m_thrdWorking)
 		{
 			if(settingsmenu)

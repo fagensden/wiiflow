@@ -23,7 +23,7 @@
 #include "memory/memory.h"
 
 CMenu *mainMenu;
-bool useMainIOS;
+bool useMainIOS = false;
 
 int main(int argc, char **argv)
 {
@@ -34,8 +34,9 @@ int main(int argc, char **argv)
 	CVideo vid;
 	vid.init();
 
+	DeviceHandle.Init();
 	Nand::Instance()->Init_ISFS();
-	MEM2_init(47); //Should be safe to use
+	MEM_init(); //Inits both mem1lo and mem2
 	gprintf(" \nWelcome to %s (%s-r%s)!\nThis is the debug output.\n", APP_NAME, APP_VERSION, SVN_REV);
 
 	char *gameid = NULL;
@@ -63,9 +64,8 @@ int main(int argc, char **argv)
 		else if(argv[i] != NULL && strcasestr(argv[i], "EMULATOR_MAGIC") != NULL)
 			Emulator_boot = true;
 	}
-#ifndef DOLPHIN
 	// Load Custom IOS
-	if(neek2o())
+	if(neek2o() || Sys_DolphinMode())
 	{
 		iosOK = true;
 		memset(&CurrentIOS, 0, sizeof(IOS_Info));
@@ -74,7 +74,7 @@ int main(int argc, char **argv)
 		CurrentIOS.Base = 254;
 		CurrentIOS.Revision = 999;
 		DCFlushRange(&CurrentIOS, sizeof(IOS_Info));
-		DeviceHandler::Instance()->SetModes();
+		DeviceHandle.SetModes();
 	}
 	else if(AHBRPOT_Patched() && IOS_GetVersion() == 58)
 	{
@@ -86,48 +86,46 @@ int main(int argc, char **argv)
 		gprintf("Loading cIOS: %d\n", mainIOS);	
 		iosOK = loadIOS(mainIOS, false) && CustomIOS(CurrentIOS.Type);
 	}
-#else
-	iosOK = true;
-#endif
-
 	// Init
 	Sys_Init();
 	Sys_ExitTo(EXIT_TO_HBC);
 
-	DeviceHandler::Instance()->MountAll();
+	DeviceHandle.MountAll();
 	vid.waitMessage(0.15f);
-	bool dipOK = WDVD_Init() >= 0;
 
 	mainMenu = new CMenu(vid);
 	Open_Inputs();
 	mainMenu->init();
-	if(CurrentIOS.Version != mainIOS && !neek2o())
+	if(CurrentIOS.Version != mainIOS && !neek2o() && !Sys_DolphinMode())
 	{
-		if(useMainIOS || (!DeviceHandler::Instance()->IsInserted(SD) && !DeviceHandler::Instance()->IsInserted(USB1)))
+		if(useMainIOS || !DeviceHandle.UsablePartitionMounted())
 		{
 			iosOK = loadIOS(mainIOS, true) && CustomIOS(CurrentIOS.Type);
 			Open_Inputs();
-			mainMenu->init();
+			//mainMenu->init();
 		}
 	}
+	if(CurrentIOS.Version == mainIOS)
+		useMainIOS = true; //Needed for later checks
+
 	if(!iosOK)
 		mainMenu->terror("errboot1", L"No cIOS found!\ncIOS d2x 249 base 56 and 250 base 57 are enough for all your games.");
-	else if(!DeviceHandler::Instance()->IsInserted(SD) && !DeviceHandler::Instance()->IsInserted(USB1))
+	else if(!DeviceHandle.UsablePartitionMounted())
 		mainMenu->terror("errboot2", L"Could not find a device to save configuration files on!");
-	else if(!dipOK)
+	else if(WDVD_Init() < 0)
 		mainMenu->terror("errboot3", L"Could not initialize the DIP module!");
-	else if(gameid != NULL && strlen(gameid) == 6)
-		mainMenu->directlaunch(gameid);
-	else
+	else 
 	{
 		if(Emulator_boot)
 			mainMenu->m_Emulator_boot = true;
-		mainMenu->main();
+		if(gameid != NULL && strlen(gameid) == 6)
+			mainMenu->directlaunch(gameid);
+		else
+			mainMenu->main();
 	}
 	//Exit WiiFlow, no game booted...
 	mainMenu->cleanup();
 	ShutdownBeforeExit();
 	Sys_Exit();
-	exit(1);
 	return 0;
 }

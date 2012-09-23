@@ -60,10 +60,10 @@ extern u32 boot2version;
 static u64 sm_title_id[8]  ATTRIBUTE_ALIGN(32);
 
 bool m_zoom_banner = false;
-u16 m_gameBtnPlayFull;
-u16 m_gameBtnBackFull;
-u16 m_gameBtnToogle;
-u16 m_gameBtnToogleFull;
+s16 m_gameBtnPlayFull;
+s16 m_gameBtnBackFull;
+s16 m_gameBtnToogle;
+s16 m_gameBtnToogleFull;
 
 const string CMenu::_translations[23] = {
 	"Default",
@@ -265,8 +265,9 @@ static Banner *_extractBnr(dir_discHdr *hdr)
 {
 	u32 size = 0;
 	Banner *banner = NULL;
+	DeviceHandle.OpenWBFS(currentPartition);
 	wbfs_disc_t *disc = WBFS_OpenDisc((u8 *) &hdr->id, (char *) hdr->path);
-	if (disc != NULL)
+	if(disc != NULL)
 	{
 		void *bnr = NULL;
 		size = wbfs_extract_file(disc, (char *) "opening.bnr", &bnr);
@@ -274,6 +275,7 @@ static Banner *_extractBnr(dir_discHdr *hdr)
 			banner = new Banner((u8 *)bnr, size);
 		WBFS_CloseDisc(disc);
 	}
+	WBFS_Close();
 	return banner;
 }
 
@@ -297,17 +299,17 @@ static u8 GetRequestedGameIOS(dir_discHdr *hdr)
 {
 	u8 IOS = 0;
 
+	DeviceHandle.OpenWBFS(currentPartition);
 	wbfs_disc_t *disc = WBFS_OpenDisc((u8 *) &hdr->id, (char *) hdr->path);
-	if (!disc) return IOS;
-
-	u8 *titleTMD = NULL;
-	u32 tmd_size = wbfs_extract_file(disc, (char *) "TMD", (void **)&titleTMD);
-	WBFS_CloseDisc(disc);
-
-	if(!titleTMD) return IOS;
-
-	if(tmd_size > 0x18B)
-		IOS = titleTMD[0x18B];
+	if(disc != NULL)
+	{
+		u8 *titleTMD = NULL;
+		u32 tmd_size = wbfs_extract_file(disc, (char *) "TMD", (void **)&titleTMD);
+		if(titleTMD != NULL && tmd_size > 0x18B)
+			IOS = titleTMD[0x18B];
+		WBFS_CloseDisc(disc);
+	}
+	WBFS_Close();
 	return IOS;
 }
 
@@ -330,7 +332,7 @@ void CMenu::_hideGame(bool instant)
 	m_btnMgr.hide(m_gameBtnAdultOn, instant);
 	m_btnMgr.hide(m_gameBtnAdultOff, instant);
 	for(u8 i = 0; i < ARRAY_SIZE(m_gameLblUser); ++i)
-		if(m_gameLblUser[i] != (u16)-1)
+		if(m_gameLblUser[i] != -1)
 			m_btnMgr.hide(m_gameLblUser[i], instant);
 }
 
@@ -352,9 +354,9 @@ void CMenu::_showGame(void)
 
 	if(!m_zoom_banner)
 	{
-		for(u16 i = 0; i < ARRAY_SIZE(m_gameLblUser); ++i)
+		for(u8 i = 0; i < ARRAY_SIZE(m_gameLblUser) - 1; ++i)
 		{
-			if(m_gameLblUser[i] != (u16)-1)
+			if(m_gameLblUser[i] != -1)
 				m_btnMgr.show(m_gameLblUser[i]);
 		}
 		m_btnMgr.show(m_gameBtnPlay);
@@ -393,7 +395,7 @@ void CMenu::_game(bool launch)
 		m_banner->ToogleZoom();
 
 	s8 startGameSound = 1;
-	while(true)
+	while(!m_exit)
 	{
 		if(startGameSound < 1)
 			startGameSound++;
@@ -444,33 +446,47 @@ void CMenu::_game(bool launch)
 		}
 		else if(BTN_MINUS_PRESSED)
 		{
-			string videoPath = sfmt("%s/%.3s.thp", m_videoDir.c_str(), m_cf.getId().c_str());
+			const char *videoPath = fmt("%s/%.3s.thp", m_videoDir.c_str(), m_cf.getId().c_str());
 
-			FILE *file = fopen(videoPath.c_str(), "rb");
+			FILE *file = fopen(videoPath, "r");
 			if(file)
 			{
+				MusicPlayer.Stop();
 				m_gameSound.Stop();
 				m_banner->SetShowBanner(false);
 				fclose(file);
 				_hideGame();
-				WiiMovie movie(videoPath.c_str());
+				/* Backup Background */
+				STexture Current_LQ_BG = m_lqBg;
+				STexture Current_HQ_BG = m_curBg;
+				STexture EmptyBG;
+				_setBg(EmptyBG, EmptyBG);
+				/* Lets play the movie */
+				WiiMovie movie(videoPath);
 				movie.SetScreenSize(m_cfg.getInt("GENERAL", "tv_width", 640), m_cfg.getInt("GENERAL", "tv_height", 480), m_cfg.getInt("GENERAL", "tv_x", 0), m_cfg.getInt("GENERAL", "tv_y", 0));
 				movie.SetVolume(m_cfg.getInt("GENERAL", "sound_volume_bnr", 255));
-				//_stopSounds();
-				movie.Play();
-
 				m_video_playing = true;
-
-				STexture videoBg;
-				while(!BTN_B_PRESSED && !BTN_A_PRESSED && !BTN_HOME_PRESSED && movie.GetNextFrame(&videoBg))
+				movie.Play();
+				m_banner->ReSetup_GX();
+				m_vid.setup2DProjection();
+				while(!BTN_B_PRESSED && !BTN_A_PRESSED && !BTN_HOME_PRESSED && movie.GetNextFrame(&m_curBg))
 				{
-					_setBg(videoBg, videoBg);
-					m_bgCrossFade = 10;
-					_mainLoopCommon(); // Redraw the background every frame
+					/* Draw movie BG and render */
+					_drawBg();
+					m_vid.render();
+					m_curBg.data.release();
+					/* Check if we want to stop */
+					WPAD_ScanPads();
+					PAD_ScanPads();
+					ButtonsPressed();
 				}
 				movie.Stop();
+				m_curBg.data.release();
+				/* Finished, so lets re-setup the background */
+				_setBg(Current_HQ_BG, Current_LQ_BG);
+				_updateBg();
+				/* Get back into our coverflow */
 				_showGame();
-				m_music.Play();
 				m_video_playing = false;
 				m_banner->SetShowBanner(true);
 				if(!m_gameSound.IsPlaying())
@@ -511,9 +527,9 @@ void CMenu::_game(bool launch)
 				}
 			}
 			else if(m_btnMgr.selected(m_gameBtnFavoriteOn) || m_btnMgr.selected(m_gameBtnFavoriteOff))
-				m_gcfg1.setBool("FAVORITES", m_cf.getId(), !m_gcfg1.getBool("FAVORITES", m_cf.getId(), false));
+				m_gcfg1.setBool("FAVORITES", _getId(), !m_gcfg1.getBool("FAVORITES", _getId(), false));
 			else if(m_btnMgr.selected(m_gameBtnAdultOn) || m_btnMgr.selected(m_gameBtnAdultOff))
-				m_gcfg1.setBool("ADULTONLY", m_cf.getId(), !m_gcfg1.getBool("ADULTONLY", m_cf.getId(), false));
+				m_gcfg1.setBool("ADULTONLY", _getId(), !m_gcfg1.getBool("ADULTONLY", _getId(), false));
 			else if(m_btnMgr.selected(m_gameBtnBack) || m_btnMgr.selected(m_gameBtnBackFull))
 			{
 				m_gameSound.FreeMemory();
@@ -541,9 +557,10 @@ void CMenu::_game(bool launch)
 				if(!m_gameSound.IsPlaying()) 
 					startGameSound = -6;
 			}
-			else if(launch || m_btnMgr.selected(m_gameBtnPlay) || m_btnMgr.selected(m_gameBtnPlayFull) || (!WPadIR_Valid(0) && !WPadIR_Valid(1) && !WPadIR_Valid(2) && !WPadIR_Valid(3) && m_btnMgr.selected((u16)-1)))
+			else if(launch || m_btnMgr.selected(m_gameBtnPlay) || m_btnMgr.selected(m_gameBtnPlayFull) || !ShowPointer())
 			{
 				_hideGame();
+				MusicPlayer.Stop();
 				m_gameSound.FreeMemory();
 				CheckGameSoundThread();
 				ClearGameSoundThreadStack();
@@ -594,7 +611,7 @@ void CMenu::_game(bool launch)
 
 				m_cf.clear();
 				_showWaitMessage();
-				exitHandler(0); //Making wiiflow ready to boot something
+				exitHandler(PRIILOADER_DEF); //Making wiiflow ready to boot something
 
 				if(hdr->type != TYPE_HOMEBREW && hdr->type != TYPE_PLUGIN)
 				{
@@ -673,7 +690,7 @@ void CMenu::_game(bool launch)
 		}
 		if(m_show_zone_game && !m_zoom_banner)
 		{
-			bool b = m_gcfg1.getBool("FAVORITES", m_cf.getId(), false);
+			bool b = m_gcfg1.getBool("FAVORITES", _getId(), false);
 			m_btnMgr.show(b ? m_gameBtnFavoriteOn : m_gameBtnFavoriteOff);
 			m_btnMgr.hide(b ? m_gameBtnFavoriteOff : m_gameBtnFavoriteOn);
 			m_btnMgr.show(m_gameBtnPlay);
@@ -682,14 +699,16 @@ void CMenu::_game(bool launch)
 			m_btnMgr.hide(m_gameBtnPlayFull);
 			m_btnMgr.hide(m_gameBtnBackFull);
 			m_btnMgr.hide(m_gameBtnToogleFull);
-			for(u8 i = 0; i < ARRAY_SIZE(m_gameLblUser); ++i)
+			if(m_gameLblUser[4] != -1 && !NoGameID(m_cf.getHdr()->type))
+				m_btnMgr.show(m_gameLblUser[4]);
+			for(u8 i = 0; i < ARRAY_SIZE(m_gameLblUser) - 1; ++i)
 			{
-				if(m_gameLblUser[i] != (u16)-1)
+				if(m_gameLblUser[i] != -1)
 					m_btnMgr.show(m_gameLblUser[i]);
 			}
 			if(!m_locked)
 			{
-				b = m_gcfg1.getBool("ADULTONLY", m_cf.getId(), false);
+				b = m_gcfg1.getBool("ADULTONLY", _getId(), false);
 				m_btnMgr.show(b ? m_gameBtnAdultOn : m_gameBtnAdultOff);
 				m_btnMgr.hide(b ? m_gameBtnAdultOff : m_gameBtnAdultOn);
 				m_btnMgr.show(m_gameBtnSettings);
@@ -714,8 +733,15 @@ void CMenu::_game(bool launch)
 			m_btnMgr.hide(m_gameBtnPlay);
 			m_btnMgr.hide(m_gameBtnBack);
 			m_btnMgr.hide(m_gameBtnToogle);
-			for(u8 i = 0; i < ARRAY_SIZE(m_gameLblUser); ++i)
-				if (m_gameLblUser[i] != (u16)-1)
+			if(m_gameLblUser[4] != -1)
+			{
+				if(!NoGameID(m_cf.getHdr()->type) && !m_zoom_banner)
+					m_btnMgr.show(m_gameLblUser[4]);
+				else
+					m_btnMgr.hide(m_gameLblUser[4], true);
+			}
+			for(u8 i = 0; i < ARRAY_SIZE(m_gameLblUser) - 1; ++i)
+				if (m_gameLblUser[i] != -1)
 					m_btnMgr.hide(m_gameLblUser[i]);
 		}
 	}
@@ -729,15 +755,13 @@ void CMenu::directlaunch(const string &id)
 
 	for (int i = USB1; i < USB8; i++)
 	{
-		if(!DeviceHandler::Instance()->IsInserted(i)) continue;
+		if(!DeviceHandle.IsInserted(i)) continue;
 
-		DeviceHandler::Instance()->Open_WBFS(i);
+		DeviceHandle.OpenWBFS(i);
 		CList<dir_discHdr> list;
 		string path = sfmt(GAMES_DIR, DeviceName[i]);
 		vector<string> pathlist;
-		list.GetPaths(pathlist, id.c_str(), path,
-			strncasecmp(DeviceHandler::Instance()->PathToFSName(path.c_str()), "WBFS", 4) == 0);
-
+		list.GetPaths(pathlist, id.c_str(), path, strncasecmp(DeviceHandle.PathToFSName(path.c_str()), "WBFS", 4) == 0);
 		m_gameList.clear();
 		Config nullCfg;
 		list.GetHeaders(pathlist, m_gameList, m_settingsDir, m_curLanguage, m_DMLgameDir, nullCfg);
@@ -746,6 +770,7 @@ void CMenu::directlaunch(const string &id)
 			gprintf("Game found on partition #%i\n", i);
 			_launch(&m_gameList[0]); // Launch will exit wiiflow
 		}
+		WBFS_Close();
 	}
 	error(sfmt("errgame1", L"Cannot find the game with ID: %s", id.c_str()));
 }
@@ -795,10 +820,12 @@ void CMenu::_launch(dir_discHdr *hdr)
 	}
 	else if(hdr->type == TYPE_HOMEBREW)
 	{
+		string title(&hdr->path[string(hdr->path).find_last_of("/")+1]);
 		char gamepath[128];
 		snprintf(gamepath, sizeof(gamepath), "%s/boot.dol", hdr->path);
 		if(!fsop_FileExist((const char*)gamepath))
 			snprintf(gamepath, sizeof(gamepath), "%s/boot.elf", hdr->path);
+		m_cfg.setString("HOMEBREW", "current_item", title);
 		_launchHomebrew(gamepath, m_homebrewArgs);
 	}
 }
@@ -903,7 +930,7 @@ void CMenu::_launchGC(dir_discHdr *hdr, bool disc)
 		WII_Initialize();
 		WII_LaunchTitle(0x100000100LL);
 	}
-	Sys_LoadMenu();
+	Sys_Exit();
 }
 
 void CMenu::_launchHomebrew(const char *filepath, vector<string> arguments)
@@ -962,7 +989,7 @@ int CMenu::_loadIOS(u8 gameIOS, int userIOS, string id)
 		if(_installed_cios.size() <= 0)
 		{
 			error(sfmt("errgame2", L"No cIOS found!"));
-			Sys_LoadMenu();
+			Sys_Exit();
 		}
 		u8 IOS[3];
 		IOS[0] = gameIOS;
@@ -1009,7 +1036,6 @@ void CMenu::_launchChannel(dir_discHdr *hdr)
 {
 	Channels channel;
 	u32 gameIOS = 0;
-	u32 entry = 0;
 	string id = string(hdr->id);
 
 	bool forwarder = true;
@@ -1021,8 +1047,10 @@ void CMenu::_launchChannel(dir_discHdr *hdr)
 			break;
 		}
 	}
-
 	forwarder = m_gcfg2.getBool(id, "custom", forwarder) || strncmp(id.c_str(), "WIMC", 4) == 0 || neek2o();
+	bool emu_disabled = (m_cfg.getBool("NAND", "disable", true) || neek2o());
+	if(!emu_disabled && !neek2o())
+		forwarder = false;
 
 	bool vipatch = m_gcfg2.testOptBool(id, "vipatch", m_cfg.getBool("GENERAL", "vipatch", false));
 	bool cheat = m_gcfg2.testOptBool(id, "cheat", m_cfg.getBool("NAND", "cheat", false));
@@ -1038,6 +1066,8 @@ void CMenu::_launchChannel(dir_discHdr *hdr)
 	u8 patchVidMode = min((u32)m_gcfg2.getInt(id, "patch_video_modes", 0), ARRAY_SIZE(CMenu::_vidModePatch) - 1u);
 	int aspectRatio = min((u32)m_gcfg2.getInt(id, "aspect_ratio", 0), ARRAY_SIZE(CMenu::_AspectRatio) - 1u)-1;
 
+	SmartBuf cheatFile;
+	u32 cheatSize = 0;
 	if(!forwarder)
 	{
 		hooktype = (u32) m_gcfg2.getInt(id, "hooktype", 0);
@@ -1047,6 +1077,8 @@ void CMenu::_launchChannel(dir_discHdr *hdr)
 			hooktype = 1;
 		if(!debuggerselect && !cheat) 
 			hooktype = 0;
+		if(cheat && hooktype)
+			_loadFile(cheatFile, cheatSize, m_cheatDir.c_str(), fmt("%s.gct", id.c_str()));
 	}
 
 	m_cfg.setString("NAND", "current_item", id);
@@ -1059,13 +1091,11 @@ void CMenu::_launchChannel(dir_discHdr *hdr)
 	string emuPath;
 	m_partRequest = m_cfg.getInt("NAND", "partition", 0);
 	int emuPartition = _FindEmuPart(&emuPath, m_partRequest, false);
-	
-	bool emu_disabled = (m_cfg.getBool("NAND", "disable", true) || neek2o());
 	int emulate_mode = min(max(0, m_cfg.getInt("NAND", "emulation", 1)), (int)ARRAY_SIZE(CMenu::_NandEmu) - 1);
 	
 	int userIOS = m_gcfg2.getInt(id, "ios", 0);
 	u64 gameTitle = TITLE_ID(hdr->settings[0],hdr->settings[1]);
-	bool useNK2o = m_gcfg2.getBool(id, "useneek", false);
+	bool useNK2o = (m_gcfg2.getBool(id, "useneek", false) && !neek2o());
 
 	m_gcfg1.save(true);
 	m_gcfg2.save(true);
@@ -1073,35 +1103,39 @@ void CMenu::_launchChannel(dir_discHdr *hdr)
 	m_cfg.save(true);
 	cleanup();
 
+	/*if(useNK2o && emuPartition != 1)
+		useNK2o = false;*/
+
 	if(useNK2o && !emu_disabled)
 	{
 		if(!Load_Neek2o_Kernel())
 		{
 			error(_t("errneek1", L"Cannot launch neek2o. Verify your neek2o setup"));
-			Sys_LoadMenu();
+			Sys_Exit();
 		}
-		ShutdownBeforeExit();
-		Launch_nk(gameTitle, emuPath.size() > 1 ? emuPath.c_str() : NULL);
-	}
-	DeviceHandler::Instance()->UnMountAll();
+		
+		int rtrnID = 0;
+		if(rtrn != NULL && strlen(rtrn) == 4)
+			rtrnID = rtrn[0] << 24 | rtrn[1] << 16 | rtrn[2] << 8 | rtrn[3];
 
+		ShutdownBeforeExit();
+		Launch_nk(gameTitle, emuPath.size() > 1 ? emuPath.c_str() : NULL, rtrnID ? (((u64)(0x00010001) << 32) | (rtrnID & 0xFFFFFFFF)) : rtrnID);
+	}
 	if(!forwarder || neek2o())
 	{
 		if(!emu_disabled)
 		{
+			DeviceHandle.UnMount(emuPartition);
 			Nand::Instance()->Init(emuPath.c_str(), emuPartition, false);
 			Nand::Instance()->Enable_Emu();
 		}
 		gameIOS = channel.GetRequestedIOS(gameTitle);
 		if(!emu_disabled)
-		{
 			Nand::Instance()->Disable_Emu();
-			usleep(1000);
-		}
 		if(_loadIOS(gameIOS, userIOS, id) == LOAD_IOS_FAILED)
-			return;
+			Sys_Exit();
 	}
-	if(CurrentIOS.Type == IOS_TYPE_D2X && rtrn != NULL && strlen(rtrn) == 4)
+	if((CurrentIOS.Type == IOS_TYPE_D2X || neek2o()) && rtrn != NULL && strlen(rtrn) == 4)
 	{
 		int rtrnID = rtrn[0] << 24 | rtrn[1] << 16 | rtrn[2] << 8 | rtrn[3];
 
@@ -1127,27 +1161,24 @@ void CMenu::_launchChannel(dir_discHdr *hdr)
 		{
 			Nand::Instance()->Disable_Emu();
 			error(_t("errgame5", L"Enabling emu failed!"));
-			return;
+			Sys_Exit();
 		}
 	}
 	if(forwarder)
 	{
 		ShutdownBeforeExit();
 		WII_Initialize();
-		if(WII_LaunchTitle(gameTitle) < 0)
-			Sys_LoadMenu();	
+		WII_LaunchTitle(gameTitle);
 	}
 	else 
 	{
-		entry = channel.Load(gameTitle);
 		setLanguage(language);
-		SmartBuf cheatFile;
-		u32 cheatSize = 0;
-		if(cheat)
-			_loadFile(cheatFile, cheatSize, m_cheatDir.c_str(), fmt("%s.gct", id.c_str()));
 		ocarina_load_code(cheatFile.get(), cheatSize);
-		BootChannel(entry, gameTitle, gameIOS, videoMode, vipatch, countryPatch, patchVidMode, aspectRatio);
+		Identify(gameTitle);
+		ExternalBooter_ChannelSetup(gameTitle);
+		BootChannel(gameTitle, gameIOS, videoMode, vipatch, countryPatch, patchVidMode, aspectRatio);
 	}
+	Sys_Exit();
 }
 
 void CMenu::_launchGame(dir_discHdr *hdr, bool dvd)
@@ -1165,14 +1196,13 @@ void CMenu::_launchGame(dir_discHdr *hdr, bool dvd)
 	if(dvd)
 	{
 		u32 cover = 0;
-		#ifndef DOLPHIN
-		if(!neek2o())
+		if(!neek2o() && !Sys_DolphinMode())
 		{
 			Disc_SetUSB(NULL, false);
 			if(WDVD_GetCoverStatus(&cover) < 0)
 			{
 				error(_t("errgame7", L"WDVDGetCoverStatus Failed!"));
-				if (BTN_B_PRESSED) return;
+				Sys_Exit();
 			}
 			if(!(cover & 0x2))
 			{
@@ -1184,23 +1214,21 @@ void CMenu::_launchGame(dir_discHdr *hdr, bool dvd)
 						return;
 				} while(!(cover & 0x2));
 			}
-			if(CurrentIOS.Version != mainIOS)
-				loadIOS(mainIOS, true);
 		}
-		#endif
+		_TempLoadIOS();
 		/* Open Disc */
-		if (Disc_Open(true) < 0)
+		if(Disc_Open(true) < 0)
 		{
 			error(_t("wbfsoperr2", L"Disc_Open failed"));
-			if (BTN_B_PRESSED) return;
+			Sys_Exit();
 		}
 		/* Check disc */
-		if (Disc_IsWii() < 0)
+		if(Disc_IsWii() < 0)
 		{
 			if (Disc_IsGC() < 0) 
 			{
 				error(_t("errgame9", L"This is not a Wii or GC disc"));
-				if (BTN_B_PRESSED) return;
+				Sys_Exit();
 			}
 			else
 			{
@@ -1279,6 +1307,11 @@ void CMenu::_launchGame(dir_discHdr *hdr, bool dvd)
 				Nand::Instance()->CreatePath("%s:/wiiflow/nandemu", DeviceName[emuPartition]);
 			}
 		}
+		
+		m_cfg.setInt("GAMES", "savepartition", emuPartition);
+		m_cfg.setString("GAMES", "savepath", emuPath);
+		m_cfg.save();
+		
 		char basepath[64];
 		snprintf(basepath, sizeof(basepath), "%s:%s", DeviceName[emuPartition], emuPath.c_str());
 		
@@ -1299,24 +1332,6 @@ void CMenu::_launchGame(dir_discHdr *hdr, bool dvd)
 			Nand::Instance()->Do_Region_Change(id);
 		}
 	}
-#ifndef DOLPHIN
-	bool iosLoaded = false;
-	if(!dvd || neek2o())
-	{
-		int result = _loadIOS(GetRequestedGameIOS(hdr), m_gcfg2.getInt(id, "ios"), id);
-		if(result == LOAD_IOS_FAILED)
-			return;
-		if(result == LOAD_IOS_SUCCEEDED)
-			iosLoaded = true;
-	}
-#else
-	bool iosLoaded = true;
-#endif
-
-	DeviceHandler::Instance()->Open_WBFS(currentPartition);
-	bool wbfs_partition = (DeviceHandler::Instance()->GetFSType(currentPartition) == PART_FS_WBFS);
-	if(!dvd && !wbfs_partition && get_frag_list((u8 *)id.c_str(), (char*)path.c_str(), currentPartition == 0 ? 0x200 : USBStorage2_GetSectorSize()) < 0)
-		return;
 
 	u8 patchVidMode = min((u32)m_gcfg2.getInt(id, "patch_video_modes", 0), ARRAY_SIZE(CMenu::_vidModePatch) - 1u);
 	hooktype = (u32) m_gcfg2.getInt(id, "hooktype", 0); // hooktype is defined in patchcode.h
@@ -1343,20 +1358,24 @@ void CMenu::_launchGame(dir_discHdr *hdr, bool dvd)
 	if(cheat)
 		_loadFile(cheatFile, cheatSize, m_cheatDir.c_str(), fmt("%s.gct", id.c_str()));
 	_loadFile(gameconfig, gameconfigSize, m_txtCheatDir.c_str(), "gameconfig.txt");
-
 	load_wip_patches((u8 *)m_wipDir.c_str(), (u8 *) &id);
-	app_gameconfig_load((u8 *) &id, gameconfig.get(), gameconfigSize);
-	ocarina_load_code(cheatFile.get(), cheatSize);
+
 	if(rtrn != NULL && strlen(rtrn) == 4)
 		returnTo = rtrn[0] << 24 | rtrn[1] << 16 | rtrn[2] << 8 | rtrn[3];
+	int userIOS = m_gcfg2.getInt(id, "ios", 0);
+	int gameIOS = GetRequestedGameIOS(hdr);
 
 	m_gcfg1.save(true);
 	m_gcfg2.save(true);
 	m_cat.save(true);
 	m_cfg.save(true);
 	cleanup(); // wifi and sd gecko doesnt work anymore after cleanup
-	DeviceHandler::Instance()->UnMountAll();
 
+	if((!dvd || neek2o()) && !Sys_DolphinMode())
+	{
+		if(_loadIOS(gameIOS, userIOS, id) == LOAD_IOS_FAILED)
+			Sys_Exit();
+	}
 	if(CurrentIOS.Type == IOS_TYPE_D2X)
 	{
 		/* Open ES Module */
@@ -1388,7 +1407,7 @@ void CMenu::_launchGame(dir_discHdr *hdr, bool dvd)
 	if(emulate_mode && !neek2o())
 	{
 		Nand::Instance()->Init(emuPath.c_str(), emuPartition, false);
-		DeviceHandler::Instance()->UnMount(emuPartition);
+		DeviceHandle.UnMount(emuPartition);
 
 		if(emulate_mode == 3)
 			Nand::Instance()->Set_RCMode(true);
@@ -1400,31 +1419,41 @@ void CMenu::_launchGame(dir_discHdr *hdr, bool dvd)
 		{
 			Nand::Instance()->Disable_Emu();
 			error(_t("errgame6", L"Enabling emu after reload failed!"));
-			Sys_LoadMenu();
-			return;
+			Sys_Exit();
 		}
-		if(!DeviceHandler::Instance()->IsInserted(currentPartition))
-			DeviceHandler::Instance()->Mount(currentPartition);
-		DeviceHandler::Instance()->Mount(emuPartition);
+		if(!DeviceHandle.IsInserted(currentPartition))
+			DeviceHandle.Mount(currentPartition);
+		DeviceHandle.Mount(emuPartition);
 	}
 	if(!dvd)
 	{
+		DeviceHandle.OpenWBFS(currentPartition);
+		bool wbfs_partition = (DeviceHandle.GetFSType(currentPartition) == PART_FS_WBFS);
+		if(!wbfs_partition && get_frag_list((u8 *)id.c_str(), (char*)path.c_str(), currentPartition == 0 ? 0x200 : USBStorage2_GetSectorSize()) < 0)
+			Sys_Exit();
 		s32 ret = Disc_SetUSB((u8*)id.c_str(), !wbfs_partition);
 		if(ret < 0)
 		{
 			gprintf("Set USB failed: %d\n", ret);
 			error(wfmt(_fmt("errgame10", L"Set USB failed: %d"), ret));
-			if(iosLoaded)
-				Sys_LoadMenu();
-			return;
+			Sys_Exit();
 		}
 		if(Disc_Open(false) < 0)
 		{
 			error(_t("wbfsoperr2", L"Disc_Open failed"));
-			if(iosLoaded)
-				Sys_LoadMenu();
-			return;
+			Sys_Exit();
 		}
+		WBFS_Close();
+	}
+	if(gameconfig.get() != NULL)
+	{
+		app_gameconfig_load((u8*)&id, gameconfig.get(), gameconfigSize);
+		gameconfig.release();
+	}
+	if(cheatFile.get() != NULL)
+	{
+		ocarina_load_code(cheatFile.get(), cheatSize);
+		cheatFile.release();
 	}
 	if(CurrentIOS.Type == IOS_TYPE_HERMES)
 	{
@@ -1539,10 +1568,6 @@ void CMenu::_gameSoundThread(CMenu *m)
 		m->m_gameSoundHdr = NULL;
 		return;
 	}
-
-	extern SmartBuf m_wbf1_font;
-	extern SmartBuf m_wbf2_font;
-
 	bool custom = false;
 	u8 *custom_bnr_file = NULL;
 	u32 custom_bnr_size = 0;
@@ -1586,7 +1611,7 @@ void CMenu::_gameSoundThread(CMenu *m)
 				disc.init(m->m_cf.getHdr()->path);
 				u8 *opening_bnr = disc.GetGameCubeBanner();
 				if(opening_bnr != NULL)
-					m_banner->CreateGCBanner(opening_bnr, &m->m_vid, m_wbf1_font.get(), m_wbf2_font.get(), m->m_cf.getHdr()->title);
+					m_banner->CreateGCBanner(opening_bnr, &m->m_vid, m->m_wbf1_font, m->m_wbf2_font, m->m_cf.getHdr()->title);
 				m->m_gameSound.Load(gc_ogg, gc_ogg_size, false);
 				m->m_gamesound_changed = true;
 				m->m_gameSoundHdr = NULL;
@@ -1621,7 +1646,7 @@ void CMenu::_gameSoundThread(CMenu *m)
 		_extractChannelBnr(TITLE_ID(m->m_gameSoundHdr->settings[0],m->m_gameSoundHdr->settings[1])) : NULL)));
 	if(banner != NULL && banner->IsValid())
 	{
-		m_banner->LoadBanner(banner, &m->m_vid, m_wbf1_font.get(), m_wbf2_font.get());
+		m_banner->LoadBanner(banner, &m->m_vid, m->m_wbf1_font, m->m_wbf2_font);
 		soundBin = banner->GetFile((char *)"sound.bin", &sndSize);
 	}
 	else
