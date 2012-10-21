@@ -23,75 +23,104 @@
 
 #include "Config.hpp"
 #include "ChannelHandler.hpp"
-
+#include "video_tinyload.h"
 #include "apploader.h"
 #include "patchcode.h"
+#include "memory.h"
+#include "utils.h"
 #include "disc.h"
 #include "fst.h"
 #include "wdvd.h"
+#include "gecko.h"
 
 using namespace std;
 IOS_Info CurrentIOS;
 
 /* Boot Variables */
+u32 GameIOS = 0;
 u32 vmode_reg = 0;
-entry_point p_entry;
 GXRModeObj *vmode = NULL;
 
-u32 AppEntrypoint;
+u32 AppEntrypoint = 0;
 
-extern "C" { extern void __exception_closeall(); }
+extern "C" {
+extern void __exception_closeall();
+extern s32 wbfsDev;
+extern u32 wbfs_part_idx;
+extern FragList *frag_list;
+}
 
+the_CFG normalCFG;
 int main()
 {
+	InitGecko();
+	gprintf("WiiFlow External Booter by FIX94\n");
+	memcpy(&normalCFG, (void*)0x93100000, sizeof(the_CFG));
 	VIDEO_Init();
-	configbytes[0] = conf->configbytes[0];
-	configbytes[1] = conf->configbytes[1];
-	hooktype = conf->hooktype;
-	debuggerselect = conf->debugger;
-	CurrentIOS = conf->IOS;
-	app_gameconfig_set(conf->gameconf, conf->gameconfsize);
-	ocarina_set_codes(conf->codelist, conf->codelistend, conf->cheats, conf->cheatSize);
+	video_init();
+	prog10();
 
-	/* Set low memory */
-	Disc_SetLowMem();
+	configbytes[0] = normalCFG.configbytes[0];
+	configbytes[1] = normalCFG.configbytes[1];
+	hooktype = normalCFG.hooktype;
+	debuggerselect = normalCFG.debugger;
+	CurrentIOS = normalCFG.IOS;
+	set_wip_list(normalCFG.wip_list, normalCFG.wip_count);
+	app_gameconfig_set(normalCFG.gameconf, normalCFG.gameconfsize);
+	ocarina_set_codes(normalCFG.codelist, normalCFG.codelistend, normalCFG.cheats, normalCFG.cheatSize);
+	frag_list = normalCFG.fragments;
+	wbfsDev = normalCFG.wbfsDevice;
+	wbfs_part_idx = normalCFG.wbfsPart;
+	prog10();
 
-	/* Select an appropriate video mode */
-	vmode = Disc_SelectVMode(conf->vidMode, &vmode_reg);
+	/* Setup Low Memory */
+	Disc_SetLowMemPre();
 
-	if(conf->BootType == TYPE_WII_GAME)
+	if(normalCFG.BootType == TYPE_WII_GAME)
 	{
-		/* Re-Init DI */
 		WDVD_Init();
-
-		/* Find Partition */
-		u64 offset = 0;
+		if(CurrentIOS.Type == IOS_TYPE_D2X)
+		{
+			s32 ret = BlockIOSReload();
+			gprintf("Block IOS Reload using d2x %s.\n", ret < 0 ? "failed" : "succeeded");
+		}
+		if(normalCFG.GameBootType == TYPE_WII_DISC)
+		{
+			Disc_SetUSB(NULL, false);
+			if(CurrentIOS.Type == IOS_TYPE_HERMES)
+				Hermes_Disable_EHC();
+		}
+		else
+		{
+			Disc_SetUSB((u8*)normalCFG.gameID, normalCFG.GameBootType == TYPE_WII_WBFS_EXT);
+			if(CurrentIOS.Type == IOS_TYPE_HERMES)
+				Hermes_shadow_mload(normalCFG.mload_rev);
+		}
+		prog(20);
+		Disc_Open();
+		u32 offset = 0;
 		Disc_FindPartition(&offset);
-
-		/* Open Partition */
-		WDVD_OpenPartition(offset);
-
-		/* Run apploader */
-		Apploader_Run(&p_entry, conf->vidMode, vmode, conf->vipatch, conf->countryString, conf->patchVidMode, 
-					conf->aspectRatio, conf->returnTo);
-		AppEntrypoint = (u32)p_entry;
-
-		/* De-Init DI */
+		WDVD_OpenPartition(offset, &GameIOS);
+		vmode = Disc_SelectVMode(normalCFG.vidMode, &vmode_reg);
+		AppEntrypoint = Apploader_Run(normalCFG.vidMode, vmode, normalCFG.vipatch, normalCFG.countryString,
+						normalCFG.patchVidMode, normalCFG.aspectRatio, normalCFG.returnTo);
 		WDVD_Close();
 	}
-	else if(conf->BootType == TYPE_CHANNEL)
+	else if(normalCFG.BootType == TYPE_CHANNEL)
 	{
-		/* Re-Init ISFS */
 		ISFS_Initialize();
-
-		/* Load and Patch Channel */
-		AppEntrypoint = LoadChannel();
-		PatchChannel(conf->vidMode, vmode, conf->vipatch, conf->countryString, 
-					conf->patchVidMode, conf->aspectRatio);
-
-		/* De-Init ISFS */
+		*Disc_ID = TITLE_LOWER(normalCFG.title);
+		vmode = Disc_SelectVMode(normalCFG.vidMode, &vmode_reg);
+		AppEntrypoint = LoadChannel(normalCFG.title, &GameIOS);
+		PatchChannel(normalCFG.vidMode, vmode, normalCFG.vipatch, normalCFG.countryString, 
+					normalCFG.patchVidMode, normalCFG.aspectRatio);
 		ISFS_Deinitialize();
 	}
+	gprintf("Entrypoint: %08x, Requested Game IOS: %i\n", AppEntrypoint, GameIOS);
+	setprog(320);
+
+	/* Setup Low Memory */
+	Disc_SetLowMem(GameIOS);
 
 	/* Set time */
 	Disc_SetTime();
@@ -148,31 +177,30 @@ int main()
  			);
  		}
 	}
- 	else if (hooktype)
+ 	else if(hooktype)
 	{
 		asm volatile (
-				"lis %r3, AppEntrypoint@h\n"
-				"ori %r3, %r3, AppEntrypoint@l\n"
-				"lwz %r3, 0(%r3)\n"
-				"mtlr %r3\n"
-				"lis %r3, 0x8000\n"
-				"ori %r3, %r3, 0x18A8\n"
-				"nop\n"
-				"mtctr %r3\n"
-				"bctr\n"
+			"lis %r3, AppEntrypoint@h\n"
+			"ori %r3, %r3, AppEntrypoint@l\n"
+			"lwz %r3, 0(%r3)\n"
+			"mtlr %r3\n"
+			"lis %r3, 0x8000\n"
+			"ori %r3, %r3, 0x18A8\n"
+			"nop\n"
+			"mtctr %r3\n"
+			"bctr\n"
 		);
 	}
 	else
 	{
 		asm volatile (
-				"lis %r3, AppEntrypoint@h\n"
-				"ori %r3, %r3, AppEntrypoint@l\n"
-				"lwz %r3, 0(%r3)\n"
-				"mtlr %r3\n"
-				"blr\n"
+			"lis %r3, AppEntrypoint@h\n"
+			"ori %r3, %r3, AppEntrypoint@l\n"
+			"lwz %r3, 0(%r3)\n"
+			"mtlr %r3\n"
+			"blr\n"
 		);
 	}
-
 	IRQ_Restore(level);
 
 	return 0;

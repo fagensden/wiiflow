@@ -6,97 +6,117 @@
 #include <malloc.h>
 #include <ogc/lwp_watchdog.h>
 
+#include "frag.h"
 #include "memory.h"
 #include "cios.h"
 #include "types.h"
 #include "wdvd.h"
+#include "video_tinyload.h"
 
 /* Constants */
-#define PTABLE_OFFSET	0x40000
+#define PART_INFO_OFFSET	0x10000
 
-static u8 *diskid = (u8*)0x80000000;
+s32 Disc_Open()
+{
+	/* Reset drive */
+	s32 ret = WDVD_Reset();
+	if(ret < 0)
+		return ret;
 
-void Disc_SetLowMem()
+	/* Read disc ID */
+	ret = WDVD_ReadDiskId((u8*)Disc_ID);
+	return ret;
+}
+
+void Disc_SetLowMemPre()
+{
+	/* Setup low memory before Apploader */
+	*BI2				= 0x817E5480; // BI2
+	*(vu32*)0xCD00643C	= 0x00000000; // 32Mhz on Bus
+
+	/* Clear Disc ID */
+	memset((u8*)Disc_ID, 0, 32);
+
+	/* For WiiRD */
+	memset((void*)0x80001800, 0, 0x1800);
+
+	/* Flush everything */
+	DCFlushRange((void*)0x80000000, 0x3f00);
+}
+
+void Disc_SetLowMem(u32 IOS)
 {
 	/* Setup low memory */
 	*Sys_Magic			= 0x0D15EA5E; // Standard Boot Code
 	*Sys_Version		= 0x00000001; // Version
 	*Arena_L			= 0x00000000; // Arena Low
-	*BI2				= 0x817E5480; // BI2
 	*Bus_Speed			= 0x0E7BE2C0; // Console Bus Speed
 	*CPU_Speed			= 0x2B73A840; // Console CPU Speed
 	*Assembler			= 0x38A00040; // Assembler
-	*(vu32*)0x800000E4	= 0x80431A80;
+	*OS_Thread			= 0x80431A80; // Thread Init
 	*Dev_Debugger		= 0x81800000; // Dev Debugger Monitor Address
 	*Simulated_Mem		= 0x01800000; // Simulated Memory Size
-	*(vu32*)0xCD00643C	= 0x00000000; // 32Mhz on Bus
+	*GameID_Address		= 0x80000000; // Fix for Sam & Max (WiiPower)
 
-	/* Fix for Sam & Max (WiiPower) */
-	if(CurrentIOS.Type != IOS_TYPE_HERMES)
-		*GameID_Address	= 0x80000000;
+	/* Copy Disc ID */
+	memcpy((void*)Online_Check, (void*)Disc_ID, 4);
 
-	/* Copy disc ID */
-	memcpy((void *)Online_Check, (void *)Disc_ID, 4);
+	/* For WiiRD */
+	memcpy((void*)0x80001800, (void*)Disc_ID, 8);
+
+	/* Error 002 Fix (thanks WiiPower and uLoader) */
+	*Current_IOS = (IOS << 16) | 0xffff;
+	*Apploader_IOS = (IOS << 16) | 0xffff;
+
+	/* Flush everything */
+	DCFlushRange((void*)0x80000000, 0x3f00);
 }
 
-s32 Disc_FindPartition(u64 *outbuf)
-{
-	u8 TMP_Buffer_size = 0x20;
-	u64 offset = 0;
-	u32 cnt;
+/* Thanks Tinyload */
+static struct {
+	u32 offset;
+	u32 type;
+} partition_table[32] ATTRIBUTE_ALIGN(32);
 
-	u32 *TMP_Buffer = (u32*)memalign(32, TMP_Buffer_size);
-	if(!TMP_Buffer)
-		return -1;
+static struct {
+	u32 count;
+	u32 offset;
+	u32 pad[6];
+} part_table_info ATTRIBUTE_ALIGN(32);
+
+s32 Disc_FindPartition(u32 *outbuf)
+{
+	u32 offset = 0;
+	u32 cnt = 0;
 
 	/* Read partition info */
-	s32 ret = WDVD_UnencryptedRead(TMP_Buffer, TMP_Buffer_size, PTABLE_OFFSET);
+	s32 ret = WDVD_UnencryptedRead(&part_table_info, sizeof(part_table_info), PART_INFO_OFFSET);
 	if(ret < 0)
-	{
-		free(TMP_Buffer);
 		return ret;
-	}
-
-	/* Get data */
-	u32 nb_partitions = TMP_Buffer[0];
-	u64 table_offset  = TMP_Buffer[1] << 2;
-	
-	if(nb_partitions > 8)
-	{
-		free(TMP_Buffer);
-		return -1;
-	}
-
-	memset(TMP_Buffer, 0, TMP_Buffer_size);
 
 	/* Read partition table */
-	ret = WDVD_UnencryptedRead(TMP_Buffer, TMP_Buffer_size, table_offset);
-	if (ret < 0)
-	{
-		free(TMP_Buffer);
+	ret = WDVD_UnencryptedRead(&partition_table, sizeof(partition_table), part_table_info.offset);
+	if(ret < 0)
 		return ret;
-	}
 
 	/* Find game partition */
-	for(cnt = 0; cnt < nb_partitions; cnt++)
+	for(cnt = 0; cnt < part_table_info.count; cnt++)
 	{
-		u32 type = TMP_Buffer[cnt * 2 + 1];
-
 		/* Game partition */
-		if(!type)
-			offset = TMP_Buffer[cnt * 2] << 2;
+		if(partition_table[cnt].type == 0)
+		{
+			offset = partition_table[cnt].offset;
+			break;
+		}
 	}
-	free(TMP_Buffer);
 
 	/* No game partition found */
-	if (!offset)
+	if(offset == 0)
 		return -1;
+	WDVD_Seek(offset);
 
 	/* Set output buffer */
 	*outbuf = offset;
-
-	WDVD_Seek(offset);
-
 	return 0;
 }
 
@@ -135,13 +155,12 @@ GXRModeObj *Disc_SelectVMode(u8 videoselected, u32 *rmode_reg)
 			break;
 	}
 
-	char Region = diskid[3];
-
+	const char DiscRegion = ((u8*)Disc_ID)[3];
 	switch(videoselected)
 	{
 		case 0: // DEFAULT (DISC/GAME)
 			/* Select video mode */
-			switch(Region)
+			switch(DiscRegion)
 			{
 				case 'W':
 					break; // Don't overwrite wiiware video modes.
@@ -185,7 +204,7 @@ GXRModeObj *Disc_SelectVMode(u8 videoselected, u32 *rmode_reg)
 			break;
 		case 5: // PROGRESSIVE 480P
 			rmode = &TVNtsc480Prog;
-			*rmode_reg = Region == 'P' ? TVEurgb60Hz480Prog.viTVMode >> 2 : rmode->viTVMode >> 2;
+			*rmode_reg = DiscRegion == 'P' ? TVEurgb60Hz480Prog.viTVMode >> 2 : rmode->viTVMode >> 2;
 			break;
 		default:
 			break;
@@ -195,6 +214,9 @@ GXRModeObj *Disc_SelectVMode(u8 videoselected, u32 *rmode_reg)
 
 void Disc_SetVMode(GXRModeObj *rmode, u32 rmode_reg)
 {
+	/* Remove Load Bar */
+	video_clear();
+
 	/* Set video mode register */
 	*Video_Mode = rmode_reg;
 	DCFlushRange((void*)Video_Mode, 4);
@@ -220,4 +242,31 @@ void Disc_SetVMode(GXRModeObj *rmode, u32 rmode_reg)
 		VIDEO_WaitVSync();
 	else while(VIDEO_GetNextField())
 		VIDEO_WaitVSync();
+}
+
+s32 wbfsDev = 0;
+u32 wbfs_part_idx = 0;
+FragList *frag_list = NULL;
+static int set_frag_list()
+{
+	// (+1 for header which is same size as fragment)
+	int size = sizeof(Fragment) * (frag_list->num + 1);
+	DCFlushRange(frag_list, size);
+	return WDVD_SetFragList(wbfsDev, frag_list, size);
+}
+
+s32 Disc_SetUSB(const u8 *id, bool frag)
+{
+	/* ENABLE USB in cIOS */
+	if(id)
+	{
+		if(frag)
+			return set_frag_list();
+		s32 part = -1;
+		if(CurrentIOS.Type == IOS_TYPE_HERMES)
+			part = wbfs_part_idx ? wbfs_part_idx - 1 : 0;
+		return WDVD_SetUSBMode(wbfsDev, (u8*)id, part);
+	}
+	/* DISABLE USB in cIOS */
+	return WDVD_SetUSBMode(0, NULL, -1);
 }

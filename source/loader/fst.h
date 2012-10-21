@@ -30,7 +30,7 @@ extern u8 debuggerselect;
 
 #define MAX_GCT_SIZE 2056
 
-int app_gameconfig_load(u8 *id, const u8 *gameconfig, u32 gameconfigsize);
+int app_gameconfig_load(const char *discid, u8 *tempgameconf, u32 tempgameconfsize);
 int ocarina_load_code(const u8 *cheat, u32 cheatSize);
 int ocarina_do_code();
 

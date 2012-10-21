@@ -6,6 +6,21 @@
 extern "C" {
 #endif
 
+enum {
+	COVERFLOW_USB = 0,
+	COVERFLOW_DML,
+	COVERFLOW_CHANNEL,
+	COVERFLOW_PLUGIN,
+	COVERFLOW_HOMEBREW,
+	COVERFLOW_MAX
+};
+
+enum
+{
+	TYPE_WII_DISC = 0,
+	TYPE_WII_WBFS,
+	TYPE_WII_WBFS_EXT,
+};
 
 enum
 {
@@ -17,7 +32,6 @@ enum
     TYPE_END
 };
 #define NoGameID(x)			(x == TYPE_PLUGIN || x == TYPE_HOMEBREW)
-
 
 enum
 {

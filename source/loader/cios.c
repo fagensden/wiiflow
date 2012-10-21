@@ -36,6 +36,7 @@
 #include "gecko/gecko.h"
 #include "memory/mem2.hpp"
 
+int mainIOS = 0;
 IOS_Info CurrentIOS;
 signed_blob *GetTMD(u8 ios, u32 *TMD_Length)
 {
@@ -189,20 +190,19 @@ void IOS_GetCurrentIOSInfo()
 	DCFlushRange(&CurrentIOS, sizeof(IOS_Info));
 }
 
-bool Hermes_shadow_mload()
+s32 D2X_PatchReturnTo(u32 returnTo)
 {
-	int v51 = (5 << 4) & 1;
-	if(mload_get_version() >= v51)
-	{
-		IOS_Open("/dev/mload/OFF",0); // shadow /dev/mload supported in hermes cios v5.1
-		gprintf("Shadow mload\n");
-		return true;
-	}
-	return false;
-}
-
-void Hermes_Disable_EHC()
-{
-	IOS_Open("/dev/usb123/OFF", 0);// this disables ehc completely
-	gprintf("Hermes EHC Disabled\n");
+	/* Open ES Module */
+	s32 ESHandle = IOS_Open("/dev/es", 0);
+	/* Return to */
+	static ioctlv rtn_vector[1]  ATTRIBUTE_ALIGN(32);
+	static u64 sm_title_id[8]  ATTRIBUTE_ALIGN(32);
+	sm_title_id[0] = ((u64)(0x00010001) << 32) | returnTo;
+	rtn_vector[0].data = sm_title_id;
+	rtn_vector[0].len = sizeof(u64);
+	s32 ret = IOS_Ioctlv(ESHandle, 0xA1, 1, 0, rtn_vector);
+	gprintf("Return to channel %.4s using d2x %s.\n", &returnTo, ret < 0 ? "failed" : "succeeded");
+	/* Close ES Module */
+	IOS_Close(ESHandle);
+	return ret;
 }

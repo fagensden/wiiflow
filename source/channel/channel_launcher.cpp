@@ -5,32 +5,15 @@
 #include <malloc.h>
 
 #include "channel_launcher.h"
+#include "booter/external_booter.hpp"
 #include "gecko/gecko.h"
 #include "loader/disc.h"
-#include "loader/external_booter.hpp"
 #include "loader/fs.h"
 #include "loader/fst.h"
 #include "loader/utils.h"
 #include "memory/memory.h"
 #include "unzip/lz77.h"
 #include "types.h"
-
-s32 BootChannel(u64 chantitle, u32 ios, u8 vidMode, bool vipatch, bool countryString, u8 patchVidMode, int aspectRatio)
-{
-	// IOS Version Check
-	*Real_IOSVersion = ((ios << 16)) | 0xFFFF;
-	*Game_IOSVersion = ((ios << 16)) | 0xFFFF;
-	DCFlushRange((void*)Real_IOSVersion, 4);
-	DCFlushRange((void*)Game_IOSVersion, 4);
-
-	// Game ID Online Check
-	memset((void*)Disc_ID, 0, 4);
-	*Disc_ID = TITLE_LOWER(chantitle);
-	DCFlushRange((void*)Disc_ID, 4);
-
-	WiiFlow_ExternalBooter(vidMode, vipatch, countryString, patchVidMode, aspectRatio, 0, TYPE_CHANNEL);
-	return 0;
-}
 
 bool Identify_GenerateTik(signed_blob **outbuf, u32 *outlen)
 {

@@ -31,17 +31,23 @@ using namespace std;
 #define TAG_LOC			"{loc}"
 #define TAG_CONSOLE		"{console}"
 
+#define PLUGIN_DOMAIN	"PLUGIN"
+#define PLUGIN_DEV		"{device}"
+#define PLUGIN_PATH		"{path}"
+#define PLUGIN_NAME		"{name}"
+#define PLUGIN_LDR		"{loader}"
+
 struct PluginOptions
 {
-	u8 *BannerSound;
-	u32 BannerSoundSize;
 	u32 magicWord;
+	u32 caseColor;
 	string DolName;
 	string coverFolder;
 	string consoleCoverID;
+	string BannerSound;
+	u32 BannerSoundSize;
+	vector<string> Args;
 	wstringEx DisplayName;
-	u32 caseColor;
-	bool ReturnLoader;
 };
 
 class Plugin
@@ -52,24 +58,22 @@ public:
 	u32 GetBannerSoundSize();
 	char* GetDolName(u32 magic);
 	char* GetCoverFolderName(u32 magic);
-	string GenerateCoverLink(dir_discHdr gameHeader, string url, Config &Checksums);
+	string GenerateCoverLink(dir_discHdr gameHeader, const string& constURL, Config &Checksums);
 	wstringEx GetPluginName(u8 pos);
 	u32 getPluginMagic(u8 pos);
 	bool PluginExist(u8 pos);
 	void SetEnablePlugin(Config &cfg, u8 pos, u8 ForceMode = 0);
-	vector<bool> GetEnabledPlugins(Config &cfg);
-	bool UseReturnLoader(u32 magic);
-	bool isScummVM(u32 magic);
-	bool isMplayerCE(u32 magic);
-	vector<string> CreateMplayerCEArguments(const char *src);
-	void init(string);
+	const vector<bool> &GetEnabledPlugins(Config &cfg);
+	vector<string> CreateArgs(const string& device, const string& path, 
+				const string& title, const string& loader, u32 magic);
+	void init(const string& m_pluginsDir);
 	void Cleanup();
 	void EndAdd();
-	vector<dir_discHdr> ParseScummvmINI(Config &ini, string Device);
-
+	vector<dir_discHdr> ParseScummvmINI(Config &ini, const char *Device, u32 MagicWord);
 private:
 	s8 GetPluginPosition(u32 magic);
 	vector<PluginOptions> Plugins;
+	vector<bool> enabledPlugins;
 	s8 Plugin_Pos;
 	string pluginsDir;
 	bool adding;

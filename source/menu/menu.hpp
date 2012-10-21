@@ -17,7 +17,7 @@
 #include "gui/cursor.hpp"
 #include "gui/fanart.hpp"
 #include "gui/gui.hpp"
-#include "list/cachedlist.hpp"
+#include "list/ListGenerator.hpp"
 #include "loader/disc.h"
 #include "loader/gc_disc_dump.hpp"
 #include "loader/wbfs.h"
@@ -33,9 +33,8 @@ extern "C" { extern u8 currentPartition; }
 class CMenu
 {
 public:
-	CMenu(CVideo &vid);
-	~CMenu(void) {cleanup();}
-	void init(void);
+	CMenu();
+	void init();
 	void error(const wstringEx &msg);
 	void terror(const char *key, const wchar_t *msg) { error(_fmt(key, msg)); }
 	void exitHandler(int ExitTo);
@@ -51,12 +50,10 @@ private:
 		int h;
 		bool hide;
 	};
-	CVideo &m_vid;
 	CCursor m_cursor[WPAD_MAX_WIIMOTES];
 	CButtonsMgr m_btnMgr;
 	CCoverFlow m_cf;
 	CFanart m_fa;
-	CachedList m_gameList;
 	Config m_cfg;
 	Config m_loc;
 	Config m_cat;
@@ -76,6 +73,7 @@ private:
 	bool m_directLaunch;
 	bool m_locked;
 	bool m_favorites;
+	bool m_music_info;
 	s16 m_showtimer;
 	string m_curLanguage;
 	string m_curGameId;
@@ -922,6 +920,7 @@ private:
 	void _showHome(void);
 	void _showExitTo(void);
 	void _updateSourceBtns(void);
+	void _updatePluginText(void);
 	void _updatePluginCheckboxes(void);
 	void _updateCheckboxes(void);
 	void _getIDCats(void);
@@ -975,7 +974,7 @@ private:
 	vector<dir_discHdr> _searchGamesByType(const char type);
 	vector<dir_discHdr> _searchGamesByRegion(const char region); */
 public:
-	void directlaunch(const string &id);
+	void directlaunch(const char *GameID);
 private:
 	bool m_use_wifi_gecko;
 	void _reload_wifi_gecko();

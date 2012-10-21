@@ -162,7 +162,7 @@ int CMenu::_config1(void)
 
 	s32 bCurrentPartition = currentPartition;
 
-	gprintf("Current Partition: %d\n", currentPartition);
+	//gprintf("Current Partition: %d\n", currentPartition);
 	
 	_showConfig();
 	_textConfig();
@@ -201,7 +201,7 @@ int CMenu::_config1(void)
 				_cfNeedsUpdate();
 				m_cf.stopCoverLoader(true);
 				_hideConfig();
-				if(m_current_view != COVERFLOW_EMU)
+				if(m_current_view != COVERFLOW_PLUGIN)
 					_NandEmuCfg();
 				else
 					_PluginSettings();
@@ -222,7 +222,7 @@ int CMenu::_config1(void)
 			for(u8 i = 0; strncmp((const char *)&newpartition[i], "\0", 1) != 0; i++)
 				newpartition[i] = toupper(newpartition[i]);
 
-			gprintf("Switching partition to %s\n", newpartition);
+			//gprintf("Switching partition to %s\n", newpartition);
 			_showWaitMessage();
 			_loadList();
 			_hideWaitMessage();
@@ -286,7 +286,7 @@ void CMenu::_textConfig(void)
 	m_btnMgr.setText(m_configBtnSetCode, _t("cfg7", L"Set code"));
 	m_btnMgr.setText(m_configLblPartitionName, _t("cfgp1", L"Game Partition"));
 	m_btnMgr.setText(m_configBtnBack, _t("cfg10", L"Back"));
-	if(m_current_view != COVERFLOW_EMU)
+	if(m_current_view != COVERFLOW_PLUGIN)
 	{
 		m_btnMgr.setText(m_configLblCfg4, _t("cfg13", L"NAND Emulation Settings"));
 		m_btnMgr.setText(m_configBtnCfg4, _t("cfg14", L"Set"));

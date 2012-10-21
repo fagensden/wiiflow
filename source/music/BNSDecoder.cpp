@@ -28,6 +28,7 @@
 #include <math.h>
 #include <unistd.h>
 #include "BNSDecoder.hpp"
+#include "memory/mem2.hpp"
 
 SoundBlock DecodefromBNS(const u8 *buffer, u32 size);
 
@@ -69,7 +70,7 @@ BNSDecoder::~BNSDecoder()
 
 void BNSDecoder::OpenFile()
 {
-	u8 * tempbuff = new (std::nothrow) u8[file_fd->size()];
+	u8 *tempbuff = (u8*)MEM2_alloc(file_fd->size());
 	if(!tempbuff)
 	{
 		CloseFile();
@@ -86,20 +87,18 @@ void BNSDecoder::OpenFile()
 		else
 		{
 			CloseFile();
+			MEM2_free(tempbuff);
 			return;
 		}
 	}
 
 	SoundData = DecodefromBNS(tempbuff, done);
+	MEM2_free(tempbuff);
 	if(SoundData.buffer == NULL)
 	{
 		CloseFile();
 		return;
 	}
-
-	delete [] tempbuff;
-	tempbuff = NULL;
-
 	Decode();
 }
 
@@ -313,9 +312,9 @@ SoundBlock DecodefromBNS(const u8 *buffer, u32 size)
 	memset(&OutBlock, 0, sizeof(SoundBlock));
 
 	const BNSHeader &hdr = *(BNSHeader *)buffer;
-	if (size < sizeof hdr)
+	if(size < sizeof hdr)
 		return OutBlock;
-	if (hdr.fccBNS != 'BNS ')
+	if(memcmp(&hdr.fccBNS, "BNS ", 4) != 0)
 		return OutBlock;
 	// Find info and data
 	BNSInfo infoChunk;

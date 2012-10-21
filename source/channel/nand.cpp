@@ -56,6 +56,8 @@ bool tbdec = false;
 bool configloaded = false;
 bool emu_enabled = false;
 
+Nand NandHandle;
+
 static NandDevice NandDeviceList[] = 
 {
 	{ "Disable",						0,	0x00,	0x00 },
@@ -63,22 +65,17 @@ static NandDevice NandDeviceList[] =
 	{ "USB 2.0 Mass Storage Device",	2,	0xF2,	0xF3 },
 };
 
-Nand * Nand::instance = NULL;
-
-Nand * Nand::Instance()
+void Nand::Init()
 {
-	if(instance == NULL)
-		instance = new Nand();
-	return instance;
+	MountedDevice = 0;
+	EmuDevice = REAL_NAND;
+	Disabled = true;
+	Partition = 0;
+	FullMode = 0x100;
+	memset(NandPath, 0, sizeof(NandPath)); 
 }
 
-void Nand::DestroyInstance()
-{
-	if(instance) delete instance;
-	instance = NULL;
-}
-
-void Nand::Init(string path, u32 partition, bool disable)
+void Nand::SetPaths(string path, u32 partition, bool disable)
 {
 	EmuDevice = disable ? REAL_NAND : partition == 0 ? EMU_SD : EMU_USB;
 	Partition = disable ? REAL_NAND : partition > 0 ? partition - 1 : partition;
@@ -1052,12 +1049,11 @@ s32 Nand::Do_Region_Change(string id)
 
 extern "C" { extern s32 MagicPatches(s32); }
 
-void Nand::Init_ISFS()
+void Nand::Enable_ISFS_Patches(void)
 {
-	//gprintf("Init ISFS\n");
-	ISFS_Initialize();
 	if(AHBRPOT_Patched())
 	{
+		gprintf("Enabling ISFS Patches\n");
 		// Disable memory protection
 		write16(MEM_PROT, 0);
 		// Do patches
@@ -1068,22 +1064,34 @@ void Nand::Init_ISFS()
 	}
 }
 
-void Nand::DeInit_ISFS(bool KeepPatches)
+void Nand::Disable_ISFS_Patches(void)
 {
-	//gprintf("Deinit ISFS\n");
 	if(AHBRPOT_Patched())
 	{
+		gprintf("Disabling ISFS Patches\n");
 		// Disable memory protection
 		write16(MEM_PROT, 0);
-		if(!KeepPatches)
-		{
-			// Do patches
-			MagicPatches(0);
-			// Enable memory protection
-			write16(MEM_PROT, 1);
-		}
+		// Do patches
+		MagicPatches(0);
+		// Enable memory protection
+		write16(MEM_PROT, 1);
 	}
+}
+
+void Nand::Init_ISFS()
+{
+	gprintf("Init ISFS\n");
+	ISFS_Initialize();
+	if(IOS_GetVersion() == 58)
+		Enable_ISFS_Patches();
+}
+
+void Nand::DeInit_ISFS()
+{
+	gprintf("Deinit ISFS\n");
 	ISFS_Deinitialize();
+	if(IOS_GetVersion() == 58)
+		Disable_ISFS_Patches();
 }
 
 /* Thanks to postloader for that patch */
@@ -1112,6 +1120,18 @@ void Nand::PatchAHB()
 	}
 }
 
+void Nand::Patch_AHB()
+{
+	if(AHBRPOT_Patched())
+	{
+		// Disable memory protection
+		write16(MEM_PROT, 0);
+		// Do patches
+		PatchAHB();
+		// Enable memory protection
+		write16(MEM_PROT, 1);
+	}
+}
 
 /*
    part of miniunz.c

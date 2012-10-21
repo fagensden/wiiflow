@@ -1,7 +1,7 @@
-#include "menu.hpp"
+#include <dirent.h>
+#include <unistd.h>
 
-#include <string.h>
-#include <gccore.h>
+#include "menu.hpp"
 #include "defines.h"
 
 extern const u8 btnchannel_png[];
@@ -20,6 +20,7 @@ extern const u8 favoritesons_png[];
 int Source_curPage;
 int pages;
 u8 numPlugins;
+u8 maxBtns = 47;
 string m_sourceDir;
 Config m_source;
 
@@ -75,12 +76,13 @@ void CMenu::_showSource(void)
 
 	m_btnMgr.show(m_sourceLblTitle);
 	
-	for(i = 12; i < 36; ++i)
+	for(i = maxBtns; i > 11; --i)
 	{
 		string source = m_source.getString(fmt("BUTTON_%i", i), "source", "");
 		if (!source.empty())
 		{
 			pages = (i / 12) + 1;
+			break;
 		}
 	}
 	
@@ -146,7 +148,7 @@ bool CMenu::_Source()
 
 	pdir = opendir(m_pluginsDir.c_str());
 	Config m_plugin_cfg;
-	u8 i = 0;
+	u8 numPlugins = 0;
 	bool back = false;
 
 	while((pent = readdir(pdir)) != NULL)
@@ -159,7 +161,7 @@ bool CMenu::_Source()
 			m_plugin_cfg.load(fmt("%s/%s", m_pluginsDir.c_str(), pent->d_name));
 			if (m_plugin_cfg.loaded())
 			{
-				i++;
+				numPlugins++;
 				m_plugin.AddPlugin(m_plugin_cfg);
 			}
 			m_plugin_cfg.unload();
@@ -167,7 +169,6 @@ bool CMenu::_Source()
 	}
 	closedir(pdir);
 	m_plugin.EndAdd();
-	numPlugins = i;
 
 	SetupInput();
 	bool show_homebrew = !m_cfg.getBool("HOMEBREW", "disable", false);
@@ -205,14 +206,18 @@ bool CMenu::_Source()
 			m_btnMgr.down();
 		if(((BTN_MINUS_PRESSED || BTN_LEFT_PRESSED) && pages > 1) || (BTN_A_PRESSED && m_btnMgr.selected(m_sourceBtnPageM)))
 		{
-			Source_curPage = Source_curPage == 1 ? pages : (Source_curPage == 2 ? 1 : 2);
+			Source_curPage--;
+			if(Source_curPage < 1)
+				Source_curPage = pages;
 			if(BTN_LEFT_PRESSED || BTN_MINUS_PRESSED)
 				m_btnMgr.click(m_sourceBtnPageM);
 			_updateSourceBtns();
 		}
 		else if(((BTN_PLUS_PRESSED || BTN_RIGHT_PRESSED) && pages > 1) || (BTN_A_PRESSED && m_btnMgr.selected(m_sourceBtnPageP)))
 		{
-			Source_curPage = Source_curPage == 3 ? 1 : (Source_curPage == 1 ? 2 : (pages == 2 ? 1 : 3));
+			Source_curPage++;
+			if(Source_curPage > pages)
+				Source_curPage = 1;
 			if (BTN_RIGHT_PRESSED || BTN_PLUS_PRESSED)
 				m_btnMgr.click(m_sourceBtnPageP);
 			_updateSourceBtns();
@@ -256,7 +261,7 @@ bool CMenu::_Source()
 				if (!show_emu) _showSourceNotice();
 				else
 				{
-					m_current_view = COVERFLOW_EMU;
+					m_current_view = COVERFLOW_PLUGIN;
 					break;
 				}
 			}
@@ -319,7 +324,7 @@ bool CMenu::_Source()
 						if (!show_emu) _showSourceNotice();
 						else
 						{
-							m_current_view = COVERFLOW_EMU;
+							m_current_view = COVERFLOW_PLUGIN;
 							imgSelected = true;
 							
 							for (u8 j = 0; j < numPlugins; ++j)
@@ -331,24 +336,26 @@ bool CMenu::_Source()
 					}
 					if (source == "plugin")
 					{
-						if (!show_emu) _showSourceNotice();
+						if(!show_emu)
+							_showSourceNotice();
 						else
 						{
-							m_current_view = COVERFLOW_EMU;
+							m_current_view = COVERFLOW_PLUGIN;
 							imgSelected = true;
-							
-							u32 sourceMagic;
-							sscanf(m_source.getString(fmt("BUTTON_%i", i + j), "magic","").c_str(), "%08x", &sourceMagic);
-							
-							for (u8 k = 0; k < numPlugins; ++k)
+							vector<string> magicNums = m_source.getStrings(fmt("BUTTON_%i", i + j), "magic", ',');
+							if (magicNums.size() > 0)
 							{
-								if (sourceMagic == m_plugin.getPluginMagic(k))
-								{
-									m_plugin.SetEnablePlugin(m_cfg, k, 2);
-								}
-								else
-								{
+								for (u8 k = 0; k < numPlugins; ++k)
 									m_plugin.SetEnablePlugin(m_cfg, k, 1);
+								for (vector<string>::iterator itr = magicNums.begin(); itr != magicNums.end(); itr++)
+								{
+									string magic = *itr;
+									u32 sourceMagic = strtoul(magic.c_str(), NULL, 16);
+									for (u8 k = 0; k < numPlugins; ++k)
+									{
+										if (sourceMagic == m_plugin.getPluginMagic(k))
+											m_plugin.SetEnablePlugin(m_cfg, k, 2);
+									}
 								}
 							}
 							

@@ -149,10 +149,9 @@ void CMenu::_CategorySettings(bool fromGameSet)
 	
 	catDomain = _domainFromView();
 	u8 pos = 0;
-	vector<bool> EnabledPlugins;
-	if(m_current_view == COVERFLOW_EMU)
+	if(m_current_view == COVERFLOW_PLUGIN)
 	{
-		EnabledPlugins = m_plugin.GetEnabledPlugins(m_cfg);
+		const vector<bool> &EnabledPlugins = m_plugin.GetEnabledPlugins(m_cfg);
 		if(EnabledPlugins.size() != 0)
 		{
 			char PluginMagicWord[9];

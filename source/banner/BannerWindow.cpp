@@ -21,12 +21,12 @@
 #include "loader/utils.h"
 #include "menu/menu.hpp"
 
-BannerWindow *m_banner;
+BannerWindow m_banner;
 
 extern const u8 custombanner_bin[];
 extern const u32 custombanner_bin_size;
 
-void BannerWindow::Init(CVideo *vid, u8 *font1, u8 *font2)
+void BannerWindow::Init(u8 *font1, u8 *font2)
 {
 	MaxAnimSteps = 30;
 	returnVal = -1;
@@ -37,9 +37,8 @@ void BannerWindow::Init(CVideo *vid, u8 *font1, u8 *font2)
 	sysFont2 = font2;
 	ShowBanner = true;
 
-	video = vid;
 	guMtxIdentity(modelview);
-	guMtxTransApply(modelview, modelview, (!video->wide() || video->vid_50hz()) ? 0.0f : 2.0f, video->vid_50hz() ? -1.0f : 0.0f, 0.0F);
+	guMtxTransApply(modelview, modelview, (!m_vid.wide() || m_vid.vid_50hz()) ? 0.0f : 2.0f, m_vid.vid_50hz() ? -1.0f : 0.0f, 0.0F);
 
 	AnimPosX = 0.5f * (ScreenProps.x - fIconWidth);
 	AnimPosY = 0.5f * (ScreenProps.y - fIconHeight);
@@ -47,8 +46,8 @@ void BannerWindow::Init(CVideo *vid, u8 *font1, u8 *font2)
 	Brightness = 0.f;
 
 	// this just looks better for banner/icon ratio
-	xDiff = 0.5f * (video->wide() ? (video->vid_50hz() ? 616 : 620.0f) : 608.0f);
-	yDiff = 0.5f * (video->vid_50hz() ? 448.0f : 470.0f);
+	xDiff = 0.5f * (m_vid.wide() ? (m_vid.vid_50hz() ? 616 : 620.0f) : 608.0f);
+	yDiff = 0.5f * (m_vid.vid_50hz() ? 448.0f : 470.0f);
 
 	iconWidth = fIconWidth - 20;
 	iconHeight = fIconHeight - 20;
@@ -61,19 +60,19 @@ void BannerWindow::Init(CVideo *vid, u8 *font1, u8 *font2)
 	stepy1 = ((ScreenProps.y * 0.9f - yDiff) - (AnimPosY + 0.5f * fIconHeight - 0.5f * iconHeight)) * ratioY;
 	stepy2 = ((ScreenProps.y * 0.9f + yDiff) - (AnimPosY + 0.5f * fIconHeight + 0.5f * iconHeight)) * ratioY;
 
-	gameBanner->Clear();
+	gameBanner.Clear();
 	if(!FontLoaded)
 	{
-		gameBanner->LoadFont(sysFont1, sysFont2);
+		gameBanner.LoadFont(sysFont1, sysFont2);
 		FontLoaded = true;
 	}
 }
 
-void BannerWindow::LoadBanner(Banner *banner, CVideo *vid, u8 *font1, u8 *font2)
+void BannerWindow::LoadBanner(u8 *font1, u8 *font2)
 {
 	changing = true;
-	Init(vid, font1, font2);
-	gameBanner->LoadBanner(banner);
+	Init(font1, font2);
+	gameBanner.LoadBanner();
 	gameSelected = 1;
 	changing = false;
 	ShowBanner = true;
@@ -83,7 +82,7 @@ void BannerWindow::DeleteBanner(bool gamechange)
 {
 	if(!gamechange)
 		gameSelected = 0;
-	gameBanner->Clear();
+	gameBanner.Clear();
 }
 
 BannerWindow::BannerWindow()
@@ -94,25 +93,24 @@ BannerWindow::BannerWindow()
 	AnimZoom = false;
 	AnimStep = 20;
 	gameSelected = 0;
-	gameBanner = new AnimatedBanner;
 }
 
-void BannerWindow::LoadBannerBin(u8 *bnr, u32 bnr_size, CVideo *vid, u8 *font1, u8 *font2)
+void BannerWindow::LoadBannerBin(u8 *bnr, u32 bnr_size, u8 *font1, u8 *font2)
 {
 	changing = true;
-	Init(vid, font1, font2);
-	gameBanner->LoadBannerBin(bnr, bnr_size);
+	Init(font1, font2);
+	gameBanner.LoadBannerBin(bnr, bnr_size);
 	gameSelected = 1;
 	changing = false;
 	ShowBanner = true;
 }
 
-void BannerWindow::CreateGCBanner(u8 *bnr, CVideo *vid, u8 *font1, u8 *font2, const wchar_t *title)
+void BannerWindow::CreateGCBanner(u8 *bnr, u8 *font1, u8 *font2, const wchar_t *title)
 {
 	GC_OpeningBnr *openingBnr = (GC_OpeningBnr *)bnr;
-	LoadBannerBin((u8*)custombanner_bin, (u32)custombanner_bin_size, vid, font1, font2);
-	gameBanner->SetBannerTexture("GCIcon.tpl", openingBnr->tpl_data, 96, 32, GX_TF_RGB5A3);
-	gameBanner->SetBannerText("T_GameTitle", title);
+	LoadBannerBin((u8*)custombanner_bin, (u32)custombanner_bin_size, font1, font2);
+	gameBanner.SetBannerTexture("GCIcon.tpl", openingBnr->tpl_data, 96, 32, GX_TF_RGB5A3);
+	gameBanner.SetBannerText("T_GameTitle", title);
 }
 
 bool BannerWindow::ToogleZoom(void)
@@ -163,7 +161,7 @@ void BannerWindow::Draw(void)
 
 	// draw a black background image first
 	if(AnimStep >= MaxAnimSteps)
-		DrawRectangle(0.0f, 0.0f, video->width(), video->height(), (GXColor) {0, 0, 0, 255.f});
+		DrawRectangle(0.0f, 0.0f, m_vid.width(), m_vid.height(), (GXColor) {0, 0, 0, 255.f});
 
 	if(changing)
 		return;
@@ -185,7 +183,7 @@ void BannerWindow::Draw(void)
 	f32 viewportv[6];
 	f32 projectionv[7];
 
-	GX_GetViewportv(viewportv, video->vid_mode());
+	GX_GetViewportv(viewportv, m_vid.vid_mode());
 	GX_GetProjectionv(projectionv, projection, GX_ORTHOGRAPHIC);
 
 	guVector vecTL;
@@ -204,22 +202,22 @@ void BannerWindow::Draw(void)
 	// load projection matrix
 	GX_LoadProjectionMtx(projection, GX_ORTHOGRAPHIC);
 
-	if(gameBanner->getBanner())
+	if(gameBanner.getBanner())
 	{
-		gameBanner->getBanner()->Render(modelview, ScreenProps, video->wide(), 255.f);
-		gameBanner->getBanner()->AdvanceFrame();
+		gameBanner.getBanner()->Render(modelview, ScreenProps, m_vid.wide(), 255.f);
+		gameBanner.getBanner()->AdvanceFrame();
 	}
 
 	// Setup GX
 	ReSetup_GX();
-	GX_SetScissor(0, 0, video->width(), video->height());
+	GX_SetScissor(0, 0, m_vid.width(), m_vid.height());
 
 	// Clear and back to previous projection
-	video->setup2DProjection();
+	m_vid.setup2DProjection();
 
 	// If wanted
 	if(Brightness > 1.f)
-		DrawRectangle(0.0f, 0.0f, video->width(), video->height(), (GXColor) {0, 0, 0, Brightness});
+		DrawRectangle(0.0f, 0.0f, m_vid.width(), m_vid.height(), (GXColor) {0, 0, 0, Brightness});
 }
 
 void BannerWindow::ToogleGameSettings()
@@ -268,7 +266,7 @@ void BannerWindow::ReSetup_GX(void)
 	// texture environment
 	GX_SetNumTevStages(1);
 	GX_SetNumIndStages(0);
-	for(u8 i = 0; i < video->getAA(); i++)
+	for(u8 i = 0; i < m_vid.getAA(); i++)
 	{
 		GX_SetTevOp(i, GX_MODULATE);
 		GX_SetTevOrder(i, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR0A0);

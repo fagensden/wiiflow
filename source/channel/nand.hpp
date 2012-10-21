@@ -54,11 +54,10 @@ using namespace std;
 class Nand
 {
 public:
-	static Nand * Instance();
-	static void DestroyInstance();
+	void Init();
 
 	/* Prototypes */
-	void Init(string path, u32 partition, bool disable = false);
+	void SetPaths(string path, u32 partition, bool disable = false);
 	s32 Enable_Emu();
 	s32 Disable_Emu();
 	bool EmulationEnabled(void);
@@ -68,8 +67,9 @@ public:
 	void Set_RCMode(bool rcmode) { FullMode = rcmode ? 0x40 : 0; };
 	void Set_SSMode(bool ssmode) { FullMode = ssmode ? 0x60 : 0; };
 
+	void Patch_AHB();
 	void Init_ISFS();
-	void DeInit_ISFS(bool KeepPatches = false);
+	void DeInit_ISFS();
 
 	const char * Get_NandPath(void) { return NandPath; };
 	u32 Get_Partition(void) { return Partition; };
@@ -88,15 +88,16 @@ public:
 	void ResetCounters(void);
 
 private:
-	Nand() : MountedDevice(0), EmuDevice(REAL_NAND), Disabled(true), Partition(0), FullMode(0x100), NandPath() {}
-	~Nand(void){}
-
 	/* Prototypes */
 	s32 Nand_Mount(NandDevice *Device);
 	s32 Nand_Unmount(NandDevice *Device);
 	s32 Nand_Enable(NandDevice *Device);
 	s32 Nand_Disable(void);	
+
 	void PatchAHB(void);
+	void Enable_ISFS_Patches(void);
+	void Disable_ISFS_Patches(void);
+
 	void __Dec_Enc_TB(void);
 	void __configshifttxt(char *str);
 	void __GetNameList(const char *source, namelist **entries, int *count);
@@ -132,8 +133,7 @@ private:
 	char NandPath[32] ATTRIBUTE_ALIGN(32);
 	char cfgpath[1024];
 	char settxtpath[1024];
-
-	static Nand * instance;
 };
 
+extern Nand NandHandle;
 #endif

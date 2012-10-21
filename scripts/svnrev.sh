@@ -1,5 +1,7 @@
-#! /bin/bash
+#!/bin/bash
 #
+echo svnrev.sh
+
 rev_new_raw=$(svnversion -n . 2>/dev/null | tr '\n' ' ' | tr -d '\r')
 [ -n "$rev_new_raw" ] || rev_new_raw=$(SubWCRev . 2>/dev/null | tr '\n' ' ' | tr -d '\r')
 
@@ -31,8 +33,6 @@ EOF
 
 	if [ -n "$rev_old" ]; then
 		echo "Changed Rev $rev_old to $rev_new" >&2
-	else
-		echo "svnrev.h created" >&2
 	fi
 
 	rev_new=`expr $rev_new + 1`

@@ -46,38 +46,33 @@ typedef struct
 	wchar_t name[IMET_MAX_NAME_LEN+1];
 } Channel;
 
-class Channels
+class Channels : private vector<Channel>
 {
-	public:
-		Channels();
-		~Channels();
+public:
+	void Init(string lang);
+	void Cleanup();
 
-		void Init(u32 channelType, string lang, bool reload = false);
+	u32 Load(u64 title);
+	u8 GetRequestedIOS(u64 title);
 
-		u32 Load(u64 title);
-		u8 GetRequestedIOS(u64 title);
+	u32 Count();
+	wchar_t *GetName(int index);
+	char *GetId(int index);
+	u64 GetTitle(int index);
+	Channel *GetChannel(int index);
 
-		int Count();
-		wchar_t *GetName(int index);
-		char *GetId(int index);
-		u64 GetTitle(int index);
-		Channel *GetChannel(int index);
+	void GetBanner(u64 title, bool imetOnly = false);
+private:
+	string langCode;
 
-		static Banner * GetBanner(u64 title, bool imetOnly = false);
-	private:
-		bool init;
-		u32 channelType;
-		string langCode;
+	int GetLanguage(const char *lang);
+	u64* GetChannelList(u32* count);
+	bool GetAppNameFromTmd(u64 title, char* app, bool dol = false, u32* bootcontent = NULL);
+	bool GetChannelNameFromApp(u64 title, wchar_t* name, int language);
 
-		vector<Channel> channels;
-		
-		static int GetLanguage(const char *lang);
-		u64* GetChannelList(u32* count);
-		static bool GetAppNameFromTmd(u64 title, char* app, bool dol = false, u32* bootcontent = NULL);
-		static bool GetChannelNameFromApp(u64 title, wchar_t* name, int language);
-
-		void Search(u32 channelType, string lang);
-		
+	void Search();
 };
+
+extern Channels ChannelHandle;
 
 #endif

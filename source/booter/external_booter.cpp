@@ -16,48 +16,34 @@
  ****************************************************************************/
 #include <gccore.h>
 #include <string.h>
+#include <ogc/machine/processor.h>
+#include <ogc/lwp_threads.h>
+#include <ogc/cache.h>
 #include "external_booter.hpp"
-#include "cios.h"
-#include "fst.h"
-#include "wdvd.h"
+#include "booter.h"
+#include "Config.h"
 #include "channel/nand.hpp"
 #include "devicemounter/DeviceHandler.hpp"
+#include "gui/text.hpp"
+#include "loader/fst.h"
+#include "loader/mload.h"
+#include "loader/wdvd.h"
 #include "homebrew/homebrew.h"
+#include "memory/mem2.hpp"
+#include "plugin/crc32.h"
+
+typedef void (*entrypoint) (void);
+extern "C" { void __exception_closeall(); }
 
 /* External WiiFlow Game Booter */
-#define EXECUTE_ADDR	((u8 *)0x92000000)
-
-extern const u8 wii_game_booter_dol[];
-extern const u32 wii_game_booter_dol_size;
+#define BOOTER_ADDR		((u8 *)0x80B00000)
+static the_CFG *BooterConfig = (the_CFG*)0x93100000;
+static entrypoint exeEntryPoint = (entrypoint)BOOTER_ADDR;
 
 extern "C" {
 u8 configbytes[2];
 u32 hooktype;
 };
-
-typedef struct _the_CFG {
-	u8 vidMode;
-	bool vipatch;
-	bool countryString;
-	u8 patchVidMode;
-	int aspectRatio;
-	u32 returnTo;
-	u8 configbytes[2];
-	IOS_Info IOS;
-	void *codelist;
-	u8 *codelistend;
-	u8 *cheats;
-	u32 cheatSize;
-	u32 hooktype;
-	u8 debugger;
-	u32 *gameconf;
-	u32 gameconfsize;
-	u8 BootType;
-	/* needed for channels */
-	u64 title;
-} the_CFG;
-
-the_CFG normalCFG;
 
 extern u8 *code_buf;
 extern u32 code_size;
@@ -66,6 +52,9 @@ extern u8 *codelistend;
 extern u32 gameconfsize;
 extern u32 *gameconf;
 
+u32 cookie;
+__argv args;
+the_CFG normalCFG;
 void WiiFlow_ExternalBooter(u8 vidMode, bool vipatch, bool countryString, u8 patchVidMode, int aspectRatio, u32 returnTo, u8 BootType)
 {
 	normalCFG.vidMode = vidMode;
@@ -86,23 +75,49 @@ void WiiFlow_ExternalBooter(u8 vidMode, bool vipatch, bool countryString, u8 pat
 	normalCFG.gameconf = gameconf;
 	normalCFG.gameconfsize = gameconfsize;
 	normalCFG.BootType = BootType;
-	memcpy((void *)0x90000000, &normalCFG, sizeof(the_CFG));
-	DCFlushRange((void *)(0x90000000), sizeof(the_CFG));
+	normalCFG.wip_list = get_wip_list();
+	normalCFG.wip_count = get_wip_count();
 
-	ShutdownBeforeExit(true);
-	memcpy(EXECUTE_ADDR, wii_game_booter_dol, wii_game_booter_dol_size);
-	DCFlushRange(EXECUTE_ADDR, wii_game_booter_dol_size);
-	BootHomebrew();
+	ShutdownBeforeExit();
+	/* Copy CFG into new memory region */
+	memcpy(BooterConfig, &normalCFG, sizeof(the_CFG));
+	DCFlushRange(BooterConfig, sizeof(the_CFG));
+	/* Copy in booter */
+	memcpy(BOOTER_ADDR, booter, booter_size);
+	DCFlushRange(BOOTER_ADDR, booter_size);
+	/* Shutdown IOS subsystems */
+	__IOS_ShutdownSubsystems();
+	u32 level = IRQ_Disable();
+	__exception_closeall();
+	/* Boot it */
+	exeEntryPoint();
+	/* Fail */
+	IRQ_Restore(level);
+}
+
+extern FragList *frag_list;
+extern s32 wbfsDev;
+extern u32 wbfs_part_idx;
+void ExternalBooter_WiiGameSetup(bool wbfs, bool dvd, const char *ID)
+{
+	memset(&normalCFG, 0, sizeof(the_CFG));
+	normalCFG.GameBootType = dvd ? TYPE_WII_DISC : (wbfs ? TYPE_WII_WBFS : TYPE_WII_WBFS_EXT);
+	strncpy(normalCFG.gameID, ID, 6);
+	normalCFG.fragments = frag_list;
+	normalCFG.wbfsDevice = wbfsDev;
+	normalCFG.wbfsPart = wbfs_part_idx;
+	normalCFG.mload_rev = mload_get_version();
 }
 
 void ExternalBooter_ChannelSetup(u64 title)
 {
-	normalCFG.title = title;
+	memset(&normalCFG, 0, sizeof(the_CFG));
+	memcpy(&normalCFG.title, &title, sizeof(u64));
 }
 
-void ShutdownBeforeExit(bool KeepPatches)
+void ShutdownBeforeExit()
 {
 	DeviceHandle.UnMountAll();
-	Nand::Instance()->DeInit_ISFS(KeepPatches);
+	NandHandle.DeInit_ISFS();
 	WDVD_Close();
 }
