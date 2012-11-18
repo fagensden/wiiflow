@@ -21,7 +21,6 @@
 #include "loader/fs.h"
 #include "loader/nk.h"
 #include "loader/playlog.h"
-#include "loader/sys.h"
 #include "loader/wbfs.h"
 #include "music/SoundHandler.hpp"
 #include "network/gcard.h"
@@ -127,7 +126,7 @@ CMenu::CMenu()
 	m_mutex = 0;
 	m_showtimer = 0;
 	m_gameSoundThread = LWP_THREAD_NULL;
-	m_gameSoundHdr = NULL;
+	m_soundThrdBusy = false;
 	m_numCFVersions = 0;
 	m_bgCrossFade = 0;
 	m_bnrSndVol = 0;
@@ -144,6 +143,8 @@ CMenu::CMenu()
 	m_current_view = COVERFLOW_USB;
 	m_Emulator_boot = false;
 	m_music_info = true;
+	m_nextBg = NULL;
+	m_lqBg = NULL;
 }
 
 void CMenu::init()
@@ -185,11 +186,9 @@ void CMenu::init()
 			if (DeviceHandle.IsInserted(i) && DeviceHandle.GetFSType(i) != PART_FS_WBFS)
 			{
 				drive = DeviceName[i];
-				fsop_MakeFolder((char *)fmt("%s:/%s", DeviceName[i], APPDATA_DIR2)); //Make the apps dir, so saving wiiflow.ini does not fail.
 				break;
 			}
-
-	_loadDefaultFont(CONF_GetLanguage() == CONF_LANG_KOREAN);
+	loadDefaultFont();
 
 	if(drive == check) // Should not happen
 	{
@@ -198,53 +197,68 @@ void CMenu::init()
 		m_exit = true;
 		return;
 	}
-
-	m_appDir = sfmt("%s:/%s", drive, APPDATA_DIR2);
-	m_cfg.load(sfmt("%s/" CFG_FILENAME, m_appDir.c_str()).c_str());
+	/* Handle apps dir first, so handling wiiflow.ini does not fail */
+	m_appDir = fmt("%s:/%s", drive, APPDATA_DIR2);
+	gprintf("Wiiflow boot.dol Location: %s\n", m_appDir.c_str());
+	fsop_MakeFolder(m_appDir.c_str());
+	/* Load/Create our wiiflow.ini */
+	m_cfg.load(fmt("%s/" CFG_FILENAME, m_appDir.c_str()));
+	/* Check if we want WiFi/SD Gecko */
 	m_use_wifi_gecko = m_cfg.getBool("DEBUG", "wifi_gecko");
 	if (m_cfg.getBool("GENERAL", "async_network") || has_enabled_providers() || m_use_wifi_gecko)
 		_reload_wifi_gecko();
-
-	gprintf("Wiiflow boot.dol Location: %s\n", m_appDir.c_str());
-
-	//Gecko Output to SD
 	if(!WriteToSD)
 	{
 		WriteToSD = m_cfg.getBool("DEBUG", "sd_write_log", false);
 		bufferMessages = WriteToSD;
 	}
-	useMainIOS = m_cfg.getBool("GENERAL", "force_cios_load", false);
-	bool onUSB = m_cfg.getBool("GENERAL", "data_on_usb", strncmp(drive, "usb", 3) == 0);
-
-	drive = check; //reset the drive variable for the check
-
-	if (onUSB)
+	/* Check if we want a cIOS loaded */
+	int ForceIOS = min(m_cfg.getInt("GENERAL", "force_cios_rev", 0), 254);
+	if(ForceIOS > 0)
 	{
-		for(int i = USB1; i <= USB8; i++) //Look for first partition with a wiiflow folder in root
-			if (DeviceHandle.IsInserted(i) && DeviceHandle.GetFSType(i) != PART_FS_WBFS && stat(fmt("%s:/%s", DeviceName[i], APPDATA_DIR), &dummy) == 0)
+		gprintf("Using IOS%i instead of IOS%i as main cIOS.\n", ForceIOS, mainIOS);
+		mainIOS = ForceIOS;
+	}
+	useMainIOS = m_cfg.getBool("GENERAL", "force_cios_load", false);
+	/* Do our USB HDD Checks */
+	bool onUSB = m_cfg.getBool("GENERAL", "data_on_usb", strncmp(drive, "usb", 3) == 0);
+	drive = check; //reset the drive variable for the check
+	if(onUSB)
+	{
+		for(u8 i = USB1; i <= USB8; i++) //Look for first partition with a wiiflow folder in root
+		{
+			if(DeviceHandle.IsInserted(i) && DeviceHandle.GetFSType(i) != PART_FS_WBFS && stat(fmt("%s:/%s", DeviceName[i], APPDATA_DIR), &dummy) == 0)
 			{
 				drive = DeviceName[i];
 				break;
 			}
+		}
 	}
-	else if(DeviceHandle.IsInserted(SD)) drive = DeviceName[SD];
+	else if(DeviceHandle.IsInserted(SD))
+		drive = DeviceName[SD];
 
 	if(drive == check && onUSB) //No wiiflow folder found in root of any usb partition, and data_on_usb=yes
-		for(int i = USB1; i <= USB8; i++) // Try first USB partition with wbfs folder.
-			if (DeviceHandle.IsInserted(i) && DeviceHandle.GetFSType(i) != PART_FS_WBFS && stat(fmt(GAMES_DIR, DeviceName[i]), &dummy) == 0)
+	{
+		for(u8 i = USB1; i <= USB8; i++) // Try first USB partition with wbfs folder.
+		{
+			if(DeviceHandle.IsInserted(i) && DeviceHandle.GetFSType(i) != PART_FS_WBFS && stat(fmt(GAMES_DIR, DeviceName[i]), &dummy) == 0)
 			{
 				drive = DeviceName[i];
 				break;
 			}
-
+		}
+	}
 	if(drive == check && onUSB) // No wbfs folder found and data_on_usb=yes
-		for(int i = USB1; i <= USB8; i++) // Try first available USB partition.
-			if (DeviceHandle.IsInserted(i) && DeviceHandle.GetFSType(i) != PART_FS_WBFS)
+	{
+		for(u8 i = USB1; i <= USB8; i++) // Try first available USB partition.
+		{
+			if(DeviceHandle.IsInserted(i) && DeviceHandle.GetFSType(i) != PART_FS_WBFS)
 			{
 				drive = DeviceName[i];
 				break;
 			}
-
+		}
+	}
 	if(drive == check)
 	{	
 		_buildMenus();
@@ -260,23 +274,22 @@ void CMenu::init()
 			return;
 		}
 	}
-
-	if(m_cfg.getBool("DML", "always_show_button", false))
+	/* DIOS_MIOS stuff */
+	if(m_cfg.getBool(GC_DOMAIN, "always_show_button", false))
 	{
 		gprintf("Force enabling DML view\n");
 		m_show_dml = true;
 	}
 	else
 		m_show_dml = MIOSisDML();
-
-	m_new_dml = m_cfg.getBool("DML", "dml_r52+", true);
-	m_new_dm_cfg = m_cfg.getBool("DML", "dm_r2.1+", true);
-	m_DMLgameDir = sfmt("%%s:/%s", m_cfg.getString("DML", "dir_usb_games", "games").c_str());
-
-	m_cfg.getString("NAND", "path", "");
-	m_cfg.getInt("NAND", "partition", 1);
-	m_cfg.getBool("NAND", "disable", true);
-
+	m_new_dml = m_cfg.getBool(GC_DOMAIN, "dml_r52+", true);
+	m_new_dm_cfg = m_cfg.getBool(GC_DOMAIN, "dm_r2.1+", true);
+	m_DMLgameDir = fmt("%%s:/%s", m_cfg.getString(GC_DOMAIN, "dir_usb_games", "games").c_str());
+	/* Emu NAND */
+	m_cfg.getString(CHANNEL_DOMAIN, "path", "");
+	m_cfg.getInt(CHANNEL_DOMAIN, "partition", 1);
+	m_cfg.getBool(CHANNEL_DOMAIN, "disable", true);
+	/* Load cIOS Map */
 	_installed_cios.clear();
 	if(!neek2o())
 		_load_installed_cioses();
@@ -284,35 +297,35 @@ void CMenu::init()
 		_installed_cios[CurrentIOS.Version] = CurrentIOS.Version;
 
 	snprintf(m_app_update_drive, sizeof(m_app_update_drive), "%s:/", drive);
-	m_dataDir = sfmt("%s:/%s", drive, APPDATA_DIR);
+	m_dataDir = fmt("%s:/%s", drive, APPDATA_DIR);
 	gprintf("Data Directory: %s\n", m_dataDir.c_str());
 
-	m_dol = sfmt("%s/boot.dol", m_appDir.c_str());
-	m_ver = sfmt("%s/versions", m_appDir.c_str());
-	m_app_update_zip = sfmt("%s/update.zip", m_appDir.c_str());
-	m_data_update_zip = sfmt("%s/update.zip", m_dataDir.c_str());
+	m_dol = fmt("%s/boot.dol", m_appDir.c_str());
+	m_ver = fmt("%s/versions", m_appDir.c_str());
+	m_app_update_zip = fmt("%s/update.zip", m_appDir.c_str());
+	m_data_update_zip = fmt("%s/update.zip", m_dataDir.c_str());
 
-	m_customBnrDir = m_cfg.getString("GENERAL", "dir_custom_banners", sfmt("%s/custom_banners", m_dataDir.c_str()));
-	m_pluginsDir = m_cfg.getString("GENERAL", "dir_plugins", sfmt("%s/plugins", m_dataDir.c_str()));
+	m_customBnrDir = m_cfg.getString("GENERAL", "dir_custom_banners", fmt("%s/custom_banners", m_dataDir.c_str()));
+	m_pluginsDir = m_cfg.getString("GENERAL", "dir_plugins", fmt("%s/plugins", m_dataDir.c_str()));
 
-	m_cacheDir = m_cfg.getString("GENERAL", "dir_cache", sfmt("%s/cache", m_dataDir.c_str()));
-	m_listCacheDir = m_cfg.getString("GENERAL", "dir_list_cache", sfmt("%s/lists", m_cacheDir.c_str()));
-	m_bnrCacheDir = m_cfg.getString("GENERAL", "dir_banner_cache", sfmt("%s/banners", m_cacheDir.c_str()));
+	m_cacheDir = m_cfg.getString("GENERAL", "dir_cache", fmt("%s/cache", m_dataDir.c_str()));
+	m_listCacheDir = m_cfg.getString("GENERAL", "dir_list_cache", fmt("%s/lists", m_cacheDir.c_str()));
+	m_bnrCacheDir = m_cfg.getString("GENERAL", "dir_banner_cache", fmt("%s/banners", m_cacheDir.c_str()));
 
-	m_txtCheatDir = m_cfg.getString("GENERAL", "dir_txtcheat", sfmt("%s/codes", m_dataDir.c_str()));
-	m_cheatDir = m_cfg.getString("GENERAL", "dir_cheat", sfmt("%s/gct", m_txtCheatDir.c_str()));
-	m_wipDir = m_cfg.getString("GENERAL", "dir_wip", sfmt("%s/wip", m_txtCheatDir.c_str()));
+	m_txtCheatDir = m_cfg.getString("GENERAL", "dir_txtcheat", fmt("%s/codes", m_dataDir.c_str()));
+	m_cheatDir = m_cfg.getString("GENERAL", "dir_cheat", fmt("%s/gct", m_txtCheatDir.c_str()));
+	m_wipDir = m_cfg.getString("GENERAL", "dir_wip", fmt("%s/wip", m_txtCheatDir.c_str()));
 
-	m_settingsDir = m_cfg.getString("GENERAL", "dir_settings", sfmt("%s/settings", m_dataDir.c_str()));
-	m_languagesDir = m_cfg.getString("GENERAL", "dir_languages", sfmt("%s/languages", m_dataDir.c_str()));
-	m_boxPicDir = m_cfg.getString("GENERAL", "dir_box_covers", sfmt("%s/boxcovers", m_dataDir.c_str()));
-	m_picDir = m_cfg.getString("GENERAL", "dir_flat_covers", sfmt("%s/covers", m_dataDir.c_str()));
-	m_themeDir = m_cfg.getString("GENERAL", "dir_themes", sfmt("%s/themes", m_dataDir.c_str()));
-	m_musicDir = m_cfg.getString("GENERAL", "dir_music", sfmt("%s/music", m_dataDir.c_str())); 
-	m_videoDir = m_cfg.getString("GENERAL", "dir_trailers", sfmt("%s/trailers", m_dataDir.c_str()));
-	m_fanartDir = m_cfg.getString("GENERAL", "dir_fanart", sfmt("%s/fanart", m_dataDir.c_str()));
-	m_screenshotDir = m_cfg.getString("GENERAL", "dir_screenshot", sfmt("%s/screenshots", m_dataDir.c_str()));
-	m_helpDir = m_cfg.getString("GENERAL", "dir_help", sfmt("%s/help", m_dataDir.c_str()));
+	m_settingsDir = m_cfg.getString("GENERAL", "dir_settings", fmt("%s/settings", m_dataDir.c_str()));
+	m_languagesDir = m_cfg.getString("GENERAL", "dir_languages", fmt("%s/languages", m_dataDir.c_str()));
+	m_boxPicDir = m_cfg.getString("GENERAL", "dir_box_covers", fmt("%s/boxcovers", m_dataDir.c_str()));
+	m_picDir = m_cfg.getString("GENERAL", "dir_flat_covers", fmt("%s/covers", m_dataDir.c_str()));
+	m_themeDir = m_cfg.getString("GENERAL", "dir_themes", fmt("%s/themes", m_dataDir.c_str()));
+	m_musicDir = m_cfg.getString("GENERAL", "dir_music", fmt("%s/music", m_dataDir.c_str())); 
+	m_videoDir = m_cfg.getString("GENERAL", "dir_trailers", fmt("%s/trailers", m_dataDir.c_str()));
+	m_fanartDir = m_cfg.getString("GENERAL", "dir_fanart", fmt("%s/fanart", m_dataDir.c_str()));
+	m_screenshotDir = m_cfg.getString("GENERAL", "dir_screenshot", fmt("%s/screenshots", m_dataDir.c_str()));
+	m_helpDir = m_cfg.getString("GENERAL", "dir_help", fmt("%s/help", m_dataDir.c_str()));
 	
 	//DeviceHandler::SetWatchdog(m_cfg.getUInt("GENERAL", "watchdog_timeout", 10));
 
@@ -340,37 +353,37 @@ void CMenu::init()
 			}
 		}
 	}
-	m_cf.init(m_base_font, m_base_font_size, m_vid.vid_50hz());
+	CoverFlow.init(m_base_font, m_base_font_size, m_vid.vid_50hz());
 
-	//Make important folders first.
-	fsop_MakeFolder((char *)m_dataDir.c_str()); //D'OH!
+	/* Create our Folder Structure */
+	fsop_MakeFolder(m_dataDir.c_str()); //D'OH!
 
-	fsop_MakeFolder((char *)m_customBnrDir.c_str());
-	fsop_MakeFolder((char *)m_pluginsDir.c_str());
+	fsop_MakeFolder(m_customBnrDir.c_str());
+	fsop_MakeFolder(m_pluginsDir.c_str());
 
-	fsop_MakeFolder((char *)m_cacheDir.c_str());
-	fsop_MakeFolder((char *)m_listCacheDir.c_str());
-	fsop_MakeFolder((char *)m_bnrCacheDir.c_str());
+	fsop_MakeFolder(m_cacheDir.c_str());
+	fsop_MakeFolder(m_listCacheDir.c_str());
+	fsop_MakeFolder(m_bnrCacheDir.c_str());
 
-	fsop_MakeFolder((char *)m_txtCheatDir.c_str());
-	fsop_MakeFolder((char *)m_cheatDir.c_str());
-	fsop_MakeFolder((char *)m_wipDir.c_str());
+	fsop_MakeFolder(m_txtCheatDir.c_str());
+	fsop_MakeFolder(m_cheatDir.c_str());
+	fsop_MakeFolder(m_wipDir.c_str());
 
-	fsop_MakeFolder((char *)m_settingsDir.c_str());
-	fsop_MakeFolder((char *)m_languagesDir.c_str());
-	fsop_MakeFolder((char *)m_boxPicDir.c_str());
-	fsop_MakeFolder((char *)m_picDir.c_str());
-	fsop_MakeFolder((char *)m_themeDir.c_str());
-	fsop_MakeFolder((char *)m_musicDir.c_str());
-	fsop_MakeFolder((char *)m_videoDir.c_str());
-	fsop_MakeFolder((char *)m_fanartDir.c_str());
-	fsop_MakeFolder((char *)m_screenshotDir.c_str());
-	fsop_MakeFolder((char *)m_helpDir.c_str());
+	fsop_MakeFolder(m_settingsDir.c_str());
+	fsop_MakeFolder(m_languagesDir.c_str());
+	fsop_MakeFolder(m_boxPicDir.c_str());
+	fsop_MakeFolder(m_picDir.c_str());
+	fsop_MakeFolder(m_themeDir.c_str());
+	fsop_MakeFolder(m_musicDir.c_str());
+	fsop_MakeFolder(m_videoDir.c_str());
+	fsop_MakeFolder(m_fanartDir.c_str());
+	fsop_MakeFolder(m_screenshotDir.c_str());
+	fsop_MakeFolder(m_helpDir.c_str());
 
 	// INI files
 	m_cat.load(fmt("%s/" CAT_FILENAME, m_settingsDir.c_str()));
 	string themeName = m_cfg.getString("GENERAL", "theme", "default");
-	m_themeDataDir = sfmt("%s/%s", m_themeDir.c_str(), themeName.c_str());
+	m_themeDataDir = fmt("%s/%s", m_themeDir.c_str(), themeName.c_str());
 	m_theme.load(fmt("%s.ini", m_themeDataDir.c_str()));
 	m_plugin.init(m_pluginsDir);
 
@@ -434,8 +447,8 @@ void CMenu::init()
 		WPAD_SetVRes(chan, m_vid.width() + m_cursor[chan].width(), m_vid.height() + m_cursor[chan].height());
 	}
 
-	m_btnMgr.init(m_vid);
-	MusicPlayer.Init(m_cfg, m_musicDir, sfmt("%s/music", m_themeDataDir.c_str()));
+	m_btnMgr.init();
+	MusicPlayer.Init(m_cfg, m_musicDir, fmt("%s/music", m_themeDataDir.c_str()));
 	m_music_info = m_cfg.getBool("GENERAL", "display_music_info", true);
 
 	_buildMenus();
@@ -452,7 +465,7 @@ void CMenu::init()
 
 	LWP_MutexInit(&m_mutex, 0);
 
-	m_cf.setSoundVolume(m_cfg.getInt("GENERAL", "sound_volume_coverflow", 255));
+	CoverFlow.setSoundVolume(m_cfg.getInt("GENERAL", "sound_volume_coverflow", 255));
 	m_btnMgr.setSoundVolume(m_cfg.getInt("GENERAL", "sound_volume_gui", 255));
 	m_bnrSndVol = m_cfg.getInt("GENERAL", "sound_volume_bnr", 255);
 	m_bnr_settings = m_cfg.getBool("GENERAL", "banner_in_settings", true);
@@ -495,14 +508,14 @@ void CMenu::cleanup()
 	m_plugin.Cleanup();
 
 	_stopSounds();
+	_Theme_Cleanup();
 	MusicPlayer.Cleanup();
-	m_cameraSound.release();
-	ClearGameSoundThreadStack();
+	m_gameSound.FreeMemory();
 	SoundHandle.Cleanup();
 	soundDeinit();
 
 	m_vid.cleanup();
-	m_cf.shutdown();
+	CoverFlow.shutdown();
 
 	wiiLightOff();
 	_deinitNetwork();
@@ -511,28 +524,110 @@ void CMenu::cleanup()
 	LWP_MutexDestroy(m_mutex);
 	m_mutex = 0;
 
-	for(TexSet::iterator texture = theme.texSet.begin(); texture != theme.texSet.end(); texture++)
-	{
-		if(texture->second.data.get())
-			texture->second.data.release();
-	}
-	theme.texSet.clear();
-	for(FontSet::iterator font = theme.fontSet.begin(); font != theme.fontSet.end(); font++)
-	{
-		if(font->second.data.get())
-			font->second.data.release();
-	}
-	theme.fontSet.clear();
-	for(SoundSet::iterator sound = theme.soundSet.begin(); sound != theme.soundSet.end(); sound++)
-	{
-		if(sound->second.get())
-			sound->second.release();
-	}
-	theme.soundSet.clear();
-
 	cleaned_up = true;
 	//gprintf(" \nMemory cleaned up\n");
 	gprintf("MEM1_freesize(): %i\nMEM2_freesize(): %i\n", MEM1_freesize(), MEM2_freesize());
+}
+
+void CMenu::_Theme_Cleanup(void)
+{
+	/* Backgrounds */
+	theme.bg.Cleanup();
+	m_prevBg.Cleanup();
+	m_nextBg = NULL;
+	m_curBg.Cleanup();
+	m_lqBg = NULL;
+	/* Buttons */
+	theme.btnTexL.Cleanup();
+	theme.btnTexR.Cleanup();
+	theme.btnTexC.Cleanup();
+	theme.btnTexLS.Cleanup();
+	theme.btnTexRS.Cleanup();
+	theme.btnTexCS.Cleanup();
+	theme.btnTexLH.Cleanup();
+	theme.btnTexRH.Cleanup();
+	theme.btnTexCH.Cleanup();
+	theme.btnTexLSH.Cleanup();
+	theme.btnTexRSH.Cleanup();
+	theme.btnTexCSH.Cleanup();
+	theme.btnAUOn.Cleanup();
+	theme.btnAUOns.Cleanup();
+	theme.btnAUOff.Cleanup();
+	theme.btnAUOffs.Cleanup();
+	theme.btnENOn.Cleanup();
+	theme.btnENOns.Cleanup();
+	theme.btnENOff.Cleanup();
+	theme.btnENOffs.Cleanup();
+	theme.btnJAOn.Cleanup();
+	theme.btnJAOns.Cleanup();
+	theme.btnJAOff.Cleanup();
+	theme.btnJAOffs.Cleanup();
+	theme.btnFROn.Cleanup();
+	theme.btnFROns.Cleanup();
+	theme.btnFROff.Cleanup();
+	theme.btnFROffs.Cleanup();
+	theme.btnDEOn.Cleanup();
+	theme.btnDEOns.Cleanup();
+	theme.btnDEOff.Cleanup();
+	theme.btnDEOffs.Cleanup();
+	theme.btnESOn.Cleanup();
+	theme.btnESOns.Cleanup();
+	theme.btnESOff.Cleanup();
+	theme.btnESOffs.Cleanup();
+	theme.btnITOn.Cleanup();
+	theme.btnITOns.Cleanup();
+	theme.btnITOff.Cleanup();
+	theme.btnITOffs.Cleanup();
+	theme.btnNLOn.Cleanup();
+	theme.btnNLOns.Cleanup();
+	theme.btnNLOff.Cleanup();
+	theme.btnNLOffs.Cleanup();
+	theme.btnPTOn.Cleanup();
+	theme.btnPTOns.Cleanup();
+	theme.btnPTOff.Cleanup();
+	theme.btnPTOffs.Cleanup();
+	theme.btnRUOn.Cleanup();
+	theme.btnRUOns.Cleanup();
+	theme.btnRUOff.Cleanup();
+	theme.btnRUOffs.Cleanup();
+	theme.btnKOOn.Cleanup();
+	theme.btnKOOns.Cleanup();
+	theme.btnKOOff.Cleanup();
+	theme.btnKOOffs.Cleanup();
+	theme.btnZHCNOn.Cleanup();
+	theme.btnZHCNOns.Cleanup();
+	theme.btnZHCNOff.Cleanup();
+	theme.btnZHCNOffs.Cleanup();
+	theme.btnTexPlus.Cleanup();
+	theme.btnTexPlusS.Cleanup();
+	theme.btnTexMinus.Cleanup();
+	theme.btnTexMinusS.Cleanup();
+	/* Checkboxes */
+	theme.checkboxoff.Cleanup();
+	theme.checkboxoffs.Cleanup();
+	theme.checkboxon.Cleanup();
+	theme.checkboxons.Cleanup();
+	theme.checkboxHid.Cleanup();
+	theme.checkboxHids.Cleanup();
+	theme.checkboxReq.Cleanup();
+	theme.checkboxReqs.Cleanup();
+	/* Progress Bars */
+	theme.pbarTexL.Cleanup();
+	theme.pbarTexR.Cleanup();
+	theme.pbarTexC.Cleanup();
+	theme.pbarTexLS.Cleanup();
+	theme.pbarTexRS.Cleanup();
+	theme.pbarTexCS.Cleanup();
+	/* Other Theme Stuff */
+	for(TexSet::iterator texture = theme.texSet.begin(); texture != theme.texSet.end(); ++texture)
+		texture->second.Cleanup();
+	for(FontSet::iterator font = theme.fontSet.begin(); font != theme.fontSet.end(); ++font)
+		font->second.ClearData();
+	for(SoundSet::iterator sound = theme.soundSet.begin(); sound != theme.soundSet.end(); ++sound)
+		sound->second->FreeMemory();
+	theme.texSet.clear();
+	theme.fontSet.clear();
+	theme.soundSet.clear();
 }
 
 void CMenu::_reload_wifi_gecko(void)
@@ -565,28 +660,28 @@ void CMenu::_setAA(int aa)
 	}
 }
 
-void CMenu::_loadCFCfg(SThemeData &theme)
+void CMenu::_loadCFCfg()
 {
 	const char *domain = "_COVERFLOW";
 
 	//gprintf("Preparing to load sounds from %s\n", m_themeDataDir.c_str());
-	m_cf.setCachePath(m_cacheDir.c_str(), !m_cfg.getBool("GENERAL", "keep_png", true), m_cfg.getBool("GENERAL", "compress_cache", false));
-	m_cf.setBufferSize(m_cfg.getInt("GENERAL", "cover_buffer", 20));
+	CoverFlow.setCachePath(m_cacheDir.c_str(), !m_cfg.getBool("GENERAL", "keep_png", true), m_cfg.getBool("GENERAL", "compress_cache", false));
+	CoverFlow.setBufferSize(m_cfg.getInt("GENERAL", "cover_buffer", 20));
 	// Coverflow Sounds
-	m_cf.setSounds(
-		SmartGuiSound(new GuiSound(sfmt("%s/%s", m_themeDataDir.c_str(), m_theme.getString(domain, "sound_flip").c_str()))),
-		_sound(theme.soundSet, domain, "sound_hover", hover_wav, hover_wav_size, string("default_btn_hover"), false),
-		_sound(theme.soundSet, domain, "sound_select", click_wav, click_wav_size, string("default_btn_click"), false),
-		SmartGuiSound(new GuiSound(sfmt("%s/%s", m_themeDataDir.c_str(), m_theme.getString(domain, "sound_cancel").c_str())))
+	CoverFlow.setSounds(
+		new GuiSound(fmt("%s/%s", m_themeDataDir.c_str(), m_theme.getString(domain, "sound_flip").c_str())),
+		_sound(theme.soundSet, domain, "sound_hover", hover_wav, hover_wav_size, "default_btn_hover", false),
+		_sound(theme.soundSet, domain, "sound_select", click_wav, click_wav_size, "default_btn_click", false),
+		new GuiSound(fmt("%s/%s", m_themeDataDir.c_str(), m_theme.getString(domain, "sound_cancel").c_str()))
 	);
 	// Textures
-	string texLoading = sfmt("%s/%s", m_themeDataDir.c_str(), m_theme.getString(domain, "loading_cover_box").c_str());
-	string texNoCover = sfmt("%s/%s", m_themeDataDir.c_str(), m_theme.getString(domain, "missing_cover_box").c_str());
-	string texLoadingFlat = sfmt("%s/%s", m_themeDataDir.c_str(), m_theme.getString(domain, "loading_cover_flat").c_str());
-	string texNoCoverFlat = sfmt("%s/%s", m_themeDataDir.c_str(), m_theme.getString(domain, "missing_cover_flat").c_str());
-	m_cf.setTextures(texLoading, texLoadingFlat, texNoCover, texNoCoverFlat);
+	string texLoading = fmt("%s/%s", m_themeDataDir.c_str(), m_theme.getString(domain, "loading_cover_box").c_str());
+	string texNoCover = fmt("%s/%s", m_themeDataDir.c_str(), m_theme.getString(domain, "missing_cover_box").c_str());
+	string texLoadingFlat = fmt("%s/%s", m_themeDataDir.c_str(), m_theme.getString(domain, "loading_cover_flat").c_str());
+	string texNoCoverFlat = fmt("%s/%s", m_themeDataDir.c_str(), m_theme.getString(domain, "missing_cover_flat").c_str());
+	CoverFlow.setTextures(texLoading, texLoadingFlat, texNoCover, texNoCoverFlat);
 	// Font
-	m_cf.setFont(_font(theme.fontSet, domain, "font", TITLEFONT), m_theme.getColor(domain, "font_color", CColor(0xFFFFFFFF)));
+	CoverFlow.setFont(_font(theme.fontSet, domain, "font", TITLEFONT), m_theme.getColor(domain, "font_color", CColor(0xFFFFFFFF)));
 	// Coverflow Count
 	m_numCFVersions = min(max(2, m_theme.getInt("_COVERFLOW", "number_of_modes", 2)), 15);
 }
@@ -653,31 +748,31 @@ void CMenu::_loadCFLayout(int version, bool forceAA, bool otherScrnFmt)
 	int max_fsaa = m_theme.getInt(domain, "max_fsaa", 3);
 	_setAA(forceAA ? max_fsaa : min(max_fsaa, m_cfg.getInt("GENERAL", "max_fsaa", 3)));
 
-	m_cf.setTextureQuality(m_theme.getFloat(domain, "tex_lod_bias", -3.f),
+	CoverFlow.setTextureQuality(m_theme.getFloat(domain, "tex_lod_bias", -3.f),
 		m_theme.getInt(domain, "tex_aniso", 2),
 		m_theme.getBool(domain, "tex_edge_lod", true));
 
-	m_cf.setRange(_getCFInt(domain, "rows", (smallbox && homebrew) ? 5 : 1, sf), _getCFInt(domain, "columns", 9, sf));
+	CoverFlow.setRange(_getCFInt(domain, "rows", (smallbox && homebrew) ? 5 : 1, sf), _getCFInt(domain, "columns", 9, sf));
 
-	m_cf.setCameraPos(false,
+	CoverFlow.setCameraPos(false,
 		_getCFV3D(domain, "camera_pos", Vector3D(0.f, 1.5f, 5.f), sf),
 		_getCFV3D(domain, "camera_aim", Vector3D(0.f, 0.f, -1.f), sf));
 
-	m_cf.setCameraPos(true,
+	CoverFlow.setCameraPos(true,
 		_getCFV3D(domainSel, "camera_pos", Vector3D(0.f, 1.5f, 5.f), sf),
 		_getCFV3D(domainSel, "camera_aim", Vector3D(0.f, 0.f, -1.f), sf));
 
-	m_cf.setCameraOsc(false,
+	CoverFlow.setCameraOsc(false,
 		_getCFV3D(domain, "camera_osc_speed", Vector3D(2.f, 1.1f, 1.3f), sf),
 		_getCFV3D(domain, "camera_osc_amp", Vector3D(0.1f, 0.2f, 0.1f), sf));
 
-	m_cf.setCameraOsc(true,
+	CoverFlow.setCameraOsc(true,
 		_getCFV3D(domainSel, "camera_osc_speed", Vector3D(), sf),
 		_getCFV3D(domainSel, "camera_osc_amp", Vector3D(), sf));
 
 	float def_cvr_posX = (smallbox && homebrew) ? 1.f : 1.6f;
 	float def_cvr_posY = (smallbox && homebrew) ? -0.6f : 0.f;
-	m_cf.setCoverPos(false,
+	CoverFlow.setCoverPos(false,
 		_getCFV3D(domain, "left_pos", Vector3D(-def_cvr_posX, def_cvr_posY, 0.f), sf),
 		_getCFV3D(domain, "right_pos", Vector3D(def_cvr_posX, def_cvr_posY, 0.f), sf),
 		_getCFV3D(domain, "center_pos", Vector3D(0.f, def_cvr_posY, 1.f), sf),
@@ -685,47 +780,47 @@ void CMenu::_loadCFLayout(int version, bool forceAA, bool otherScrnFmt)
 
 	def_cvr_posX = (smallbox && homebrew) ? 1.f : 4.6f;
 	float def_cvr_posX1 = (smallbox && homebrew) ? 0.f : -0.6f;
-	m_cf.setCoverPos(true,
+	CoverFlow.setCoverPos(true,
 		_getCFV3D(domainSel, "left_pos", Vector3D(-def_cvr_posX, def_cvr_posY, 0.f), sf),
 		_getCFV3D(domainSel, "right_pos", Vector3D(def_cvr_posX, def_cvr_posY, 0.f), sf),
 		_getCFV3D(domainSel, "center_pos", Vector3D(def_cvr_posX1, 0.f, 2.6f), sf),
 		_getCFV3D(domainSel, "row_center_pos", Vector3D(0.f, def_cvr_posY, 0.f), sf));
 
-	m_cf.setCoverAngleOsc(false,
+	CoverFlow.setCoverAngleOsc(false,
 		m_theme.getVector3D(domain, "cover_osc_speed", Vector3D(2.f, 2.f, 0.f)),
 		m_theme.getVector3D(domain, "cover_osc_amp", Vector3D(5.f, 10.f, 0.f)));
 
-	m_cf.setCoverAngleOsc(true,
+	CoverFlow.setCoverAngleOsc(true,
 		m_theme.getVector3D(domainSel, "cover_osc_speed", Vector3D(2.1f, 2.1f, 0.f)),
 		m_theme.getVector3D(domainSel, "cover_osc_amp", Vector3D(2.f, 5.f, 0.f)));
 
-	m_cf.setCoverPosOsc(false,
+	CoverFlow.setCoverPosOsc(false,
 		m_theme.getVector3D(domain, "cover_pos_osc_speed"),
 		m_theme.getVector3D(domain, "cover_pos_osc_amp"));
 
-	m_cf.setCoverPosOsc(true,
+	CoverFlow.setCoverPosOsc(true,
 		m_theme.getVector3D(domainSel, "cover_pos_osc_speed"),
 		m_theme.getVector3D(domainSel, "cover_pos_osc_amp"));
 
 	float spacerX = (smallbox && homebrew) ? 1.f : 0.35f;
-	m_cf.setSpacers(false,
+	CoverFlow.setSpacers(false,
 		m_theme.getVector3D(domain, "left_spacer", Vector3D(-spacerX, 0.f, 0.f)),
 		m_theme.getVector3D(domain, "right_spacer", Vector3D(spacerX, 0.f, 0.f)));
 
-	m_cf.setSpacers(true,
+	CoverFlow.setSpacers(true,
 		m_theme.getVector3D(domainSel, "left_spacer", Vector3D(-spacerX, 0.f, 0.f)),
 		m_theme.getVector3D(domainSel, "right_spacer", Vector3D(spacerX, 0.f, 0.f)));
 
-	m_cf.setDeltaAngles(false,
+	CoverFlow.setDeltaAngles(false,
 		m_theme.getVector3D(domain, "left_delta_angle"),
 		m_theme.getVector3D(domain, "right_delta_angle"));
 
-	m_cf.setDeltaAngles(true,
+	CoverFlow.setDeltaAngles(true,
 		m_theme.getVector3D(domainSel, "left_delta_angle"),
 		m_theme.getVector3D(domainSel, "right_delta_angle"));
 
 	float angleY = (smallbox && homebrew) ? 0.f : 70.f;
-	m_cf.setAngles(false,
+	CoverFlow.setAngles(false,
 		m_theme.getVector3D(domain, "left_angle", Vector3D(0.f, angleY, 0.f)),
 		m_theme.getVector3D(domain, "right_angle", Vector3D(0.f, -angleY, 0.f)),
 		m_theme.getVector3D(domain, "center_angle"),
@@ -734,101 +829,101 @@ void CMenu::_loadCFLayout(int version, bool forceAA, bool otherScrnFmt)
 	angleY = (smallbox && homebrew) ? 0.f : 90.f;
 	float angleY1 = (smallbox && homebrew) ? 0.f : 380.f;
 	float angleX = (smallbox && homebrew) ? 0.f : -45.f;
-	m_cf.setAngles(true,
+	CoverFlow.setAngles(true,
 		m_theme.getVector3D(domainSel, "left_angle", Vector3D(angleX, angleY, 0.f)),
 		m_theme.getVector3D(domainSel, "right_angle", Vector3D(angleX, -angleY, 0.f)),
 		m_theme.getVector3D(domainSel, "center_angle", Vector3D(0.f, angleY1, 0.f)),
 		m_theme.getVector3D(domainSel, "row_center_angle"));
 
 	angleX = smallbox ? 0.f : 55.f;
-	m_cf.setTitleAngles(false,
+	CoverFlow.setTitleAngles(false,
 		_getCFFloat(domain, "text_left_angle", -angleX, sf),
 		_getCFFloat(domain, "text_right_angle", angleX, sf),
 		_getCFFloat(domain, "text_center_angle", 0.f, sf));
 
-	m_cf.setTitleAngles(true,
+	CoverFlow.setTitleAngles(true,
 		_getCFFloat(domainSel, "text_left_angle", -angleX, sf),
 		_getCFFloat(domainSel, "text_right_angle", angleX, sf),
 		_getCFFloat(domainSel, "text_center_angle", 0.f, sf));
 
-	m_cf.setTitlePos(false,
+	CoverFlow.setTitlePos(false,
 		_getCFV3D(domain, "text_left_pos", Vector3D(-4.f, 0.f, 1.3f), sf),
 		_getCFV3D(domain, "text_right_pos", Vector3D(4.f, 0.f, 1.3f), sf),
 		_getCFV3D(domain, "text_center_pos", Vector3D(0.f, 0.f, 2.6f), sf));
 
-	m_cf.setTitlePos(true,
+	CoverFlow.setTitlePos(true,
 		_getCFV3D(domainSel, "text_left_pos", Vector3D(-4.f, 0.f, 1.3f), sf),
 		_getCFV3D(domainSel, "text_right_pos", Vector3D(4.f, 0.f, 1.3f), sf),
 		_getCFV3D(domainSel, "text_center_pos", Vector3D(1.7f, 1.8f, 1.6f), sf));
 
-	m_cf.setTitleWidth(false,
+	CoverFlow.setTitleWidth(false,
 		_getCFFloat(domain, "text_side_wrap_width", 500.f, sf),
 		_getCFFloat(domain, "text_center_wrap_width", 500.f, sf));
 
-	m_cf.setTitleWidth(true,
+	CoverFlow.setTitleWidth(true,
 		_getCFFloat(domainSel, "text_side_wrap_width", 500.f, sf),
 		_getCFFloat(domainSel, "text_center_wrap_width", 310.f, sf));
 
-	m_cf.setTitleStyle(false,
+	CoverFlow.setTitleStyle(false,
 		_textStyle(domain.c_str(), "text_side_style", FTGX_ALIGN_MIDDLE | FTGX_JUSTIFY_CENTER),
 		_textStyle(domain.c_str(), "text_center_style", FTGX_ALIGN_MIDDLE | FTGX_JUSTIFY_CENTER));
 
-	m_cf.setTitleStyle(true,
+	CoverFlow.setTitleStyle(true,
 		_textStyle(domainSel.c_str(), "text_side_style", FTGX_ALIGN_MIDDLE | FTGX_JUSTIFY_CENTER),
 		_textStyle(domainSel.c_str(), "text_center_style", FTGX_ALIGN_TOP | FTGX_JUSTIFY_RIGHT));
 
-	m_cf.setColors(false,
+	CoverFlow.setColors(false,
 		m_theme.getColor(domain, "color_beg", 0xCFFFFFFF),
 		m_theme.getColor(domain, "color_end", 0x3FFFFFFF),
 		m_theme.getColor(domain, "color_off", 0x7FFFFFFF));
 
-	m_cf.setColors(true,
+	CoverFlow.setColors(true,
 		m_theme.getColor(domainSel, "color_beg", 0x7FFFFFFF),
 		m_theme.getColor(domainSel, "color_end", 0x1FFFFFFF),
 		m_theme.getColor(domain, "color_off", 0x7FFFFFFF));	// Mouse not used once a selection has been made
 
-	m_cf.setMirrorAlpha(m_theme.getFloat(domain, "mirror_alpha", 0.25f), m_theme.getFloat(domain, "title_mirror_alpha", 0.2f));	// Doesn't depend on selection
+	CoverFlow.setMirrorAlpha(m_theme.getFloat(domain, "mirror_alpha", 0.25f), m_theme.getFloat(domain, "title_mirror_alpha", 0.2f));	// Doesn't depend on selection
 
-	m_cf.setMirrorBlur(m_theme.getBool(domain, "mirror_blur", true));	// Doesn't depend on selection
+	CoverFlow.setMirrorBlur(m_theme.getBool(domain, "mirror_blur", true));	// Doesn't depend on selection
 
-	m_cf.setShadowColors(false,
+	CoverFlow.setShadowColors(false,
 		m_theme.getColor(domain, "color_shadow_center", 0x00000000),
 		m_theme.getColor(domain, "color_shadow_beg", 0x00000000),
 		m_theme.getColor(domain, "color_shadow_end", 0x00000000),
 		m_theme.getColor(domain, "color_shadow_off", 0x00000000));
 
-	m_cf.setShadowColors(true,
+	CoverFlow.setShadowColors(true,
 		m_theme.getColor(domainSel, "color_shadow_center", 0x0000007F),
 		m_theme.getColor(domainSel, "color_shadow_beg", 0x0000007F),
 		m_theme.getColor(domainSel, "color_shadow_end", 0x0000007F),
 		m_theme.getColor(domainSel, "color_shadow_off", 0x0000007F));
 
-	m_cf.setShadowPos(m_theme.getFloat(domain, "shadow_scale", 1.1f),
+	CoverFlow.setShadowPos(m_theme.getFloat(domain, "shadow_scale", 1.1f),
 		m_theme.getFloat(domain, "shadow_x"),
 		m_theme.getFloat(domain, "shadow_y"));
 
 	float spacerY = (smallbox && homebrew) ? 0.60f : 2.f; 
-	m_cf.setRowSpacers(false,
+	CoverFlow.setRowSpacers(false,
 		m_theme.getVector3D(domain, "top_spacer", Vector3D(0.f, spacerY, 0.f)),
 		m_theme.getVector3D(domain, "bottom_spacer", Vector3D(0.f, -spacerY, 0.f)));
 
-	m_cf.setRowSpacers(true,
+	CoverFlow.setRowSpacers(true,
 		m_theme.getVector3D(domainSel, "top_spacer", Vector3D(0.f, spacerY, 0.f)),
 		m_theme.getVector3D(domainSel, "bottom_spacer", Vector3D(0.f, -spacerY, 0.f)));
 
-	m_cf.setRowDeltaAngles(false,
+	CoverFlow.setRowDeltaAngles(false,
 		m_theme.getVector3D(domain, "top_delta_angle"),
 		m_theme.getVector3D(domain, "bottom_delta_angle"));
 
-	m_cf.setRowDeltaAngles(true,
+	CoverFlow.setRowDeltaAngles(true,
 		m_theme.getVector3D(domainSel, "top_delta_angle"),
 		m_theme.getVector3D(domainSel, "bottom_delta_angle"));
 
-	m_cf.setRowAngles(false,
+	CoverFlow.setRowAngles(false,
 		m_theme.getVector3D(domain, "top_angle"),
 		m_theme.getVector3D(domain, "bottom_angle"));
 
-	m_cf.setRowAngles(true,
+	CoverFlow.setRowAngles(true,
 		m_theme.getVector3D(domainSel, "top_angle"),
 		m_theme.getVector3D(domainSel, "bottom_angle"));
 
@@ -839,25 +934,25 @@ void CMenu::_loadCFLayout(int version, bool forceAA, bool otherScrnFmt)
 		: Vector3D(1.f, 0.5f, 1.f))
 	: Vector3D(1.f, 1.f, 1.f);
 
-	m_cf.setCoverScale(false,
+	CoverFlow.setCoverScale(false,
 		m_theme.getVector3D(domain, "left_scale", def_cvr_scale),
 		m_theme.getVector3D(domain, "right_scale", def_cvr_scale),
 		m_theme.getVector3D(domain, "center_scale", def_cvr_scale),
 		m_theme.getVector3D(domain, "row_center_scale", def_cvr_scale));
 
-	m_cf.setCoverScale(true,
+	CoverFlow.setCoverScale(true,
 		m_theme.getVector3D(domainSel, "left_scale", def_cvr_scale),
 		m_theme.getVector3D(domainSel, "right_scale", def_cvr_scale),
 		m_theme.getVector3D(domainSel, "center_scale", def_cvr_scale),
 		m_theme.getVector3D(domainSel, "row_center_scale", def_cvr_scale));
 
 	float flipX = (smallbox && homebrew) ? 359.f : 180.f;
-	m_cf.setCoverFlipping(
+	CoverFlow.setCoverFlipping(
 		_getCFV3D(domainSel, "flip_pos", Vector3D(), sf),
 		_getCFV3D(domainSel, "flip_angle", Vector3D(0.f, flipX, 0.f), sf),
 		_getCFV3D(domainSel, "flip_scale", def_cvr_scale, sf));
 
-	m_cf.setBlur(
+	CoverFlow.setBlur(
 		m_theme.getInt(domain, "blur_resolution", 1),
 		m_theme.getInt(domain, "blur_radius", 2),
 		m_theme.getFloat(domain, "blur_factor", 1.f));
@@ -865,9 +960,6 @@ void CMenu::_loadCFLayout(int version, bool forceAA, bool otherScrnFmt)
 
 void CMenu::_buildMenus(void)
 {
-	if(!m_base_font)
-		_loadDefaultFont(CONF_GetLanguage() == CONF_LANG_KOREAN);
-
 	// Default fonts
 	theme.btnFont = _font(theme.fontSet, "GENERAL", "button_font", BUTTONFONT);
 	theme.btnFontColor = m_theme.getColor("GENERAL", "button_font_color", 0xD0BFDFFF);
@@ -885,215 +977,214 @@ void CMenu::_buildMenus(void)
 	theme.selubtnFontColor = m_theme.getColor("GENERAL", "selubtn_font_color", 0xD0BFDFFF);
 
 	// Default Sounds
-	theme.clickSound	= _sound(theme.soundSet, "GENERAL", "click_sound", click_wav, click_wav_size, string("default_btn_click"), false);
-	theme.hoverSound	= _sound(theme.soundSet, "GENERAL", "hover_sound", hover_wav, hover_wav_size, string("default_btn_hover"), false);
-	theme.cameraSound	= _sound(theme.soundSet, "GENERAL", "camera_sound", camera_wav, camera_wav_size, string("default_camera"), false);
-	m_cameraSound = theme.cameraSound;
+	theme.clickSound	= _sound(theme.soundSet, "GENERAL", "click_sound", click_wav, click_wav_size, "default_btn_click", false);
+	theme.hoverSound	= _sound(theme.soundSet, "GENERAL", "hover_sound", hover_wav, hover_wav_size, "default_btn_hover", false);
+	theme.cameraSound	= _sound(theme.soundSet, "GENERAL", "camera_sound", camera_wav, camera_wav_size, "default_camera", false);
 
 	// Default textures
 	theme.btnTexL.fromPNG(butleft_png);
-	theme.btnTexL = _texture(theme.texSet, "GENERAL", "button_texture_left", theme.btnTexL); 
+	theme.btnTexL = _texture("GENERAL", "button_texture_left", theme.btnTexL); 
 	theme.btnTexR.fromPNG(butright_png);
-	theme.btnTexR = _texture(theme.texSet, "GENERAL", "button_texture_right", theme.btnTexR); 
+	theme.btnTexR = _texture("GENERAL", "button_texture_right", theme.btnTexR); 
 	theme.btnTexC.fromPNG(butcenter_png);
-	theme.btnTexC = _texture(theme.texSet, "GENERAL", "button_texture_center", theme.btnTexC); 
+	theme.btnTexC = _texture("GENERAL", "button_texture_center", theme.btnTexC); 
 	theme.btnTexLS.fromPNG(butsleft_png);
-	theme.btnTexLS = _texture(theme.texSet, "GENERAL", "button_texture_left_selected", theme.btnTexLS); 
+	theme.btnTexLS = _texture("GENERAL", "button_texture_left_selected", theme.btnTexLS); 
 	theme.btnTexRS.fromPNG(butsright_png);
-	theme.btnTexRS = _texture(theme.texSet, "GENERAL", "button_texture_right_selected", theme.btnTexRS); 
+	theme.btnTexRS = _texture("GENERAL", "button_texture_right_selected", theme.btnTexRS); 
 	theme.btnTexCS.fromPNG(butscenter_png);
-	theme.btnTexCS = _texture(theme.texSet, "GENERAL", "button_texture_center_selected", theme.btnTexCS); 
+	theme.btnTexCS = _texture("GENERAL", "button_texture_center_selected", theme.btnTexCS); 
 
 	theme.btnTexLH.fromPNG(buthleft_png);
-	theme.btnTexLH = _texture(theme.texSet, "GENERAL", "button_texture_hlleft", theme.btnTexLH); 
+	theme.btnTexLH = _texture("GENERAL", "button_texture_hlleft", theme.btnTexLH); 
 	theme.btnTexRH.fromPNG(buthright_png);
-	theme.btnTexRH = _texture(theme.texSet, "GENERAL", "button_texture_hlright", theme.btnTexRH); 
+	theme.btnTexRH = _texture("GENERAL", "button_texture_hlright", theme.btnTexRH); 
 	theme.btnTexCH.fromPNG(buthcenter_png);
-	theme.btnTexCH = _texture(theme.texSet, "GENERAL", "button_texture_hlcenter", theme.btnTexCH); 
+	theme.btnTexCH = _texture("GENERAL", "button_texture_hlcenter", theme.btnTexCH); 
 	theme.btnTexLSH.fromPNG(buthsleft_png);
-	theme.btnTexLSH = _texture(theme.texSet, "GENERAL", "button_texture_hlleft_selected", theme.btnTexLSH); 
+	theme.btnTexLSH = _texture("GENERAL", "button_texture_hlleft_selected", theme.btnTexLSH); 
 	theme.btnTexRSH.fromPNG(buthsright_png);
-	theme.btnTexRSH = _texture(theme.texSet, "GENERAL", "button_texture_hlright_selected", theme.btnTexRSH); 
+	theme.btnTexRSH = _texture("GENERAL", "button_texture_hlright_selected", theme.btnTexRSH); 
 	theme.btnTexCSH.fromPNG(buthscenter_png);
-	theme.btnTexCSH = _texture(theme.texSet, "GENERAL", "button_texture_hlcenter_selected", theme.btnTexCSH); 
+	theme.btnTexCSH = _texture("GENERAL", "button_texture_hlcenter_selected", theme.btnTexCSH); 
 
 	theme.btnAUOn.fromPNG(butauon_png);
-	theme.btnAUOn = _texture(theme.texSet, "GENERAL", "button_au_on", theme.btnAUOn);
+	theme.btnAUOn = _texture("GENERAL", "button_au_on", theme.btnAUOn);
 	theme.btnAUOns.fromPNG(butauons_png);
-	theme.btnAUOns = _texture(theme.texSet, "GENERAL", "button_au_on_selected", theme.btnAUOns);
+	theme.btnAUOns = _texture("GENERAL", "button_au_on_selected", theme.btnAUOns);
 	theme.btnAUOff.fromPNG(butauoff_png);
-	theme.btnAUOff = _texture(theme.texSet, "GENERAL", "button_au_off", theme.btnAUOff);
+	theme.btnAUOff = _texture("GENERAL", "button_au_off", theme.btnAUOff);
 	theme.btnAUOffs.fromPNG(butauoffs_png);
-	theme.btnAUOffs = _texture(theme.texSet, "GENERAL", "button_au_off_selected", theme.btnAUOffs);
+	theme.btnAUOffs = _texture("GENERAL", "button_au_off_selected", theme.btnAUOffs);
 
 	theme.btnENOn.fromPNG(butenon_png);
-	theme.btnENOn = _texture(theme.texSet, "GENERAL", "button_en_on", theme.btnENOn);
+	theme.btnENOn = _texture("GENERAL", "button_en_on", theme.btnENOn);
 	theme.btnENOns.fromPNG(butenons_png);
-	theme.btnENOns = _texture(theme.texSet, "GENERAL", "button_en_on_selected", theme.btnENOns);
+	theme.btnENOns = _texture("GENERAL", "button_en_on_selected", theme.btnENOns);
 	theme.btnENOff.fromPNG(butenoff_png);
-	theme.btnENOff = _texture(theme.texSet, "GENERAL", "button_en_off", theme.btnENOff);
+	theme.btnENOff = _texture("GENERAL", "button_en_off", theme.btnENOff);
 	theme.btnENOffs.fromPNG(butenoffs_png);
-	theme.btnENOffs = _texture(theme.texSet, "GENERAL", "button_en_off_selected", theme.btnENOffs);
+	theme.btnENOffs = _texture("GENERAL", "button_en_off_selected", theme.btnENOffs);
 
 	theme.btnJAOn.fromPNG(butjaon_png);
-	theme.btnJAOn = _texture(theme.texSet, "GENERAL", "button_ja_on", theme.btnJAOn);
+	theme.btnJAOn = _texture("GENERAL", "button_ja_on", theme.btnJAOn);
 	theme.btnJAOns.fromPNG(butjaons_png);
-	theme.btnJAOns = _texture(theme.texSet, "GENERAL", "button_ja_on_selected", theme.btnJAOns);
+	theme.btnJAOns = _texture("GENERAL", "button_ja_on_selected", theme.btnJAOns);
 	theme.btnJAOff.fromPNG(butjaoff_png);
-	theme.btnJAOff = _texture(theme.texSet, "GENERAL", "button_ja_off", theme.btnJAOff);
+	theme.btnJAOff = _texture("GENERAL", "button_ja_off", theme.btnJAOff);
 	theme.btnJAOffs.fromPNG(butjaoffs_png);
-	theme.btnJAOffs = _texture(theme.texSet, "GENERAL", "button_ja_off_selected", theme.btnJAOffs);
+	theme.btnJAOffs = _texture("GENERAL", "button_ja_off_selected", theme.btnJAOffs);
 
 	theme.btnFROn.fromPNG(butfron_png);
-	theme.btnFROn = _texture(theme.texSet, "GENERAL", "button_fr_on", theme.btnFROn);
+	theme.btnFROn = _texture("GENERAL", "button_fr_on", theme.btnFROn);
 	theme.btnFROns.fromPNG(butfrons_png);
-	theme.btnFROns = _texture(theme.texSet, "GENERAL", "button_fr_on_selected", theme.btnFROns);
+	theme.btnFROns = _texture("GENERAL", "button_fr_on_selected", theme.btnFROns);
 	theme.btnFROff.fromPNG(butfroff_png);
-	theme.btnFROff = _texture(theme.texSet, "GENERAL", "button_fr_off", theme.btnFROff);
+	theme.btnFROff = _texture("GENERAL", "button_fr_off", theme.btnFROff);
 	theme.btnFROffs.fromPNG(butfroffs_png);
-	theme.btnFROffs = _texture(theme.texSet, "GENERAL", "button_fr_off_selected", theme.btnFROffs);
+	theme.btnFROffs = _texture("GENERAL", "button_fr_off_selected", theme.btnFROffs);
 
 	theme.btnDEOn.fromPNG(butdeon_png);
-	theme.btnDEOn = _texture(theme.texSet, "GENERAL", "button_de_on", theme.btnDEOn);
+	theme.btnDEOn = _texture("GENERAL", "button_de_on", theme.btnDEOn);
 	theme.btnDEOns.fromPNG(butdeons_png);
-	theme.btnDEOns = _texture(theme.texSet, "GENERAL", "button_de_on_selected", theme.btnDEOns);
+	theme.btnDEOns = _texture("GENERAL", "button_de_on_selected", theme.btnDEOns);
 	theme.btnDEOff.fromPNG(butdeoff_png);
-	theme.btnDEOff = _texture(theme.texSet, "GENERAL", "button_de_off", theme.btnDEOff);
+	theme.btnDEOff = _texture("GENERAL", "button_de_off", theme.btnDEOff);
 	theme.btnDEOffs.fromPNG(butdeoffs_png);
-	theme.btnDEOffs = _texture(theme.texSet, "GENERAL", "button_de_off_selected", theme.btnDEOffs);
+	theme.btnDEOffs = _texture("GENERAL", "button_de_off_selected", theme.btnDEOffs);
 
 	theme.btnESOn.fromPNG(buteson_png);
-	theme.btnESOn = _texture(theme.texSet, "GENERAL", "button_es_on", theme.btnESOn);
+	theme.btnESOn = _texture("GENERAL", "button_es_on", theme.btnESOn);
 	theme.btnESOns.fromPNG(butesons_png);
-	theme.btnESOns = _texture(theme.texSet, "GENERAL", "button_es_on_selected", theme.btnESOns);
+	theme.btnESOns = _texture("GENERAL", "button_es_on_selected", theme.btnESOns);
 	theme.btnESOff.fromPNG(butesoff_png);
-	theme.btnESOff = _texture(theme.texSet, "GENERAL", "button_es_off", theme.btnESOff);
+	theme.btnESOff = _texture("GENERAL", "button_es_off", theme.btnESOff);
 	theme.btnESOffs.fromPNG(butesoffs_png);
-	theme.btnESOffs = _texture(theme.texSet, "GENERAL", "button_es_off_selected", theme.btnESOffs);
+	theme.btnESOffs = _texture("GENERAL", "button_es_off_selected", theme.btnESOffs);
 
 	theme.btnITOn.fromPNG(butiton_png);
-	theme.btnITOn = _texture(theme.texSet, "GENERAL", "button_it_on", theme.btnITOn);
+	theme.btnITOn = _texture("GENERAL", "button_it_on", theme.btnITOn);
 	theme.btnITOns.fromPNG(butitons_png);
-	theme.btnITOns = _texture(theme.texSet, "GENERAL", "button_it_on_selected", theme.btnITOns);
+	theme.btnITOns = _texture("GENERAL", "button_it_on_selected", theme.btnITOns);
 	theme.btnITOff.fromPNG(butitoff_png);
-	theme.btnITOff = _texture(theme.texSet, "GENERAL", "button_it_off", theme.btnITOff);
+	theme.btnITOff = _texture("GENERAL", "button_it_off", theme.btnITOff);
 	theme.btnITOffs.fromPNG(butitoffs_png);
-	theme.btnITOffs = _texture(theme.texSet, "GENERAL", "button_it_off_selected", theme.btnITOffs);
+	theme.btnITOffs = _texture("GENERAL", "button_it_off_selected", theme.btnITOffs);
 
 	theme.btnNLOn.fromPNG(butnlon_png);
-	theme.btnNLOn = _texture(theme.texSet, "GENERAL", "button_nl_on", theme.btnNLOn);
+	theme.btnNLOn = _texture("GENERAL", "button_nl_on", theme.btnNLOn);
 	theme.btnNLOns.fromPNG(butnlons_png);
-	theme.btnNLOns = _texture(theme.texSet, "GENERAL", "button_nl_on_selected", theme.btnNLOns);
+	theme.btnNLOns = _texture("GENERAL", "button_nl_on_selected", theme.btnNLOns);
 	theme.btnNLOff.fromPNG(butnloff_png);
-	theme.btnNLOff = _texture(theme.texSet, "GENERAL", "button_nl_off", theme.btnNLOff);
+	theme.btnNLOff = _texture("GENERAL", "button_nl_off", theme.btnNLOff);
 	theme.btnNLOffs.fromPNG(butnloffs_png);
-	theme.btnNLOffs = _texture(theme.texSet, "GENERAL", "button_nl_off_selected", theme.btnNLOffs);
+	theme.btnNLOffs = _texture("GENERAL", "button_nl_off_selected", theme.btnNLOffs);
 
 	theme.btnPTOn.fromPNG(butpton_png);
-	theme.btnPTOn = _texture(theme.texSet, "GENERAL", "button_pt_on", theme.btnPTOn);
+	theme.btnPTOn = _texture("GENERAL", "button_pt_on", theme.btnPTOn);
 	theme.btnPTOns.fromPNG(butptons_png);
-	theme.btnPTOns = _texture(theme.texSet, "GENERAL", "button_pt_on_selected", theme.btnPTOns);
+	theme.btnPTOns = _texture("GENERAL", "button_pt_on_selected", theme.btnPTOns);
 	theme.btnPTOff.fromPNG(butptoff_png);
-	theme.btnPTOff = _texture(theme.texSet, "GENERAL", "button_pt_off", theme.btnPTOff);
+	theme.btnPTOff = _texture("GENERAL", "button_pt_off", theme.btnPTOff);
 	theme.btnPTOffs.fromPNG(butptoffs_png);
-	theme.btnPTOffs = _texture(theme.texSet, "GENERAL", "button_pt_off_selected", theme.btnPTOffs);
+	theme.btnPTOffs = _texture("GENERAL", "button_pt_off_selected", theme.btnPTOffs);
 
 	theme.btnRUOn.fromPNG(butruon_png);
-	theme.btnRUOn = _texture(theme.texSet, "GENERAL", "button_ru_on", theme.btnRUOn);
+	theme.btnRUOn = _texture("GENERAL", "button_ru_on", theme.btnRUOn);
 	theme.btnRUOns.fromPNG(butruons_png);
-	theme.btnRUOns = _texture(theme.texSet, "GENERAL", "button_ru_on_selected", theme.btnRUOns);
+	theme.btnRUOns = _texture("GENERAL", "button_ru_on_selected", theme.btnRUOns);
 	theme.btnRUOff.fromPNG(butruoff_png);
-	theme.btnRUOff = _texture(theme.texSet, "GENERAL", "button_ru_off", theme.btnRUOff);
+	theme.btnRUOff = _texture("GENERAL", "button_ru_off", theme.btnRUOff);
 	theme.btnRUOffs.fromPNG(butruoffs_png);
-	theme.btnRUOffs = _texture(theme.texSet, "GENERAL", "button_ru_off_selected", theme.btnRUOffs);
+	theme.btnRUOffs = _texture("GENERAL", "button_ru_off_selected", theme.btnRUOffs);
 
 	theme.btnKOOn.fromPNG(butkoon_png);
-	theme.btnKOOn = _texture(theme.texSet, "GENERAL", "button_ko_on", theme.btnKOOn);
+	theme.btnKOOn = _texture("GENERAL", "button_ko_on", theme.btnKOOn);
 	theme.btnKOOns.fromPNG(butkoons_png);
-	theme.btnKOOns = _texture(theme.texSet, "GENERAL", "button_ko_on_selected", theme.btnKOOns);
+	theme.btnKOOns = _texture("GENERAL", "button_ko_on_selected", theme.btnKOOns);
 	theme.btnKOOff.fromPNG(butkooff_png);
-	theme.btnKOOff = _texture(theme.texSet, "GENERAL", "button_ko_off", theme.btnKOOff);
+	theme.btnKOOff = _texture("GENERAL", "button_ko_off", theme.btnKOOff);
 	theme.btnKOOffs.fromPNG(butkooffs_png);
-	theme.btnKOOffs = _texture(theme.texSet, "GENERAL", "button_ko_off_selected", theme.btnKOOffs);
+	theme.btnKOOffs = _texture("GENERAL", "button_ko_off_selected", theme.btnKOOffs);
 
 	theme.btnZHCNOn.fromPNG(butzhcnon_png);
-	theme.btnZHCNOn = _texture(theme.texSet, "GENERAL", "button_zhcn_on", theme.btnZHCNOn);
+	theme.btnZHCNOn = _texture("GENERAL", "button_zhcn_on", theme.btnZHCNOn);
 	theme.btnZHCNOns.fromPNG(butzhcnons_png);
-	theme.btnZHCNOns = _texture(theme.texSet, "GENERAL", "button_zhcn_on_selected", theme.btnZHCNOns);
+	theme.btnZHCNOns = _texture("GENERAL", "button_zhcn_on_selected", theme.btnZHCNOns);
 	theme.btnZHCNOff.fromPNG(butzhcnoff_png);
-	theme.btnZHCNOff = _texture(theme.texSet, "GENERAL", "button_zhcn_off", theme.btnZHCNOff);
+	theme.btnZHCNOff = _texture("GENERAL", "button_zhcn_off", theme.btnZHCNOff);
 	theme.btnZHCNOffs.fromPNG(butzhcnoffs_png);
-	theme.btnZHCNOffs = _texture(theme.texSet, "GENERAL", "button_zhcn_off_selected", theme.btnZHCNOffs);
+	theme.btnZHCNOffs = _texture("GENERAL", "button_zhcn_off_selected", theme.btnZHCNOffs);
 
 	theme.checkboxoff.fromPNG(checkbox_png);
-	theme.checkboxoff = _texture(theme.texSet, "GENERAL", "checkbox_off", theme.checkboxoff);
+	theme.checkboxoff = _texture("GENERAL", "checkbox_off", theme.checkboxoff);
 	theme.checkboxoffs.fromPNG(checkbox_png);
-	theme.checkboxoffs = _texture(theme.texSet, "GENERAL", "checkbox_off_selected", theme.checkboxoffs);
+	theme.checkboxoffs = _texture("GENERAL", "checkbox_off_selected", theme.checkboxoffs);
 	theme.checkboxon.fromPNG(checkboxs_png);
-	theme.checkboxon = _texture(theme.texSet, "GENERAL", "checkbox_on", theme.checkboxon);
+	theme.checkboxon = _texture("GENERAL", "checkbox_on", theme.checkboxon);
 	theme.checkboxons.fromPNG(checkboxs_png);
-	theme.checkboxons = _texture(theme.texSet, "GENERAL", "checkbox_on_selected", theme.checkboxons);
+	theme.checkboxons = _texture("GENERAL", "checkbox_on_selected", theme.checkboxons);
 	theme.checkboxHid.fromPNG(checkboxhid_png);
-	theme.checkboxHid = _texture(theme.texSet, "GENERAL", "checkbox_Hid", theme.checkboxHid);
+	theme.checkboxHid = _texture("GENERAL", "checkbox_Hid", theme.checkboxHid);
 	theme.checkboxHids.fromPNG(checkboxhid_png);
-	theme.checkboxHids = _texture(theme.texSet, "GENERAL", "checkbox_Hid_selected", theme.checkboxHids);
+	theme.checkboxHids = _texture("GENERAL", "checkbox_Hid_selected", theme.checkboxHids);
 	theme.checkboxReq.fromPNG(checkboxreq_png);
-	theme.checkboxReq = _texture(theme.texSet, "GENERAL", "checkbox_Req", theme.checkboxReq);
+	theme.checkboxReq = _texture("GENERAL", "checkbox_Req", theme.checkboxReq);
 	theme.checkboxReqs.fromPNG(checkboxreq_png);
-	theme.checkboxReqs = _texture(theme.texSet, "GENERAL", "checkbox_Req_selected", theme.checkboxReqs);
+	theme.checkboxReqs = _texture("GENERAL", "checkbox_Req_selected", theme.checkboxReqs);
 
 	theme.pbarTexL.fromPNG(pbarleft_png);
-	theme.pbarTexL = _texture(theme.texSet, "GENERAL", "progressbar_texture_left", theme.pbarTexL); 
+	theme.pbarTexL = _texture("GENERAL", "progressbar_texture_left", theme.pbarTexL);
 	theme.pbarTexR.fromPNG(pbarright_png);
-	theme.pbarTexR = _texture(theme.texSet, "GENERAL", "progressbar_texture_right", theme.pbarTexR); 
+	theme.pbarTexR = _texture("GENERAL", "progressbar_texture_right", theme.pbarTexR);
 	theme.pbarTexC.fromPNG(pbarcenter_png);
-	theme.pbarTexC = _texture(theme.texSet, "GENERAL", "progressbar_texture_center", theme.pbarTexC); 
+	theme.pbarTexC = _texture("GENERAL", "progressbar_texture_center", theme.pbarTexC);
 	theme.pbarTexLS.fromPNG(pbarlefts_png);
-	theme.pbarTexLS = _texture(theme.texSet, "GENERAL", "progressbar_texture_left_selected", theme.pbarTexLS); 
+	theme.pbarTexLS = _texture("GENERAL", "progressbar_texture_left_selected", theme.pbarTexLS);
 	theme.pbarTexRS.fromPNG(pbarrights_png);
-	theme.pbarTexRS = _texture(theme.texSet, "GENERAL", "progressbar_texture_right_selected", theme.pbarTexRS); 
+	theme.pbarTexRS = _texture("GENERAL", "progressbar_texture_right_selected", theme.pbarTexRS);
 	theme.pbarTexCS.fromPNG(pbarcenters_png);
-	theme.pbarTexCS = _texture(theme.texSet, "GENERAL", "progressbar_texture_center_selected", theme.pbarTexCS); 
+	theme.pbarTexCS = _texture("GENERAL", "progressbar_texture_center_selected", theme.pbarTexCS);
 	theme.btnTexPlus.fromPNG(btnplus_png);
-	theme.btnTexPlus = _texture(theme.texSet, "GENERAL", "plus_button_texture", theme.btnTexPlus); 
+	theme.btnTexPlus = _texture("GENERAL", "plus_button_texture", theme.btnTexPlus);
 	theme.btnTexPlusS.fromPNG(btnpluss_png);
-	theme.btnTexPlusS = _texture(theme.texSet, "GENERAL", "plus_button_texture_selected", theme.btnTexPlusS); 
+	theme.btnTexPlusS = _texture("GENERAL", "plus_button_texture_selected", theme.btnTexPlusS);
 	theme.btnTexMinus.fromPNG(btnminus_png);
-	theme.btnTexMinus = _texture(theme.texSet, "GENERAL", "minus_button_texture", theme.btnTexMinus); 
+	theme.btnTexMinus = _texture("GENERAL", "minus_button_texture", theme.btnTexMinus);
 	theme.btnTexMinusS.fromPNG(btnminuss_png);
-	theme.btnTexMinusS = _texture(theme.texSet, "GENERAL", "minus_button_texture_selected", theme.btnTexMinusS); 
+	theme.btnTexMinusS = _texture("GENERAL", "minus_button_texture_selected", theme.btnTexMinusS);
 
 	// Default background
 	theme.bg.fromJPG(background_jpg, background_jpg_size);
-	m_mainBgLQ.fromJPG(background_jpg, background_jpg_size, GX_TF_CMPR, ALLOC_MEM2, 64, 64);
+	m_mainBgLQ.fromJPG(background_jpg, background_jpg_size, GX_TF_CMPR, 64, 64);
 	m_gameBgLQ = m_mainBgLQ;
 
 	// Build menus
-	_initMainMenu(theme);
-	_initErrorMenu(theme);
-	_initConfigAdvMenu(theme);
-	_initConfigSndMenu(theme);
-	_initConfig4Menu(theme);
-	_initConfigScreenMenu(theme);
-	_initConfig3Menu(theme);
-	_initConfigMenu(theme);
-	_initGameMenu(theme);
-	_initDownloadMenu(theme);
-	_initCodeMenu(theme);
-	_initAboutMenu(theme);
-	_initWBFSMenu(theme);
-	_initCFThemeMenu(theme);
-	_initGameSettingsMenu(theme);
-	_initCheatSettingsMenu(theme); 
-	_initSourceMenu(theme);
-	_initPluginSettingsMenu(theme);
-	_initCategorySettingsMenu(theme);
-	_initSystemMenu(theme);
-	_initGameInfoMenu(theme);
-	_initNandEmuMenu(theme);
-	_initHomeAndExitToMenu(theme);
+	_initMainMenu();
+	_initErrorMenu();
+	_initConfigAdvMenu();
+	_initConfigSndMenu();
+	_initConfig4Menu();
+	_initConfigScreenMenu();
+	_initConfig3Menu();
+	_initConfigMenu();
+	_initGameMenu();
+	_initDownloadMenu();
+	_initCodeMenu();
+	_initAboutMenu();
+	_initWBFSMenu();
+	_initCFThemeMenu();
+	_initGameSettingsMenu();
+	_initCheatSettingsMenu(); 
+	_initSourceMenu();
+	_initPluginSettingsMenu();
+	_initCategorySettingsMenu();
+	_initSystemMenu();
+	_initGameInfoMenu();
+	_initNandEmuMenu();
+	_initHomeAndExitToMenu();
 
-	_loadCFCfg(theme);
+	_loadCFCfg();
 }
 
 typedef struct
@@ -1116,7 +1207,6 @@ SFont CMenu::_font(CMenu::FontSet &fontSet, const char *domain, const char *key,
 	if(filename.empty())
 		filename = m_theme.getString("GENERAL", genKey, genKey);
 	bool useDefault = filename == genKey;
-
 
 	for(u32 i = 0; i < 3; i++)
 	{
@@ -1145,7 +1235,7 @@ SFont CMenu::_font(CMenu::FontSet &fontSet, const char *domain, const char *key,
 		fontSet[CMenu::FontDesc(upperCase(filename.c_str()), fonts[0].res)] = retFont;
 		return retFont;
 	}
-	if(!m_base_font) _loadDefaultFont(CONF_GetLanguage() == CONF_LANG_KOREAN);
+	/* Fallback to default font */
 	if(retFont.fromBuffer(m_base_font, m_base_font_size, fonts[0].res, fonts[1].res, fonts[2].res, index))
 	{
 		// Default font
@@ -1155,7 +1245,7 @@ SFont CMenu::_font(CMenu::FontSet &fontSet, const char *domain, const char *key,
 	return retFont;
 }
 
-vector<STexture> CMenu::_textures(TexSet &texSet, const char *domain, const char *key)
+vector<STexture> CMenu::_textures(const char *domain, const char *key)
 {
 	vector<STexture> textures;
 
@@ -1166,17 +1256,14 @@ vector<STexture> CMenu::_textures(TexSet &texSet, const char *domain, const char
 		{
 			for (vector<string>::iterator itr = filenames.begin(); itr != filenames.end(); itr++)
 			{
-				string filename = *itr;
-
-				CMenu::TexSet::iterator i = texSet.find(filename);
-				if (i != texSet.end())
-				{
+				const string &filename = *itr;
+				TexSet::iterator i = theme.texSet.find(filename);
+				if (i != theme.texSet.end())
 					textures.push_back(i->second);
-				}
 				STexture tex;
-				if (STexture::TE_OK == tex.fromImageFile(fmt("%s/%s", m_themeDataDir.c_str(), filename.c_str())))
+				if(tex.fromImageFile(fmt("%s/%s", m_themeDataDir.c_str(), filename.c_str())) == TE_OK)
 				{
-					texSet[filename] = tex;
+					theme.texSet[filename] = tex;
 					textures.push_back(tex);
 				}
 			}
@@ -1185,67 +1272,73 @@ vector<STexture> CMenu::_textures(TexSet &texSet, const char *domain, const char
 	return textures;
 }
 
-STexture CMenu::_texture(CMenu::TexSet &texSet, const char *domain, const char *key, STexture def)
+STexture CMenu::_texture(const char *domain, const char *key, STexture &def, bool freeDef)
 {
 	string filename;
 
-	if (m_theme.loaded())
+	if(m_theme.loaded())
 	{
+		/* Load from theme */
 		filename = m_theme.getString(domain, key);
-		if (!filename.empty())
+		if(!filename.empty())
 		{
-			CMenu::TexSet::iterator i = texSet.find(filename);
-			if (i != texSet.end())
+			TexSet::iterator i = theme.texSet.find(filename);
+			if(i != theme.texSet.end())
 				return i->second;
-
+			/* Load from image file */
 			STexture tex;
-			if (STexture::TE_OK == tex.fromImageFile(fmt("%s/%s", m_themeDataDir.c_str(), filename.c_str())))
+			if(tex.fromImageFile(fmt("%s/%s", m_themeDataDir.c_str(), filename.c_str())) == TE_OK)
 			{
-				def.data.release();
-				texSet[filename] = tex;
+				if(freeDef && def.data != NULL)
+				{
+					free(def.data);
+					def.data = NULL;
+				}
+				theme.texSet[filename] = tex;
 				return tex;
 			}
 		}
 	}
-	texSet[filename] = def;
+	/* Fallback to default */
+	theme.texSet[filename] = def;
 	return def;
 }
 
 // Only for loading defaults and GENERAL domains!!
-SmartGuiSound CMenu::_sound(CMenu::SoundSet &soundSet, const char *domain, const char *key, const u8 * snd, u32 len, string name, bool isAllocated)
+GuiSound *CMenu::_sound(CMenu::SoundSet &soundSet, const char *domain, const char *key, const u8 * snd, u32 len, const char *name, bool isAllocated)
 {
-	string filename = m_theme.getString(domain, key, "");
-	if (filename.empty()) filename = name;
+	const char *filename = m_theme.getString(domain, key, "").c_str();
+	if(filename == NULL || filename[0] == '\0')
+		filename = name;
 
-	CMenu::SoundSet::iterator i = soundSet.find(upperCase(filename.c_str()));
-	if (i == soundSet.end())
+	CMenu::SoundSet::iterator i = soundSet.find(upperCase(name));
+	if(i == soundSet.end())
 	{
-		if(strncmp(filename.c_str(), name.c_str(), name.size()) != 0)
-			soundSet[upperCase(filename.c_str())] = SmartGuiSound(new GuiSound(fmt("%s/%s", m_themeDataDir.c_str(), filename.c_str())));
+		if(filename != name)
+			soundSet[upperCase(filename)] = new GuiSound(fmt("%s/%s", m_themeDataDir.c_str(), filename));
 		else
-			soundSet[upperCase(filename.c_str())] = SmartGuiSound(new GuiSound(snd, len, filename, isAllocated));
-
-		return soundSet[upperCase(filename.c_str())];
+			soundSet[upperCase(filename)] = new GuiSound(snd, len, filename, isAllocated);
+		return soundSet[upperCase(filename)];
 	}
 	return i->second;
 }
 
 //For buttons and labels only!!
-SmartGuiSound CMenu::_sound(CMenu::SoundSet &soundSet, const char *domain, const char *key, string name)
+GuiSound *CMenu::_sound(CMenu::SoundSet &soundSet, const char *domain, const char *key, const char *name)
 {
-	string filename = m_theme.getString(domain, key);
-	if (filename.empty())
+	const char *filename = m_theme.getString(domain, key).c_str();
+	if(filename == NULL || filename[0] == '\0')
 	{
-		if(name.find_last_of('/') != string::npos)
-			name = name.substr(name.find_last_of('/')+1);
-		return soundSet[upperCase(name.c_str())];  // General/Default are already cached!
+		if(strrchr(name, '/') != NULL)
+			name = strrchr(name, '/') + 1;
+		return soundSet[upperCase(name)];  // General/Default are already cached!
 	}
 
-	CMenu::SoundSet::iterator i = soundSet.find(upperCase(filename.c_str()));
-	if (i == soundSet.end())
+	SoundSet::iterator i = soundSet.find(upperCase(filename));
+	if(i == soundSet.end())
 	{
-		soundSet[upperCase(filename.c_str())] = SmartGuiSound(new GuiSound(fmt("%s/%s", m_themeDataDir.c_str(), filename.c_str())));
-		return soundSet[upperCase(filename.c_str())];
+		soundSet[upperCase(filename)] = new GuiSound(fmt("%s/%s", m_themeDataDir.c_str(), filename));
+		return soundSet[upperCase(filename)];
 	}
 	return i->second;
 }
@@ -1271,7 +1364,7 @@ u16 CMenu::_textStyle(const char *domain, const char *key, u16 def)
 	return textStyle;
 }
 
-s16 CMenu::_addButton(CMenu::SThemeData &theme, const char *domain, SFont font, const wstringEx &text, int x, int y, u32 width, u32 height, const CColor &color)
+s16 CMenu::_addButton(const char *domain, SFont font, const wstringEx &text, int x, int y, u32 width, u32 height, const CColor &color)
 {
 	SButtonTextureSet btnTexSet;
 	CColor c(color);
@@ -1281,28 +1374,28 @@ s16 CMenu::_addButton(CMenu::SThemeData &theme, const char *domain, SFont font, 
 	y = m_theme.getInt(domain, "y", y);
 	width = m_theme.getInt(domain, "width", width);
 	height = m_theme.getInt(domain, "height", height);
-	btnTexSet.left = _texture(theme.texSet, domain, "texture_left", theme.btnTexL);
-	btnTexSet.right = _texture(theme.texSet, domain, "texture_right", theme.btnTexR);
-	btnTexSet.center = _texture(theme.texSet, domain, "texture_center", theme.btnTexC);
-	btnTexSet.leftSel = _texture(theme.texSet, domain, "texture_left_selected", theme.btnTexLS);
-	btnTexSet.rightSel = _texture(theme.texSet, domain, "texture_right_selected", theme.btnTexRS);
-	btnTexSet.centerSel = _texture(theme.texSet, domain, "texture_center_selected", theme.btnTexCS);
+	btnTexSet.left = _texture(domain, "texture_left", theme.btnTexL, false);
+	btnTexSet.right = _texture(domain, "texture_right", theme.btnTexR, false);
+	btnTexSet.center = _texture(domain, "texture_center", theme.btnTexC, false);
+	btnTexSet.leftSel = _texture(domain, "texture_left_selected", theme.btnTexLS, false);
+	btnTexSet.rightSel = _texture(domain, "texture_right_selected", theme.btnTexRS, false);
+	btnTexSet.centerSel = _texture(domain, "texture_center_selected", theme.btnTexCS, false);
 
 	font = _font(theme.fontSet, domain, "font", BUTTONFONT);
 
-	SmartGuiSound clickSound = _sound(theme.soundSet, domain, "click_sound", theme.clickSound->GetName());
-	SmartGuiSound hoverSound = _sound(theme.soundSet, domain, "hover_sound", theme.hoverSound->GetName());
-	
+	GuiSound *clickSound = _sound(theme.soundSet, domain, "click_sound", theme.clickSound->GetName());
+	GuiSound *hoverSound = _sound(theme.soundSet, domain, "hover_sound", theme.hoverSound->GetName());
+
 	u16 btnPos = _textStyle(domain, "elmstyle", FTGX_JUSTIFY_LEFT | FTGX_ALIGN_TOP);
 	if (btnPos & FTGX_JUSTIFY_RIGHT)
 		x = m_vid.width() - x - width;
 	if (btnPos & FTGX_ALIGN_BOTTOM)
 		y = m_vid.height() - y - height;
-	
+
 	return m_btnMgr.addButton(font, text, x, y, width, height, c, btnTexSet, clickSound, hoverSound);
 }
 
-s16 CMenu::_addSelButton(CMenu::SThemeData &theme, const char *domain, SFont font, const wstringEx &text, int x, int y, u32 width, u32 height, const CColor &color)
+s16 CMenu::_addSelButton(const char *domain, SFont font, const wstringEx &text, int x, int y, u32 width, u32 height, const CColor &color)
 {
 	SButtonTextureSet btnTexSet;
 	CColor c(color);
@@ -1312,37 +1405,37 @@ s16 CMenu::_addSelButton(CMenu::SThemeData &theme, const char *domain, SFont fon
 	y = m_theme.getInt(domain, "y", y);
 	width = m_theme.getInt(domain, "width", width);
 	height = m_theme.getInt(domain, "height", height);
-	btnTexSet.left = _texture(theme.texSet, domain, "texture_left", theme.btnTexLH);
-	btnTexSet.right = _texture(theme.texSet, domain, "texture_right", theme.btnTexRH);
-	btnTexSet.center = _texture(theme.texSet, domain, "texture_center", theme.btnTexCH);
-	btnTexSet.leftSel = _texture(theme.texSet, domain, "texture_left_selected", theme.btnTexLSH);
-	btnTexSet.rightSel = _texture(theme.texSet, domain, "texture_right_selected", theme.btnTexRSH);
-	btnTexSet.centerSel = _texture(theme.texSet, domain, "texture_center_selected", theme.btnTexCSH);
-	
+	btnTexSet.left = _texture(domain, "texture_left", theme.btnTexLH, false);
+	btnTexSet.right = _texture(domain, "texture_right", theme.btnTexRH, false);
+	btnTexSet.center = _texture(domain, "texture_center", theme.btnTexCH, false);
+	btnTexSet.leftSel = _texture(domain, "texture_left_selected", theme.btnTexLSH, false);
+	btnTexSet.rightSel = _texture(domain, "texture_right_selected", theme.btnTexRSH, false);
+	btnTexSet.centerSel = _texture(domain, "texture_center_selected", theme.btnTexCSH, false);
+
 	font = _font(theme.fontSet, domain, "font", BUTTONFONT);
 
-	SmartGuiSound clickSound = _sound(theme.soundSet, domain, "click_sound", theme.clickSound->GetName());
-	SmartGuiSound hoverSound = _sound(theme.soundSet, domain, "hover_sound", theme.hoverSound->GetName());
-	
+	GuiSound *clickSound = _sound(theme.soundSet, domain, "click_sound", theme.clickSound->GetName());
+	GuiSound *hoverSound = _sound(theme.soundSet, domain, "hover_sound", theme.hoverSound->GetName());
+
 	u16 btnPos = _textStyle(domain, "elmstyle", FTGX_JUSTIFY_LEFT | FTGX_ALIGN_TOP);
 	if (btnPos & FTGX_JUSTIFY_RIGHT)
 		x = m_vid.width() - x - width;
 	if (btnPos & FTGX_ALIGN_BOTTOM)
 		y = m_vid.height() - y - height;
-	
+
 	return m_btnMgr.addButton(font, text, x, y, width, height, c, btnTexSet, clickSound, hoverSound);
 }
 
-s16 CMenu::_addPicButton(CMenu::SThemeData &theme, const char *domain, STexture &texNormal, STexture &texSelected, int x, int y, u32 width, u32 height)
+s16 CMenu::_addPicButton(const char *domain, STexture &texNormal, STexture &texSelected, int x, int y, u32 width, u32 height)
 {
 	x = m_theme.getInt(domain, "x", x);
 	y = m_theme.getInt(domain, "y", y);
 	width = m_theme.getInt(domain, "width", width);
 	height = m_theme.getInt(domain, "height", height);
-	STexture tex1 = _texture(theme.texSet, domain, "texture_normal", texNormal);
-	STexture tex2 = _texture(theme.texSet, domain, "texture_selected", texSelected);
-	SmartGuiSound clickSound = _sound(theme.soundSet, domain, "click_sound", theme.clickSound->GetName());
-	SmartGuiSound hoverSound = _sound(theme.soundSet, domain, "hover_sound", theme.hoverSound->GetName());
+	STexture tex1 = _texture(domain, "texture_normal", texNormal, false);
+	STexture tex2 = _texture(domain, "texture_selected", texSelected, false);
+	GuiSound *clickSound = _sound(theme.soundSet, domain, "click_sound", theme.clickSound->GetName());
+	GuiSound *hoverSound = _sound(theme.soundSet, domain, "hover_sound", theme.hoverSound->GetName());
 
 	u16 btnPos = _textStyle(domain, "elmstyle", FTGX_JUSTIFY_LEFT | FTGX_ALIGN_TOP);
 	if (btnPos & FTGX_JUSTIFY_RIGHT)
@@ -1353,7 +1446,7 @@ s16 CMenu::_addPicButton(CMenu::SThemeData &theme, const char *domain, STexture 
 	return m_btnMgr.addPicButton(tex1, tex2, x, y, width, height, clickSound, hoverSound);
 }
 
-s16 CMenu::_addTitle(CMenu::SThemeData &theme, const char *domain, SFont font, const wstringEx &text, int x, int y, u32 width, u32 height, const CColor &color, s16 style)
+s16 CMenu::_addTitle(const char *domain, SFont font, const wstringEx &text, int x, int y, u32 width, u32 height, const CColor &color, s16 style)
 {
 	CColor c(color);
 
@@ -1374,7 +1467,7 @@ s16 CMenu::_addTitle(CMenu::SThemeData &theme, const char *domain, SFont font, c
 	return m_btnMgr.addLabel(font, text, x, y, width, height, c, style);
 }
 
-s16 CMenu::_addText(CMenu::SThemeData &theme, const char *domain, SFont font, const wstringEx &text, int x, int y, u32 width, u32 height, const CColor &color, s16 style)
+s16 CMenu::_addText(const char *domain, SFont font, const wstringEx &text, int x, int y, u32 width, u32 height, const CColor &color, s16 style)
 {
 	CColor c(color);
 
@@ -1395,7 +1488,7 @@ s16 CMenu::_addText(CMenu::SThemeData &theme, const char *domain, SFont font, co
 	return m_btnMgr.addLabel(font, text, x, y, width, height, c, style);
 }
 
-s16 CMenu::_addLabel(CMenu::SThemeData &theme, const char *domain, SFont font, const wstringEx &text, int x, int y, u32 width, u32 height, const CColor &color, s16 style)
+s16 CMenu::_addLabel(const char *domain, SFont font, const wstringEx &text, int x, int y, u32 width, u32 height, const CColor &color, s16 style)
 {
 	CColor c(color);
 
@@ -1416,7 +1509,7 @@ s16 CMenu::_addLabel(CMenu::SThemeData &theme, const char *domain, SFont font, c
 	return m_btnMgr.addLabel(font, text, x, y, width, height, c, style);
 }
 
-s16 CMenu::_addLabel(CMenu::SThemeData &theme, const char *domain, SFont font, const wstringEx &text, int x, int y, u32 width, u32 height, const CColor &color, s16 style, STexture &bg)
+s16 CMenu::_addLabel(const char *domain, SFont font, const wstringEx &text, int x, int y, u32 width, u32 height, const CColor &color, s16 style, STexture &bg)
 {
 	CColor c(color);
 
@@ -1426,7 +1519,7 @@ s16 CMenu::_addLabel(CMenu::SThemeData &theme, const char *domain, SFont font, c
 	width = m_theme.getInt(domain, "width", width);
 	height = m_theme.getInt(domain, "height", height);
 	font = _font(theme.fontSet, domain, "font", BUTTONFONT);
-	STexture texBg = _texture(theme.texSet, domain, "background_texture", bg);
+	STexture texBg = _texture(domain, "background_texture", bg, false);
 	style = _textStyle(domain, "style", style);
 
 	u16 btnPos = _textStyle(domain, "elmstyle", FTGX_JUSTIFY_LEFT | FTGX_ALIGN_TOP);
@@ -1438,7 +1531,7 @@ s16 CMenu::_addLabel(CMenu::SThemeData &theme, const char *domain, SFont font, c
 	return m_btnMgr.addLabel(font, text, x, y, width, height, c, style, texBg);
 }
 
-s16 CMenu::_addProgressBar(CMenu::SThemeData &theme, const char *domain, int x, int y, u32 width, u32 height)
+s16 CMenu::_addProgressBar(const char *domain, int x, int y, u32 width, u32 height)
 {
 	SButtonTextureSet btnTexSet;
 
@@ -1446,12 +1539,12 @@ s16 CMenu::_addProgressBar(CMenu::SThemeData &theme, const char *domain, int x, 
 	y = m_theme.getInt(domain, "y", y);
 	width = m_theme.getInt(domain, "width", width);
 	height = m_theme.getInt(domain, "height", height);
-	btnTexSet.left = _texture(theme.texSet, domain, "texture_left", theme.pbarTexL);
-	btnTexSet.right = _texture(theme.texSet, domain, "texture_right", theme.pbarTexR);
-	btnTexSet.center = _texture(theme.texSet, domain, "texture_center", theme.pbarTexC);
-	btnTexSet.leftSel = _texture(theme.texSet, domain, "texture_left_selected", theme.pbarTexLS);
-	btnTexSet.rightSel = _texture(theme.texSet, domain, "texture_right_selected", theme.pbarTexRS);
-	btnTexSet.centerSel = _texture(theme.texSet, domain, "texture_center_selected", theme.pbarTexCS);
+	btnTexSet.left = _texture(domain, "texture_left", theme.pbarTexL, false);
+	btnTexSet.right = _texture(domain, "texture_right", theme.pbarTexR, false);
+	btnTexSet.center = _texture(domain, "texture_center", theme.pbarTexC, false);
+	btnTexSet.leftSel = _texture(domain, "texture_left_selected", theme.pbarTexLS, false);
+	btnTexSet.rightSel = _texture(domain, "texture_right_selected", theme.pbarTexRS, false);
+	btnTexSet.centerSel = _texture(domain, "texture_center_selected", theme.pbarTexCS, false);
 
 	u16 btnPos = _textStyle(domain, "elmstyle", FTGX_JUSTIFY_LEFT | FTGX_ALIGN_TOP);
 	if (btnPos & FTGX_JUSTIFY_RIGHT)
@@ -1488,21 +1581,21 @@ void CMenu::_setHideAnim(s16 id, const char *domain, int dx, int dy, float scale
 	m_btnMgr.hide(id, dx, dy, scaleX, scaleY, true);
 }
 
-void CMenu::_addUserLabels(CMenu::SThemeData &theme, s16 *ids, u32 size, const char *domain)
+void CMenu::_addUserLabels(s16 *ids, u32 size, const char *domain)
 {
-	_addUserLabels(theme, ids, 0, size, domain);
+	_addUserLabels(ids, 0, size, domain);
 }
 
-void CMenu::_addUserLabels(CMenu::SThemeData &theme, s16 *ids, u32 start, u32 size, const char *domain)
+void CMenu::_addUserLabels(s16 *ids, u32 start, u32 size, const char *domain)
 {
 
 	for(u32 i = start; i < start + size; ++i)
 	{
-		string dom(sfmt("%s/USER%i", domain, i + 1));
+		string dom(fmt("%s/USER%i", domain, i + 1));
 		if (m_theme.hasDomain(dom))
 		{
 			STexture emptyTex;
-			ids[i] = _addLabel(theme, dom.c_str(), theme.lblFont, L"", 40, 200, 64, 64, CColor(0xFFFFFFFF), 0, emptyTex);
+			ids[i] = _addLabel(dom.c_str(), theme.lblFont, L"", 40, 200, 64, 64, CColor(0xFFFFFFFF), 0, emptyTex);
 			_setHideAnim(ids[i], dom.c_str(), -50, 0, 0.f, 0.f);
 		}
 		else
@@ -1516,8 +1609,8 @@ void CMenu::_initCF(void)
 	GameTDB gametdb;
 	const char *domain = _domainFromView();
 	
-	m_cf.clear();
-	m_cf.reserve(m_gameList.size());
+	CoverFlow.clear();
+	CoverFlow.reserve(m_gameList.size());
 	
 	const vector<bool> &EnabledPlugins = m_plugin.GetEnabledPlugins(m_cfg);
 
@@ -1529,17 +1622,15 @@ void CMenu::_initCF(void)
 	int ageLock = m_cfg.getInt("GENERAL", "age_lock");
 	if (ageLock < 2 || ageLock > 19)
 		ageLock = 19;
-
 	if (ageLock < 19)
 	{
 		gameAgeList.load(fmt("%s/" AGE_LOCK_FILENAME, m_settingsDir.c_str()));
 		if (m_current_view == COVERFLOW_USB || m_current_view == COVERFLOW_CHANNEL)
 		{
-			gametdb.OpenFile(sfmt("%s/wiitdb.xml", m_settingsDir.c_str()).c_str());
+			gametdb.OpenFile(fmt("%s/wiitdb.xml", m_settingsDir.c_str()));
 			gametdb.SetLanguageCode(m_loc.getString(m_curLanguage, "gametdb_code", "EN").c_str());
 		}
 	}
-	
 	// check for single plugin selected
 	u8 pos = 0;
 	u8 enabledPluginsCount = 0;
@@ -1556,18 +1647,17 @@ void CMenu::_initCF(void)
 			}
 		}
 	}
-
-	for (u32 i = 0; i < m_gameList.size(); ++i)
+	for(vector<dir_discHdr>::iterator element = m_gameList.begin(); element != m_gameList.end(); ++element)
 	{
 		string id;
-		string tempname(m_gameList[i].path);
-		u64 chantitle = TITLE_ID(m_gameList[i].settings[0],m_gameList[i].settings[1]);
-		if(m_gameList[i].type == TYPE_HOMEBREW)
+		string tempname = element->path;
+		u64 chantitle = TITLE_ID(element->settings[0],element->settings[1]);
+		if(element->type == TYPE_HOMEBREW)
 		{
 			tempname.assign(&tempname[tempname.find_last_of('/') + 1]);
 			id = tempname;
 		}
-		else if(m_gameList[i].type == TYPE_PLUGIN)
+		else if(element->type == TYPE_PLUGIN)
 		{
 			if(tempname.find(':') != string::npos)
 			{
@@ -1592,69 +1682,67 @@ void CMenu::_initCF(void)
 		}
 		else
 		{
-			if(m_gameList[i].type == TYPE_CHANNEL && chantitle == HBC_108)
-				strncpy(m_gameList[i].id, "JODI", 6);
-			id = string(m_gameList[i].id);
+			if(element->type == TYPE_CHANNEL && chantitle == HBC_108)
+				strncpy(element->id, "JODI", 6);
+			id = element->id;
 		}
-
 		bool ageLocked = false;
 		if (ageLock < 19)
 		{
 			int ageRated = min(max(gameAgeList.getInt(domain, id), 0), 19);
-
-			if(ageRated == 0 && (m_gameList[i].type == TYPE_WII_GAME || m_gameList[i].type == TYPE_CHANNEL))
+			if(ageRated == 0 && gametdb.IsLoaded() && (element->type == TYPE_WII_GAME || element->type == TYPE_CHANNEL))
 			{
-				GameXMLInfo gameinfo;
-				if(gametdb.IsLoaded() && gametdb.GetGameXMLInfo(id.c_str(), &gameinfo))
+				const char *RatingValue = NULL;
+				if(gametdb.GetRatingValue(id.c_str(), RatingValue))
 				{
-					switch(gameinfo.RatingType)
+					switch(gametdb.GetRating(id.c_str()))
 					{
 						case GAMETDB_RATING_TYPE_CERO:
-							if (gameinfo.RatingValue == "A")
+							if(RatingValue[0] == 'A')
 								ageRated = 3;
-							else if (gameinfo.RatingValue == "B")
+							else if(RatingValue[0] == 'B')
 								ageRated = 12;
-							else if (gameinfo.RatingValue == "D")
+							else if(RatingValue[0] == 'D')
 								ageRated = 15;
-							else if (gameinfo.RatingValue == "C")
+							else if(RatingValue[0] == 'C')
 								ageRated = 17;
-							else if (gameinfo.RatingValue == "Z")
+							else if(RatingValue[0] == 'Z')
 								ageRated = 18;
 							break;
 						case GAMETDB_RATING_TYPE_ESRB:
-							if (gameinfo.RatingValue == "E")
+							if(RatingValue[0] == 'E')
 								ageRated = 6;
-							else if (gameinfo.RatingValue == "EC")
+							else if(memcmp(RatingValue, "EC", 2) == 0)
 								ageRated = 3;
-							else if (gameinfo.RatingValue == "E10+")
+							else if(memcmp(RatingValue, "E10+", 4) == 0)
 								ageRated = 10;
-							else if (gameinfo.RatingValue == "T")
+							else if(RatingValue[0] == 'T')
 								ageRated = 13;
-							else if (gameinfo.RatingValue == "M")
+							else if(RatingValue[0] == 'M')
 								ageRated = 17;
-							else if (gameinfo.RatingValue == "AO")
+							else if(memcmp(RatingValue, "AO", 2) == 0)
 								ageRated = 18;
 							break;
 						case GAMETDB_RATING_TYPE_PEGI:
-							if (gameinfo.RatingValue == "3")
+							if(RatingValue[0] == '3')
 								ageRated = 3;
-							else if (gameinfo.RatingValue == "7")
+							else if(RatingValue[0] == '7')
 								ageRated = 7;
-							else if (gameinfo.RatingValue == "12")
+							else if(memcmp(RatingValue, "12", 2) == 0)
 								ageRated = 12;
-							else if (gameinfo.RatingValue == "16")
+							else if(memcmp(RatingValue, "16", 2) == 0)
 								ageRated = 16;
-							else if (gameinfo.RatingValue == "18")
+							else if(memcmp(RatingValue, "18", 2) == 0)
 								ageRated = 18;
 							break;
 						case GAMETDB_RATING_TYPE_GRB:
-							if (gameinfo.RatingValue == "A")
+							if(RatingValue[0] == 'A')
 								ageRated = 3;
-							else if (gameinfo.RatingValue == "12")
+							else if(memcmp(RatingValue, "12", 2) == 0)
 								ageRated = 12;
-							else if (gameinfo.RatingValue == "15")
+							else if(memcmp(RatingValue, "15", 2) == 0)
 								ageRated = 15;
-							else if (gameinfo.RatingValue == "18")
+							else if(memcmp(RatingValue, "18", 2) == 0)
 								ageRated = 18;
 							break;
 						default:
@@ -1669,33 +1757,32 @@ void CMenu::_initCF(void)
 			if(ageRated > ageLock)
 				ageLocked = true;
 		}
-
 		if((!m_favorites || m_gcfg1.getBool("FAVORITES", id, false))
 			&& (!m_locked || !m_gcfg1.getBool("ADULTONLY", id, false))
 			&& !ageLocked)
 		{
 			string catDomain;
-			switch(m_gameList[i].type)
+			switch(element->type)
 			{
 				case TYPE_CHANNEL:
-					catDomain = "NAND";
+					catDomain = CHANNEL_DOMAIN;
 					break;
 				case TYPE_HOMEBREW:
-					catDomain = "HOMEBREW";
+					catDomain = HOMEBREW_DOMAIN;
 					break;
 				case TYPE_GC_GAME:
-					catDomain = "DML";
+					catDomain = GC_DOMAIN;
 					break;
 				case TYPE_PLUGIN:
-					catDomain = "EMULATOR";
+					catDomain = PLUGIN_DOMAIN;
 					break;
 				default:
-					catDomain = "GAMES";
+					catDomain = WII_DOMAIN;
 			}
 			if(enabledPluginsCount == 1)
 			{
 				catDomain = (m_plugin.GetPluginName(pos)).toUTF8();
-				if(m_gameList[i].settings[0] != m_plugin.getPluginMagic(pos))
+				if(element->settings[0] != m_plugin.getPluginMagic(pos))
 					continue;
 			}
 			const char *requiredCats = m_cat.getString(fmt("%s/GENERAL", catDomain.c_str()), "required_categories").c_str();
@@ -1704,7 +1791,6 @@ void CMenu::_initCF(void)
 			u8 numReqCats = strlen(requiredCats);
 			u8 numSelCats = strlen(selectedCats);
 			u8 numHidCats = strlen(hiddenCats);
-			
 			if(numReqCats != 0 || numSelCats != 0 || numHidCats != 0) // if all 0 skip checking cats and show all games
 			{
 				const char *idCats = m_cat.getString(catDomain, id).c_str();
@@ -1774,40 +1860,62 @@ void CMenu::_initCF(void)
 			unsigned int lastPlayed = m_gcfg1.getUInt("LASTPLAYED", id, 0);
 
 			if(dumpGameLst)
-				dump.setWString(domain, id, m_gameList[i].title);
+				dump.setWString(domain, id, element->title);
 
-			if(m_gameList[i].type == TYPE_PLUGIN)
+			const char *blankCoverKey = NULL;
+			switch(element->type)
 			{
-				string tempname(m_gameList[i].path);
+				case TYPE_CHANNEL:
+					blankCoverKey = "channels";
+					break;
+				case TYPE_HOMEBREW:
+					blankCoverKey = "homebrew";
+					break;
+				case TYPE_GC_GAME:
+					blankCoverKey = "gamecube";
+					break;
+				case TYPE_PLUGIN:
+					char PluginMagicWord[9];
+					memset(PluginMagicWord, 0, sizeof(PluginMagicWord));
+					strncpy(PluginMagicWord, fmt("%08x", element->settings[0]), 8);
+					blankCoverKey = PluginMagicWord;
+					break;
+				default:
+					blankCoverKey = "wii";
+			}
+			const string &blankCoverName = m_theme.getString("BLANK_COVERS", blankCoverKey, fmt("%s.jpg", blankCoverKey));
+			if(element->type == TYPE_PLUGIN)
+			{
+				string tempname(element->path);
 				if(tempname.find_last_of("/") != string::npos)
 					tempname.assign(&tempname[tempname.find_last_of("/") + 1]);
-				string coverFolder(m_plugin.GetCoverFolderName(m_gameList[i].settings[0]));
+				string coverFolder(m_plugin.GetCoverFolderName(element->settings[0]));
 				if(EnabledPlugins.size() == 0) //all plugins
 				{
 					if(coverFolder.size() > 0)
-						m_cf.addItem(&m_gameList[i], fmt("%s/%s/%s.png", m_picDir.c_str(), coverFolder.c_str(), tempname.c_str()), fmt("%s/%s/%s.png", m_boxPicDir.c_str(), coverFolder.c_str(), tempname.c_str()), playcount, lastPlayed);
+						CoverFlow.addItem(&(*element), fmt("%s/%s/%s.png", m_picDir.c_str(), coverFolder.c_str(), tempname.c_str()), fmt("%s/%s/%s.png", m_boxPicDir.c_str(), coverFolder.c_str(), tempname.c_str()), fmt("%s/%s", m_boxPicDir.c_str(), blankCoverName.c_str()), playcount, lastPlayed);
 					else
-						m_cf.addItem(&m_gameList[i], fmt("%s/%s.png", m_picDir.c_str(), tempname.c_str()), fmt("%s/%s.png", m_boxPicDir.c_str(), tempname.c_str()), playcount, lastPlayed);
+						CoverFlow.addItem(&(*element), fmt("%s/%s.png", m_picDir.c_str(), tempname.c_str()), fmt("%s/%s.png", m_boxPicDir.c_str(), tempname.c_str()), fmt("%s/%s", m_boxPicDir.c_str(), blankCoverName.c_str()), playcount, lastPlayed);
 				}
 				else
 				{
 					for(u8 j = 0; j < EnabledPlugins.size(); j++)
 					{
-						if(EnabledPlugins.at(j) == true && m_gameList[i].settings[0] == m_plugin.getPluginMagic(j))
+						if(EnabledPlugins.at(j) == true && element->settings[0] == m_plugin.getPluginMagic(j))
 						{
 							if(coverFolder.size() > 0)
-								m_cf.addItem(&m_gameList[i], fmt("%s/%s/%s.png", m_picDir.c_str(), coverFolder.c_str(), tempname.c_str()), fmt("%s/%s/%s.png", m_boxPicDir.c_str(), coverFolder.c_str(), tempname.c_str()), playcount, lastPlayed);
+								CoverFlow.addItem(&(*element), fmt("%s/%s/%s.png", m_picDir.c_str(), coverFolder.c_str(), tempname.c_str()), fmt("%s/%s/%s.png", m_boxPicDir.c_str(), coverFolder.c_str(), tempname.c_str()), fmt("%s/%s", m_boxPicDir.c_str(), blankCoverName.c_str()), playcount, lastPlayed);
 							else
-								m_cf.addItem(&m_gameList[i], fmt("%s/%s.png", m_picDir.c_str(), tempname.c_str()), fmt("%s/%s.png", m_boxPicDir.c_str(), tempname.c_str()), playcount, lastPlayed);
+								CoverFlow.addItem(&(*element), fmt("%s/%s.png", m_picDir.c_str(), tempname.c_str()), fmt("%s/%s.png", m_boxPicDir.c_str(), tempname.c_str()), fmt("%s/%s", m_boxPicDir.c_str(), blankCoverName.c_str()), playcount, lastPlayed);
 							break;
 						}
 					}
 				}
 			}
-			else if(m_gameList[i].type == TYPE_HOMEBREW)
-				m_cf.addItem(&m_gameList[i], fmt("%s/icon.png", m_gameList[i].path), fmt("%s/%s.png", m_boxPicDir.c_str(), id.c_str()), playcount, lastPlayed);
+			else if(element->type == TYPE_HOMEBREW)
+				CoverFlow.addItem(&(*element), fmt("%s/icon.png", element->path), fmt("%s/%s.png", m_boxPicDir.c_str(), id.c_str()), fmt("%s/%s", m_boxPicDir.c_str(), blankCoverName.c_str()), playcount, lastPlayed);
 			else
-				m_cf.addItem(&m_gameList[i], fmt("%s/%s.png", m_picDir.c_str(), id.c_str()), fmt("%s/%s.png", m_boxPicDir.c_str(), id.c_str()), playcount, lastPlayed);
+				CoverFlow.addItem(&(*element), fmt("%s/%s.png", m_picDir.c_str(), id.c_str()), fmt("%s/%s.png", m_boxPicDir.c_str(), id.c_str()), fmt("%s/%s", m_boxPicDir.c_str(), blankCoverName.c_str()), playcount, lastPlayed);
 		}
 	}
 	m_gcfg1.unload();
@@ -1816,32 +1924,34 @@ void CMenu::_initCF(void)
 		dump.save(true);
 		m_cfg.setBool(domain, "dump_list", false);
 	}
- 	m_cf.setBoxMode(m_cfg.getBool("GENERAL", "box_mode", true));
-	m_cf.setCompression(m_cfg.getBool("GENERAL", "allow_texture_compression", true));
-	m_cf.setBufferSize(m_cfg.getInt("GENERAL", "cover_buffer", 20));
-	m_cf.setSorting((Sorting)m_cfg.getInt(domain, "sort", 0));
-	m_cf.setHQcover(m_cfg.getBool("GENERAL", "cover_use_hq", false));
-	if (m_curGameId.empty() || !m_cf.findId(m_curGameId.c_str(), true))
-		m_cf.findId(m_cfg.getString(domain, "current_item").c_str(), true);
-	m_cf.startCoverLoader();
+	CoverFlow.setBoxMode(m_cfg.getBool("GENERAL", "box_mode", true));
+	CoverFlow.setCompression(m_cfg.getBool("GENERAL", "allow_texture_compression", true));
+	CoverFlow.setBufferSize(m_cfg.getInt("GENERAL", "cover_buffer", 20));
+	CoverFlow.setSorting((Sorting)m_cfg.getInt(domain, "sort", 0));
+	CoverFlow.setHQcover(m_cfg.getBool("GENERAL", "cover_use_hq", false));
+
+	CoverFlow.start();
+	if (m_curGameId.empty() || !CoverFlow.findId(m_curGameId.c_str(), true))
+		CoverFlow.findId(m_cfg.getString(domain, "current_item").c_str(), true);
 }
 
 void CMenu::_mainLoopCommon(bool withCF, bool adjusting)
 {
 	if(withCF)
-		m_cf.tick();
+		CoverFlow.tick();
 	m_btnMgr.tick();
 	m_fa.tick();
-	m_cf.setFanartPlaying(m_fa.isLoaded());
-	m_cf.setFanartTextColor(m_fa.getTextColor(m_theme.getColor("_COVERFLOW", "font_color", CColor(0xFFFFFFFF))));
+	m_fa.hideCover() ? 	CoverFlow.hideCover() : CoverFlow.showCover();
+	CoverFlow.setFanartPlaying(m_fa.isLoaded());
+	CoverFlow.setFanartTextColor(m_fa.getTextColor(m_theme.getColor("_COVERFLOW", "font_color", CColor(0xFFFFFFFF))));
 
+	m_vid.prepare();
+	m_vid.setup2DProjection(false, true);
 	_updateBg();
-
-	m_fa.hideCover() ? 	m_cf.hideCover() : m_cf.showCover();
-
+	if(CoverFlow.getRenderTex())
+		CoverFlow.RenderTex();
 	if(withCF)
-		m_cf.makeEffectTexture(m_vid, m_lqBg);
-
+		CoverFlow.makeEffectTexture(m_lqBg);
 	if(withCF && m_aa > 0)
 	{
 		m_vid.setAA(m_aa, true);
@@ -1851,11 +1961,11 @@ void CMenu::_mainLoopCommon(bool withCF, bool adjusting)
 			m_vid.setup2DProjection(false, true);
 			_drawBg();
 			m_fa.draw(false);
-			m_cf.draw();
+			CoverFlow.draw();
 			m_vid.setup2DProjection(false, true);
-			m_cf.drawEffect();
+			CoverFlow.drawEffect();
 			if(!m_banner.GetSelectedGame())
-				m_cf.drawText(adjusting);
+				CoverFlow.drawText(adjusting);
 			m_vid.renderAAPass(i);
 		}
 		m_vid.setup2DProjection();
@@ -1863,17 +1973,16 @@ void CMenu::_mainLoopCommon(bool withCF, bool adjusting)
 	}
 	else
 	{
-		m_vid.prepare();
 		m_vid.setup2DProjection();
 		_drawBg();
 		m_fa.draw(false);
 		if(withCF)
 		{
-			m_cf.draw();
+			CoverFlow.draw();
 			m_vid.setup2DProjection();
-			m_cf.drawEffect();
+			CoverFlow.drawEffect();
 			if(!m_banner.GetSelectedGame())
-				m_cf.drawText(adjusting);
+				CoverFlow.drawText(adjusting);
 		}
 	}
 	if(m_fa.isLoaded())
@@ -1889,7 +1998,7 @@ void CMenu::_mainLoopCommon(bool withCF, bool adjusting)
 	if(Sys_Exiting())
 		exitHandler(BUTTON_CALLBACK);
 
-	if(withCF && m_gameSelected && m_gamesound_changed && (m_gameSoundHdr == NULL) && !m_gameSound.IsPlaying() && MusicPlayer.GetVolume() == 0)
+	if(withCF && m_gameSelected && m_gamesound_changed && !m_soundThrdBusy && !m_gameSound.IsPlaying() && MusicPlayer.GetVolume() == 0)
 	{
 		CheckGameSoundThread();
 		m_gameSound.Play(m_bnrSndVol);
@@ -1925,8 +2034,8 @@ void CMenu::_mainLoopCommon(bool withCF, bool adjusting)
 		strftime(buffer,80,"%b-%d-20%y-%Hh%Mm%Ss.png",timeinfo);
 		gprintf("Screenshot taken and saved to: %s/%s\n", m_screenshotDir.c_str(), buffer);
 		m_vid.TakeScreenshot(fmt("%s/%s", m_screenshotDir.c_str(), buffer));
-		if(!!m_cameraSound)
-			m_cameraSound->Play(255);
+		if(theme.cameraSound != NULL)
+			theme.cameraSound->Play(255);
 	}
 
 #ifdef SHOWMEM
@@ -1951,10 +2060,12 @@ void CMenu::_mainLoopCommon(bool withCF, bool adjusting)
 
 void CMenu::_setBg(const STexture &tex, const STexture &lqTex)
 {
-	m_lqBg = lqTex;
-	if (tex.data.get() == m_nextBg.data.get()) return;
-	m_prevBg = m_curBg;
-	m_nextBg = tex;
+	m_lqBg = &lqTex;
+	if(m_nextBg == &tex)
+		return;
+	m_prevBg.CopyTexture(m_curBg);
+	m_curBg.Cleanup();
+	m_nextBg = &tex;
 	m_bgCrossFade = 0xFF;
 }
 
@@ -1963,30 +2074,22 @@ void CMenu::_updateBg(void)
 	Mtx modelViewMtx;
 	GXTexObj texObj;
 	GXTexObj texObj2;
-	Mtx44 projMtx;
 
 	if (m_bgCrossFade == 0) return;
 	m_bgCrossFade = max(0, (int)m_bgCrossFade - 14);
-	if (m_bgCrossFade == 0)
+	if(m_bgCrossFade == 0 && m_nextBg != NULL)
 	{
-		m_curBg = m_nextBg;
+		m_curBg.CopyTexture(*m_nextBg);
 		return;
 	}
-	if (m_curBg.data.get() == m_prevBg.data.get())
-		m_curBg.data.release();
-
-	m_vid.prepare();
-	GX_SetViewport(0.f, 0.f, 640.f, 480.f, 0.f, 1.f);
-	guOrtho(projMtx, 0.f, 480.f, 0.f, 640.f, 0.f, 1000.0f);
-	GX_LoadProjectionMtx(projMtx, GX_ORTHOGRAPHIC);
 	GX_ClearVtxDesc();
-	GX_SetNumTevStages(!m_prevBg.data ? 1 : 2);
+	GX_SetNumTevStages(m_prevBg.data == NULL ? 1 : 2);
 	GX_SetNumChans(0);
 	GX_SetVtxDesc(GX_VA_POS, GX_DIRECT);
 	GX_SetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
 	GX_SetVtxDesc(GX_VA_TEX0, GX_DIRECT);
 	GX_SetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_TEX_ST, GX_F32, 0);
-	GX_SetNumTexGens(!m_prevBg.data ? 1 : 2);
+	GX_SetNumTexGens(m_prevBg.data == NULL ? 1 : 2);
 	GX_SetTexCoordGen(GX_TEXCOORD0, GX_TG_MTX2x4, GX_TG_TEX0, GX_IDENTITY);
 	GX_SetTexCoordGen(GX_TEXCOORD1, GX_TG_MTX2x4, GX_TG_TEX0, GX_IDENTITY);
 	GX_SetTevKColor(GX_KCOLOR0, CColor(m_bgCrossFade, 0xFF - m_bgCrossFade, 0, 0));
@@ -2008,11 +2111,14 @@ void CMenu::_updateBg(void)
 	GX_SetZMode(GX_DISABLE, GX_ALWAYS, GX_FALSE);
 	guMtxIdentity(modelViewMtx);
 	GX_LoadPosMtxImm(modelViewMtx, GX_PNMTX0);
-	GX_InitTexObj(&texObj, m_nextBg.data.get(), m_nextBg.width, m_nextBg.height, m_nextBg.format, GX_CLAMP, GX_CLAMP, GX_FALSE);
-	GX_LoadTexObj(&texObj, GX_TEXMAP0);
-	if (!!m_prevBg.data)
+	if(m_nextBg != NULL && m_nextBg->data != NULL)
 	{
-		GX_InitTexObj(&texObj2, m_prevBg.data.get(), m_prevBg.width, m_prevBg.height, m_prevBg.format, GX_CLAMP, GX_CLAMP, GX_FALSE);
+		GX_InitTexObj(&texObj, m_nextBg->data, m_nextBg->width, m_nextBg->height, m_nextBg->format, GX_CLAMP, GX_CLAMP, GX_FALSE);
+		GX_LoadTexObj(&texObj, GX_TEXMAP0);
+	}
+	if(m_prevBg.data != NULL)
+	{
+		GX_InitTexObj(&texObj2, m_prevBg.data, m_prevBg.width, m_prevBg.height, m_prevBg.format, GX_CLAMP, GX_CLAMP, GX_FALSE);
 		GX_LoadTexObj(&texObj2, GX_TEXMAP1);
 	}
 	GX_Begin(GX_QUADS, GX_VTXFMT0, 4);
@@ -2031,9 +2137,9 @@ void CMenu::_updateBg(void)
 	m_curBg.format = GX_TF_RGBA8;
 	m_curBg.maxLOD = 0;
 	m_vid.renderToTexture(m_curBg, true);
-	if (!m_curBg.data)
+	if(m_curBg.data == NULL && m_nextBg != NULL)
 	{
-		m_curBg = m_nextBg;
+		m_curBg.CopyTexture(*m_nextBg);
 		m_bgCrossFade = 0;
 	}
 }
@@ -2063,7 +2169,7 @@ void CMenu::_drawBg(void)
 	GX_SetZMode(GX_DISABLE, GX_ALWAYS, GX_FALSE);
 	guMtxIdentity(modelViewMtx);
 	GX_LoadPosMtxImm(modelViewMtx, GX_PNMTX0);
-	GX_InitTexObj(&texObj, m_curBg.data.get(), m_curBg.width, m_curBg.height, m_curBg.format, GX_CLAMP, GX_CLAMP, GX_FALSE);
+	GX_InitTexObj(&texObj, m_curBg.data, m_curBg.width, m_curBg.height, m_curBg.format, GX_CLAMP, GX_CLAMP, GX_FALSE);
 	GX_LoadTexObj(&texObj, GX_TEXMAP0);
 	GX_Begin(GX_QUADS, GX_VTXFMT0, 4);
 	GX_Position3f32(0.f, 0.f, 0.f);
@@ -2108,11 +2214,11 @@ bool CMenu::_loadChannelList(void)
 	string emuPath;	
 	int emuPartition = -1;
 
-	bool disable_emu = (m_cfg.getBool("NAND", "disable", true) || neek2o());
+	bool disable_emu = (m_cfg.getBool(CHANNEL_DOMAIN, "disable", true) || neek2o());
 
 	if(!disable_emu)
 	{
-		m_partRequest = m_cfg.getInt("NAND", "partition", 1);
+		m_partRequest = m_cfg.getInt(CHANNEL_DOMAIN, "partition", 1);
 		emuPartition = _FindEmuPart(&emuPath, m_partRequest, false);
 	
 		if(emuPartition < 0)
@@ -2128,13 +2234,13 @@ bool CMenu::_loadChannelList(void)
 	{
 		char basepath[64];
 		snprintf(basepath, sizeof(basepath), "%s:%s", DeviceName[currentPartition], emuPath.c_str());
-		NandHandle.PreNandCfg(basepath, m_cfg.getBool("NAND", "real_nand_miis", false), m_cfg.getBool("NAND", "real_nand_config", false));
+		NandHandle.PreNandCfg(basepath, m_cfg.getBool(CHANNEL_DOMAIN, "real_nand_miis", false), m_cfg.getBool(CHANNEL_DOMAIN, "real_nand_config", false));
 	}
 	NandHandle.Disable_Emu();
 	if(!disable_emu)
 	{
 		MusicPlayer.Stop();
-		_TempLoadIOS();
+		TempLoadIOS();
 		DeviceHandle.UnMount(currentPartition);
 		NandHandle.SetPaths(emuPath.c_str(), currentPartition, disable_emu);
 		if(NandHandle.Enable_Emu() < 0)
@@ -2155,15 +2261,15 @@ bool CMenu::_loadChannelList(void)
 
 bool CMenu::_loadList(void)
 {
-	m_cf.clear();
-	if((m_current_view == COVERFLOW_CHANNEL && m_cfg.getBool("NAND", "disable", true))
+	CoverFlow.clear();
+	if((m_current_view == COVERFLOW_CHANNEL && m_cfg.getBool(CHANNEL_DOMAIN, "disable", true))
 	|| (m_current_view != COVERFLOW_CHANNEL && NandHandle.EmulationEnabled()))
 	{
 		MusicPlayer.Stop();
 		NandHandle.Disable_Emu();
-		_TempLoadIOS(IOS_TYPE_NORMAL_IOS);
+		TempLoadIOS(IOS_TYPE_NORMAL_IOS);
 	}
-	gprintf("Switching Views\n");
+	gprintf("Switching View to %s\n", _domainFromView());
 
 	bool retval;
 	switch(m_current_view)
@@ -2192,14 +2298,15 @@ bool CMenu::_loadList(void)
 
 bool CMenu::_loadGameList(void)
 {
-	currentPartition = m_cfg.getInt("GAMES", "partition", USB1);
+	currentPartition = m_cfg.getInt(WII_DOMAIN, "partition", USB1);
 	if(!DeviceHandle.IsInserted(currentPartition))
 		return false;
 
+	m_gameList.clear();
 	DeviceHandle.OpenWBFS(currentPartition);
 	string gameDir(fmt(GAMES_DIR, DeviceName[currentPartition]));
 	string cacheDir(fmt("%s/%s_wii.db", m_listCacheDir.c_str(), DeviceName[currentPartition]));
-	bool updateCache = m_cfg.getBool(_domainFromView(), "update_cache");
+	bool updateCache = m_cfg.getBool(WII_DOMAIN, "update_cache");
 	m_gameList.CreateList(m_current_view, currentPartition, gameDir, stringToVector(".wbfs|.iso", '|'), cacheDir, updateCache);
 	WBFS_Close();
 
@@ -2208,13 +2315,14 @@ bool CMenu::_loadGameList(void)
 
 bool CMenu::_loadHomebrewList()
 {
-	currentPartition = m_cfg.getInt("HOMEBREW", "partition", SD);
+	currentPartition = m_cfg.getInt(HOMEBREW_DOMAIN, "partition", SD);
 	if(!DeviceHandle.IsInserted(currentPartition))
 		return false;
 
+	m_gameList.clear();
 	string gameDir(fmt(HOMEBREW_DIR, DeviceName[currentPartition]));
 	string cacheDir(fmt("%s/%s_homebrew.db", m_listCacheDir.c_str(), DeviceName[currentPartition]));
-	bool updateCache = m_cfg.getBool(_domainFromView(), "update_cache");
+	bool updateCache = m_cfg.getBool(HOMEBREW_DOMAIN, "update_cache");
 	m_gameList.CreateList(m_current_view, currentPartition, gameDir, stringToVector(".dol|.elf", '|'), cacheDir, updateCache);
 
 	return m_gameList.size() > 0 ? true : false;
@@ -2222,13 +2330,14 @@ bool CMenu::_loadHomebrewList()
 
 bool CMenu::_loadDmlList()
 {
-	currentPartition = m_cfg.getInt("DML", "partition", USB1);
+	currentPartition = m_cfg.getInt(GC_DOMAIN, "partition", USB1);
 	if(!DeviceHandle.IsInserted(currentPartition))
 		return false;
 
+	m_gameList.clear();
 	string gameDir(fmt(currentPartition == SD ? DML_DIR : m_DMLgameDir.c_str(), DeviceName[currentPartition]));
 	string cacheDir(fmt("%s/%s_gamecube.db", m_listCacheDir.c_str(), DeviceName[currentPartition]));
-	bool updateCache = m_cfg.getBool(_domainFromView(), "update_cache");
+	bool updateCache = m_cfg.getBool(GC_DOMAIN, "update_cache");
 	m_gameList.CreateList(m_current_view, currentPartition, gameDir,
 			stringToVector(".iso|root", '|'),cacheDir, updateCache);
 
@@ -2244,10 +2353,10 @@ static void GrabINIFiles(char *FullPath)
 
 bool CMenu::_loadEmuList()
 {
-	currentPartition = m_cfg.getInt("EMULATOR", "partition", SD);
+	currentPartition = m_cfg.getInt(PLUGIN_DOMAIN, "partition", SD);
 	if(!DeviceHandle.IsInserted(currentPartition))
 		return false;
-	bool updateCache = m_cfg.getBool(_domainFromView(), "update_cache");
+	bool updateCache = m_cfg.getBool(PLUGIN_DOMAIN, "update_cache");
 
 	vector<dir_discHdr> emuList;
 	Config m_plugin_cfg;
@@ -2263,13 +2372,16 @@ bool CMenu::_loadEmuList()
 		if(m_plugin_cfg.loaded())
 		{
 			m_plugin.AddPlugin(m_plugin_cfg);
-			u32 MagicWord = strtoul(m_plugin_cfg.getString(PLUGIN_DOMAIN,"magic").c_str(), NULL, 16);
-			if(m_plugin_cfg.getString(PLUGIN_DOMAIN,"romDir").find("scummvm.ini") == string::npos)
+			const char *MagicNumber = m_plugin_cfg.getString(PLUGIN_INI_DEF,"magic").c_str();
+			if(!m_cfg.getBool("PLUGIN", MagicNumber, false))
+				continue;
+			u32 MagicWord = strtoul(MagicNumber, NULL, 16);	
+			if(m_plugin_cfg.getString(PLUGIN_INI_DEF,"romDir").find("scummvm.ini") == string::npos)
 			{
-				string gameDir(fmt("%s:/%s", DeviceName[currentPartition], m_plugin_cfg.getString(PLUGIN_DOMAIN,"romDir").c_str()));
-				string cacheDir(fmt("%s/%s_%s.db", m_listCacheDir.c_str(), DeviceName[currentPartition], m_plugin_cfg.getString(PLUGIN_DOMAIN,"magic").c_str()));
-				vector<string> FileTypes = stringToVector(m_plugin_cfg.getString(PLUGIN_DOMAIN,"fileTypes"), '|');
-				m_gameList.Color = strtoul(m_plugin_cfg.getString(PLUGIN_DOMAIN,"coverColor").c_str(), NULL, 16);
+				string gameDir(fmt("%s:/%s", DeviceName[currentPartition], m_plugin_cfg.getString(PLUGIN_INI_DEF,"romDir").c_str()));
+				string cacheDir(fmt("%s/%s_%s.db", m_listCacheDir.c_str(), DeviceName[currentPartition], m_plugin_cfg.getString(PLUGIN_INI_DEF,"magic").c_str()));
+				vector<string> FileTypes = stringToVector(m_plugin_cfg.getString(PLUGIN_INI_DEF,"fileTypes"), '|');
+				m_gameList.Color = strtoul(m_plugin_cfg.getString(PLUGIN_INI_DEF,"coverColor").c_str(), NULL, 16);
 				m_gameList.Magic = MagicWord;
 				m_gameList.CreateList(m_current_view, currentPartition, gameDir, FileTypes, cacheDir, updateCache);
 				for(vector<dir_discHdr>::iterator tmp_itr = m_gameList.begin(); tmp_itr != m_gameList.end(); tmp_itr++)
@@ -2316,11 +2428,11 @@ void CMenu::_stopSounds(void)
 		}
 	}
 	m_btnMgr.stopSounds();
-	m_cf.stopSound();
+	CoverFlow.stopSound();
 	m_gameSound.Stop();
 }
 
-bool CMenu::_loadFile(SmartBuf &buffer, u32 &size, const char *path, const char *file)
+bool CMenu::_loadFile(u8 * &buffer, u32 &size, const char *path, const char *file)
 {
 	size = 0;
 	FILE *fp = fopen(file == NULL ? path : fmt("%s/%s", path, file), "rb");
@@ -2330,24 +2442,24 @@ bool CMenu::_loadFile(SmartBuf &buffer, u32 &size, const char *path, const char 
 	fseek(fp, 0, SEEK_END);
 	u32 fileSize = ftell(fp);
 	fseek(fp, 0, SEEK_SET);
-	SmartBuf fileBuf = smartMem2Alloc(fileSize);
-	if (!fileBuf)
+	u8 *fileBuf = (u8*)MEM2_alloc(fileSize);
+	if (fileBuf == NULL)
 	{
 		fclose(fp);
 		return false;
 	}
-	if (fread(fileBuf.get(), 1, fileSize, fp) != fileSize)
+	if (fread(fileBuf, 1, fileSize, fp) != fileSize)
 	{
 		fclose(fp);
 		return false;
 	}
 	fclose(fp);
 
-	if(buffer.get())
-		buffer.release();
+	if(buffer != NULL)
+		free(buffer);
 	buffer = fileBuf;
 
-	size = fileSize;	
+	size = fileSize;
 	return true;
 }
 
@@ -2379,8 +2491,7 @@ void CMenu::_hideWaitMessage()
 
 void CMenu::_showWaitMessage()
 {
-	TexSet texSet;
-	m_vid.waitMessage(_textures(texSet, "GENERAL", "waitmessage"), m_theme.getFloat("GENERAL", "waitmessage_delay", 0.f));
+	m_vid.waitMessage(_textures("GENERAL", "waitmessage"), m_theme.getFloat("GENERAL", "waitmessage_delay", 0.f));
 }
 
 typedef struct map_entry
@@ -2389,68 +2500,59 @@ typedef struct map_entry
 	u8 sha1[20];
 } __attribute((packed)) map_entry_t;
 
-void CMenu::_loadDefaultFont(bool korean)
+void CMenu::loadDefaultFont(void)
 {
-	u32 size;
+	if(m_base_font != NULL)
+		return;
+
+	u32 size = 0;
 	bool retry = false;
+	bool korean = (CONF_GetLanguage() == CONF_LANG_KOREAN);
+	char ISFS_Filename[32] ATTRIBUTE_ALIGN(32);
 
 	// Read content.map from ISFS
-	u8 *content = ISFS_GetFile((u8 *) "/shared1/content.map", &size, 0);
+	strcpy(ISFS_Filename, "/shared1/content.map");
+	u8 *content = ISFS_GetFile(ISFS_Filename, &size, -1);
 	if(content == NULL)
 		return;
 
-	int items = size / sizeof(map_entry_t);
-
+	u32 items = size / sizeof(map_entry_t);
 	//gprintf("Open content.map, size %d, items %d\n", size, items);
+	map_entry_t *cm = (map_entry_t *)content;
 
-retry:	
+retry:
 	bool kor_font = (korean && !retry) || (!korean && retry);
-	map_entry_t *cm = (map_entry_t *) content;
-	for (int i = 0; i < items; i++)
+	for(u32 i = 0; i < items; i++)
 	{
-		if (memcmp(cm[i].sha1, kor_font ? WIIFONT_HASH_KOR : WIIFONT_HASH, 20) == 0)
+		if(m_base_font != NULL && m_wbf1_font != NULL && m_wbf2_font != NULL)
+			break;
+		if(memcmp(cm[i].sha1, kor_font ? WIIFONT_HASH_KOR : WIIFONT_HASH, 20) == 0 && m_base_font == NULL)
 		{
-			// Name found, load it and unpack it
-			char u8_font_filename[22] = {0};
-			strcpy(u8_font_filename, "/shared1/XXXXXXXX.app"); // Faster than sprintf
-			memcpy(u8_font_filename+9, cm[i].filename, 8);
-
-			u8 *u8_font_archive = ISFS_GetFile((u8 *) u8_font_filename, &size, 0);
-			//gprintf("Opened fontfile: %s: %d bytes\n", u8_font_filename, size);
-
+			sprintf(ISFS_Filename, "/shared1/%.8s.app", cm[i].filename);  //who cares about the few ticks more?
+			u8 *u8_font_archive = ISFS_GetFile(ISFS_Filename, &size, -1);
 			if(u8_font_archive != NULL)
 			{
 				const u8 *font_file = u8_get_file_by_index(u8_font_archive, 1, &size); // There is only one file in that app
 				//gprintf("Extracted font: %d\n", size);
-				if(m_base_font)
-					MEM1_lo_free(m_base_font);
 				m_base_font = (u8*)MEM1_lo_alloc(size);
 				memcpy(m_base_font, font_file, size);
 				DCFlushRange(m_base_font, size);
 				m_base_font_size = size;
 				free(u8_font_archive);
 			}
-			break;
 		}
-		else if(memcmp(cm[i].sha1, WFB_HASH, 20) == 0)
+		else if(memcmp(cm[i].sha1, WFB_HASH, 20) == 0 && m_wbf1_font == NULL && m_wbf2_font == NULL)
 		{
-			// Name found, load it and unpack it
-			char font_filename[32] ATTRIBUTE_ALIGN(32);
-			strcpy(font_filename, "/shared1/XXXXXXXX.app"); // Faster than sprintf
-			memcpy(font_filename+9, cm[i].filename, 8);
-			u8 *u8_font_archive = ISFS_GetFile((u8 *)font_filename, &size, 0);
+			sprintf(ISFS_Filename, "/shared1/%.8s.app", cm[i].filename);  //who cares about the few ticks more?
+			u8 *u8_font_archive = ISFS_GetFile(ISFS_Filename, &size, -1);
 			if(u8_font_archive != NULL)
 			{
 				const u8 *font_file1 = u8_get_file(u8_font_archive, "wbf1.brfna", &size);
-				if(m_wbf1_font)
-					MEM1_lo_free(m_wbf1_font);
 				m_wbf1_font = (u8*)MEM1_lo_alloc(size);
 				memcpy(m_wbf1_font, font_file1, size);
 				DCFlushRange(m_wbf1_font, size);
 	
 				const u8 *font_file2 = u8_get_file(u8_font_archive, "wbf2.brfna", &size);
-				if(m_wbf2_font)
-					MEM1_lo_free(m_wbf2_font);
 				m_wbf2_font = (u8*)MEM1_lo_alloc(size);
 				memcpy(m_wbf2_font, font_file2, size);
 				DCFlushRange(m_wbf2_font, size);
@@ -2459,32 +2561,33 @@ retry:
 			}
 		}
 	}
-
-	if (!retry)
+	if(!retry && m_base_font == NULL)
 	{
 		retry = true;
 		goto retry;
 	}
-
 	free(content);
 }
 
 void CMenu::_cleanupDefaultFont()
 {
 	MEM1_lo_free(m_base_font);
+	m_base_font = NULL;
 	m_base_font_size = 0;
 	MEM1_lo_free(m_wbf1_font);
+	m_wbf1_font = NULL;
 	MEM1_lo_free(m_wbf2_font);
+	m_wbf2_font = NULL;
 }
 
 string CMenu::_getId()
 {
 	string id;
-	if(!NoGameID(m_cf.getHdr()->type))
-		id = m_cf.getId();
+	if(!NoGameID(CoverFlow.getHdr()->type))
+		id = CoverFlow.getId();
 	else
 	{
-		dir_discHdr *hdr = m_cf.getHdr();
+		dir_discHdr *hdr = CoverFlow.getHdr();
 		string tempname(hdr->path);
 		if(hdr->type == TYPE_HOMEBREW)
 		{
@@ -2514,15 +2617,15 @@ const char *CMenu::_domainFromView()
 	switch(m_current_view)
 	{
 		case COVERFLOW_CHANNEL:
-			return "NAND";
+			return CHANNEL_DOMAIN;
 		case COVERFLOW_HOMEBREW:
-			return "HOMEBREW";
+			return HOMEBREW_DOMAIN;
 		case COVERFLOW_DML:
-			return "DML";
+			return GC_DOMAIN;
 		case COVERFLOW_PLUGIN:
-			return "EMULATOR";
+			return PLUGIN_DOMAIN;
 		default:
-			return "GAMES";
+			return WII_DOMAIN;
 	}
 	return "NULL";
 }
@@ -2543,19 +2646,19 @@ void CMenu::UpdateCache(u32 view)
 	switch(view)
 	{
 		case COVERFLOW_CHANNEL:
-			domain = "NAND";
+			domain = CHANNEL_DOMAIN;
 			break;
 		case COVERFLOW_HOMEBREW:
-			domain = "HOMEBREW";
+			domain = HOMEBREW_DOMAIN;
 			break;
 		case COVERFLOW_DML:
-			domain = "DML";
+			domain = GC_DOMAIN;
 			break;
 		case COVERFLOW_PLUGIN:
-			domain = "EMULATOR";
+			domain = PLUGIN_DOMAIN;
 			break;
 		default:
-			domain = "GAMES";
+			domain = WII_DOMAIN;
 	}
 
 	m_cfg.setBool(domain, "update_cache", true);
@@ -2564,7 +2667,9 @@ void CMenu::UpdateCache(u32 view)
 int CMenu::MIOSisDML()
 {
 	u32 size = 0;
-	u8 *appfile = ISFS_GetFile((u8*)"/title/00000001/00000101/content/0000000c.app", &size, 0);
+	char ISFS_Filename[ISFS_MAXPATH] ATTRIBUTE_ALIGN(32);
+	strcpy(ISFS_Filename, "/title/00000001/00000101/content/0000000c.app");
+	u8 *appfile = ISFS_GetFile(ISFS_Filename, &size, -1);
 	if(appfile)
 	{
 		for(u32 i = 0; i < size; ++i) 
@@ -2591,31 +2696,20 @@ int CMenu::MIOSisDML()
 	return 0;
 }
 
-void CMenu::RemoveCover( char * id )
+void CMenu::RemoveCover(const char *id)
 {
-	FILE *fp = fopen(fmt("%s/%s.png", m_boxPicDir.c_str(), id), "rb");		
-	if (fp != NULL)
-	{
-		fclose(fp);
-		remove(fmt("%s/%s.png", m_boxPicDir.c_str(), id));
-	}
-
-	fp = fopen(fmt("%s/%s.png", m_picDir.c_str(), id), "rb");		
-	if (fp != NULL)
-	{
-		fclose(fp);
-		remove(fmt("%s/%s.png", m_picDir.c_str(), id));
-	}
-
-	fp = fopen(fmt("%s/%s.wfc", m_cacheDir.c_str(), id), "rb");		
-	if (fp != NULL)
-	{
-		fclose(fp);
-		remove(fmt("%s/%s.wfc", m_cacheDir.c_str(), id));
-	}	
+	const char *CoverPath = NULL;
+	if(id == NULL)
+		return;
+	CoverPath = fmt("%s/%s.png", m_boxPicDir.c_str(), id);
+	fsop_deleteFile(CoverPath);
+	CoverPath = fmt("%s/%s.png", m_picDir.c_str(), id);
+	fsop_deleteFile(CoverPath);
+	CoverPath = fmt("%s/%s.wfc", m_cacheDir.c_str(), id);		
+	fsop_deleteFile(CoverPath);
 }
 
-void CMenu::_TempLoadIOS(int IOS)
+void CMenu::TempLoadIOS(int IOS)
 {
 	/* Only temp reload in IOS58 mode */
 	if(useMainIOS || neek2o() || Sys_DolphinMode())

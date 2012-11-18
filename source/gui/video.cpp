@@ -1,7 +1,8 @@
 
 #include <string.h>
 #include <unistd.h>
-
+#include <malloc.h>
+#include "memory/mem2.hpp"
 #include "video.hpp"
 #include "pngu.h"
 #include "Gekko.h"
@@ -79,7 +80,6 @@ const int CVideo::_stencilWidth = 128;
 const int CVideo::_stencilHeight = 128;
 
 static lwp_t waitThread = LWP_THREAD_NULL;
-SmartBuf waitThreadStack;
 
 CVideo m_vid;
 CVideo::CVideo(void) :
@@ -232,16 +232,21 @@ void CVideo::setup2DProjection(bool setViewPort, bool noScale)
 
 void CVideo::renderToTexture(STexture &tex, bool clear)
 {
-	if (!tex.data) tex.data = smartMem2Alloc(GX_GetTexBufferSize(tex.width, tex.height, tex.format, GX_FALSE, 0));
-	if (!tex.data) return;
+	if(tex.data == NULL)
+	{
+		tex.dataSize = GX_GetTexBufferSize(tex.width, tex.height, tex.format, GX_FALSE, 0);
+		tex.data = (u8*)MEM2_alloc(tex.dataSize);
+		if(tex.data == NULL)
+			return;
+	}
 	GX_DrawDone();
 	GX_SetCopyFilter(GX_FALSE, NULL, GX_FALSE, NULL);
 	GX_SetTexCopySrc(0, 0, tex.width, tex.height);
 	GX_SetTexCopyDst(tex.width, tex.height, tex.format, GX_FALSE);
-	GX_CopyTex(tex.data.get(), clear ? GX_TRUE : GX_FALSE);
+	GX_CopyTex(tex.data, clear ? GX_TRUE : GX_FALSE);
 	GX_PixModeSync();
 	GX_SetCopyFilter(m_rmode->aa, m_rmode->sample_pattern, GX_TRUE, m_rmode->vfilter);
-	DCFlushRange(tex.data.get(), GX_GetTexBufferSize(tex.width, tex.height, tex.format, GX_FALSE, 0));
+	DCFlushRange(tex.data, tex.dataSize);
 	GX_SetScissor(0, 0, m_rmode->fbWidth, m_rmode->efbHeight);
 }
 
@@ -269,19 +274,25 @@ void CVideo::cleanup(void)
 
 	for(u8 i = 0; i < sizeof m_aaBuffer / sizeof m_aaBuffer[0]; ++i)
 	{
-		if(m_aaBuffer[i].get())
-			m_aaBuffer[i].release();
+		if(m_aaBuffer[i])
+			free(m_aaBuffer[i]);
+		m_aaBuffer[i] = NULL;
 		m_aaBufferSize[i] = 0;
 	}
 	for(u8 i = 0; i < m_defaultWaitMessages.size(); i++)
-		m_defaultWaitMessages[i].data.release();
-	if(waitThreadStack.get())
-		waitThreadStack.release();
-
+	{
+		if(m_defaultWaitMessages[i].data != NULL)
+			free(m_defaultWaitMessages[i].data);
+		m_defaultWaitMessages[i].data = NULL;
+	}
 	free(MEM_K1_TO_K0(m_frameBuf[0]));
+	m_frameBuf[0] = NULL;
 	free(MEM_K1_TO_K0(m_frameBuf[1]));
+	m_frameBuf[1] = NULL;
 	free(m_stencil);
+	m_stencil = NULL;
 	free(m_fifo);
+	m_fifo = NULL;
 }
 
 void CVideo::prepareAAPass(int aaStep)
@@ -333,8 +344,8 @@ void CVideo::renderAAPass(int aaStep)
 
 	if (!m_aaBuffer[aaStep] || m_aaBufferSize[aaStep] < bufLen)
 	{
-		m_aaBuffer[aaStep] = smartMem2Alloc(bufLen);
-		if (!!m_aaBuffer[aaStep])
+		m_aaBuffer[aaStep] = (u8*)MEM2_alloc(bufLen);
+		if (m_aaBuffer[aaStep] != NULL)
 			m_aaBufferSize[aaStep] = bufLen;
 	}
 	if (!m_aaBuffer[aaStep] || m_aaBufferSize[aaStep] < bufLen)
@@ -344,7 +355,7 @@ void CVideo::renderAAPass(int aaStep)
 	GX_SetCopyFilter(GX_FALSE, NULL, GX_FALSE, NULL);
 	GX_SetTexCopySrc(0, 0, w, h);
 	GX_SetTexCopyDst(w, h, texFmt, GX_FALSE);
-	GX_CopyTex(m_aaBuffer[aaStep].get(), GX_TRUE);
+	GX_CopyTex(m_aaBuffer[aaStep], GX_TRUE);
 	GX_PixModeSync();
 	GX_SetCopyFilter(m_rmode->aa, m_rmode->sample_pattern, GX_TRUE, m_rmode->vfilter);
 }
@@ -374,7 +385,7 @@ void CVideo::drawAAScene(bool fs)
 	GX_SetNumChans(0);
 	for (int i = 0; i < aa; ++i)
 	{
-		GX_InitTexObj(&texObj[i], m_aaBuffer[i].get(), tw , th, texFmt, GX_CLAMP, GX_CLAMP, GX_FALSE);
+		GX_InitTexObj(&texObj[i], m_aaBuffer[i], tw , th, texFmt, GX_CLAMP, GX_CLAMP, GX_FALSE);
 		GX_LoadTexObj(&texObj[i], GX_TEXMAP0 + i);
 	}
 	GX_SetNumTexGens(1);
@@ -531,6 +542,7 @@ void CVideo::_showWaitMessages(CVideo *m)
 			if(waitItr + 1 == m->m_waitMessages.end() || waitItr == m->m_waitMessages.begin())
 				PNGfadeDirection *= (-1);
 			waitFrames = frames;
+			m->render();
 		}
 		else
 			VIDEO_WaitVSync();
@@ -549,7 +561,7 @@ void CVideo::hideWaitMessage()
 		if(LWP_ThreadIsSuspended(waitThread))
 			LWP_ResumeThread(waitThread);
 		while(m_showingWaitMessages)
-			usleep(100);
+			usleep(50);
 		LWP_JoinThread(waitThread, NULL);
 	}
 	waitThread = LWP_THREAD_NULL;
@@ -593,9 +605,7 @@ void CVideo::waitMessage(const vector<STexture> &tex, float delay)
 	else if(m_waitMessages.size() > 1)
 	{
 		m_showWaitMessage = true;
-		if(!waitThreadStack.get())
-			waitThreadStack = smartMem2Alloc(8192);
-		LWP_CreateThread(&waitThread, (void *(*)(void *))CVideo::_showWaitMessages, (void *)this, waitThreadStack.get(), 8192, LWP_PRIO_HIGHEST);
+		LWP_CreateThread(&waitThread, (void *(*)(void *))_showWaitMessages, (void *)this, NULL, 0, LWP_PRIO_HIGHEST);
 	}
 }
 
@@ -622,7 +632,7 @@ void CVideo::waitMessage(const STexture &tex)
 	GX_SetZMode(GX_DISABLE, GX_ALWAYS, GX_FALSE);
 	guMtxIdentity(modelViewMtx);
 	GX_LoadPosMtxImm(modelViewMtx, GX_PNMTX0);
-	GX_InitTexObj(&texObj, tex.data.get(), tex.width, tex.height, tex.format, GX_CLAMP, GX_CLAMP, GX_FALSE);
+	GX_InitTexObj(&texObj, tex.data, tex.width, tex.height, tex.format, GX_CLAMP, GX_CLAMP, GX_FALSE);
 	GX_LoadTexObj(&texObj, GX_TEXMAP0);
 	GX_Begin(GX_QUADS, GX_VTXFMT0, 4);
 	GX_Position3f32((float)((640 - tex.width) / 2), (float)((480 - tex.height) / 2), 0.f);
@@ -634,7 +644,6 @@ void CVideo::waitMessage(const STexture &tex)
 	GX_Position3f32((float)((640 - tex.width) / 2), (float)((480 + tex.height) / 2), 0.f);
 	GX_TexCoord2f32(0.f, 1.f);
 	GX_End();
-	render();
 }
 
 s32 CVideo::TakeScreenshot(const char *path)
@@ -643,4 +652,75 @@ s32 CVideo::TakeScreenshot(const char *path)
 	s32 ret = PNGU_EncodeFromYCbYCr(ctx, m_rmode->fbWidth, m_rmode->efbHeight, m_frameBuf[m_curFB], 1);
 	PNGU_ReleaseImageContext (ctx);
 	return ret;
+}
+
+void DrawTexture(STexture * &tex)
+{
+	if(tex == NULL)
+		return;
+	Mtx modelViewMtx;
+	GXTexObj texObj;
+
+	GX_SetNumChans(1);
+	GX_ClearVtxDesc();
+	GX_SetVtxDesc(GX_VA_POS, GX_DIRECT);
+	GX_SetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XY, GX_F32, 0);
+	GX_SetVtxDesc(GX_VA_CLR0, GX_DIRECT);
+	GX_SetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_CLR_RGBA, GX_RGBA8, 0);
+	GX_SetVtxDesc(GX_VA_TEX0, GX_DIRECT);
+	GX_SetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_TEX_ST, GX_F32, 0);
+	GX_SetNumTexGens(1);
+	GX_SetTevOp(GX_TEVSTAGE0, GX_MODULATE);
+	GX_SetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR0A0);
+	GX_SetTexCoordGen(GX_TEXCOORD0, GX_TG_MTX2x4, GX_TG_TEX0, GX_IDENTITY);
+	GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_CLEAR);
+	GX_SetAlphaUpdate(GX_TRUE);
+	GX_SetCullMode(GX_CULL_NONE);
+	GX_SetZMode(GX_DISABLE, GX_LEQUAL, GX_TRUE);
+	guMtxIdentity(modelViewMtx);
+	GX_LoadPosMtxImm(modelViewMtx, GX_PNMTX0);
+	GX_InitTexObj(&texObj, tex->data, tex->width, tex->height, tex->format, GX_CLAMP, GX_CLAMP, GX_FALSE);
+	GX_LoadTexObj(&texObj, GX_TEXMAP0);
+	GX_Begin(GX_QUADS, GX_VTXFMT0, 4);
+	GX_Position2f32(0.f, 0.f);
+	GX_Color4u8(0xFF, 0xFF, 0xFF, 0xFF);
+	GX_TexCoord2f32(0.f, 0.f);
+	GX_Position2f32(tex->width, 0.f);
+	GX_Color4u8(0xFF, 0xFF, 0xFF, 0xFF);
+	GX_TexCoord2f32(1.f, 0.f);
+	GX_Position2f32(tex->width, tex->height);
+	GX_Color4u8(0xFF, 0xFF, 0xFF, 0xFF);
+	GX_TexCoord2f32(1.f, 1.f);
+	GX_Position2f32(0.f, tex->height);
+	GX_Color4u8(0xFF, 0xFF, 0xFF, 0xFF);
+	GX_TexCoord2f32(0.f, 1.f);
+	GX_End();
+}
+
+void DrawRectangle(f32 x, f32 y, f32 width, f32 height, GXColor color)
+{
+	Mtx modelViewMtx;
+	guMtxIdentity(modelViewMtx);
+	GX_LoadPosMtxImm(modelViewMtx, GX_PNMTX0);
+
+	GX_SetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
+	GX_ClearVtxDesc();
+	GX_InvVtxCache();
+	GX_SetVtxDesc(GX_VA_POS, GX_DIRECT);
+	GX_SetVtxDesc(GX_VA_CLR0, GX_DIRECT);
+	GX_SetVtxDesc(GX_VA_TEX0, GX_NONE);
+
+	int i;
+	f32 x2 = x + width;
+	f32 y2 = y + height;
+	guVector v[] = { { x, y, 0.0f }, { x2, y, 0.0f }, { x2, y2, 0.0f }, { x, y2, 0.0f }, { x, y, 0.0f } };
+
+	GX_Begin(GX_TRIANGLEFAN, GX_VTXFMT0, 4);
+	for(i = 0; i < 4; i++)
+	{
+		GX_Position3f32(v[i].x, v[i].y, v[i].z);
+		GX_Color4u8(color.r, color.g, color.b, color.a);
+	}
+	GX_End();
+	GX_SetTevOp(GX_TEVSTAGE0, GX_MODULATE);
 }

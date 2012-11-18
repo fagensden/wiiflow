@@ -31,7 +31,7 @@ using namespace std;
 #define TAG_LOC			"{loc}"
 #define TAG_CONSOLE		"{console}"
 
-#define PLUGIN_DOMAIN	"PLUGIN"
+#define PLUGIN_INI_DEF	"PLUGIN"
 #define PLUGIN_DEV		"{device}"
 #define PLUGIN_PATH		"{path}"
 #define PLUGIN_NAME		"{name}"
@@ -54,10 +54,10 @@ class Plugin
 {
 public:
 	bool AddPlugin(Config &plugin);
-	u8* GetBannerSound(u32 magic);
+	u8 *GetBannerSound(u32 magic);
 	u32 GetBannerSoundSize();
-	char* GetDolName(u32 magic);
-	char* GetCoverFolderName(u32 magic);
+	const char *GetDolName(u32 magic);
+	const char *GetCoverFolderName(u32 magic);
 	string GenerateCoverLink(dir_discHdr gameHeader, const string& constURL, Config &Checksums);
 	wstringEx GetPluginName(u8 pos);
 	u32 getPluginMagic(u8 pos);
@@ -74,8 +74,12 @@ private:
 	s8 GetPluginPosition(u32 magic);
 	vector<PluginOptions> Plugins;
 	vector<bool> enabledPlugins;
+	char PluginMagicWord[9];
 	s8 Plugin_Pos;
 	string pluginsDir;
 	bool adding;
 };
+
+extern Plugin m_plugin;
+
 #endif

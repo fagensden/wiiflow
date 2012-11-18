@@ -31,12 +31,11 @@
 #include <stdio.h>
 #include <ogc/conf.h>
 #include <ogc/isfs.h>
-
+#include <malloc.h>
 #include "banner.h"
 #include "MD5.h"
 #include "gecko/gecko.h"
 #include "loader/fs.h"
-#include "memory/smartptr.hpp"
 #include "unzip/U8Archive.h"
 
 #define IMET_OFFSET			0x40
@@ -169,7 +168,7 @@ void Banner::GetBanner(u64 title, char *appname, bool isfs, bool imetOnly)
 	u32 size = 0;
 	if (isfs)
 	{
-		buf = ISFS_GetFile((u8 *)appname, &size, imetOnly ? sizeof(IMET) + IMET_OFFSET : 0);
+		buf = ISFS_GetFile(appname, &size, imetOnly ? sizeof(IMET) + IMET_OFFSET : 0);
 		if (size == 0) 
 		{
 			if(buf != NULL)

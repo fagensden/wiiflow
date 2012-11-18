@@ -1,5 +1,5 @@
 #define APP_NAME				"WiiFlow"
-#define APP_VERSION				"4.0.3"
+#define APP_VERSION				"4.0.4"
 
 #define APPDATA_DIR				"wiiflow"
 #define APPDATA_DIR2			"apps/wiiflow"
@@ -19,6 +19,12 @@
 #define GAME_SETTINGS1_FILENAME	"gameconfig1.ini"
 #define GAME_SETTINGS2_FILENAME	"gameconfig2.ini"
 #define PLUGIN_CRCS_FILENAME	"plugin_crc32.ini"
+
+#define WII_DOMAIN				"GAMES"
+#define GC_DOMAIN				"DML"
+#define CHANNEL_DOMAIN			"NAND"
+#define PLUGIN_DOMAIN			"EMULATOR"
+#define HOMEBREW_DOMAIN			"HOMEBREW"
 
 #define AGE_LOCK_DEFAULT		13
 

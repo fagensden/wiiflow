@@ -18,7 +18,7 @@ s16 m_categoryBtnCatReq[11];
 s16 m_categoryLblUser[4];
 STexture m_categoryBg;
 
-u8 m_categories[51];
+vector<char> m_categories;
 u8 curPage;
 u8 lastBtn;
 const char *catSettings;
@@ -114,17 +114,16 @@ void CMenu::_getIDCats(void)
 {
 	id = _getId();
 	const char *idCats = m_cat.getString(catDomain, id, "").c_str();
-	memset(&m_categories, '0', m_max_categories);
 	u8 numIdCats = strlen(idCats);
 	if(numIdCats != 0)
 	{
 		for(u8 j = 0; j < numIdCats; ++j)
 		{
 			int k = (static_cast<int>(idCats[j])) - 32;
-			m_categories[k] = '1';
+			m_categories.at(k) = '1';
 		}
 	}
-	m_btnMgr.setText(m_categoryLblTitle, m_cf.getTitle());
+	m_btnMgr.setText(m_categoryLblTitle, CoverFlow.getTitle());
 }
 
 void CMenu::_setIDCats(void)
@@ -132,7 +131,7 @@ void CMenu::_setIDCats(void)
 	string newIdCats = "";
 	for(int i = 1; i < m_max_categories; i++)
 	{
-		if(m_categories[i] == '1')
+		if(m_categories.at(i) == '1')
 		{
 			char cCh = static_cast<char>( i + 32);
 			newIdCats = newIdCats + cCh;
@@ -170,6 +169,8 @@ void CMenu::_CategorySettings(bool fromGameSet)
 		}
 	}
 	m_max_categories = m_cat.getInt(fmt("%s/GENERAL", catDomain.c_str()), "numcategories", 6);
+	m_categories.resize(m_max_categories, '0');
+	m_categories.assign(m_max_categories, '0');
 	if(fromGameSet)
 		_getIDCats();
 	else
@@ -180,14 +181,13 @@ void CMenu::_CategorySettings(bool fromGameSet)
 		u8 numReqCats = strlen(requiredCats);
 		u8 numSelCats = strlen(selectedCats);
 		u8 numHidCats = strlen(hiddenCats);
-		memset(&m_categories, '0', m_max_categories);
 		
 		if(numReqCats != 0)
 		{
 			for(u8 j = 0; j < numReqCats; ++j)
 			{
 				int k = (static_cast<int>(requiredCats[j])) - 32;
-				m_categories[k] = '3';
+				m_categories.at(k) = '3';
 			}
 		}
 		if(numSelCats != 0)
@@ -195,7 +195,7 @@ void CMenu::_CategorySettings(bool fromGameSet)
 			for(u8 j = 0; j < numSelCats; ++j)
 			{
 				int k = (static_cast<int>(selectedCats[j])) - 32;
-				m_categories[k] = '1';
+				m_categories.at(k) = '1';
 			}
 		}
 		if(numHidCats != 0)
@@ -203,7 +203,7 @@ void CMenu::_CategorySettings(bool fromGameSet)
 			for(u8 j = 0; j < numHidCats; ++j)
 			{
 				int k = (static_cast<int>(hiddenCats[j])) - 32;
-				m_categories[k] = '2';
+				m_categories.at(k) = '2';
 			}
 		}		
 		m_btnMgr.setText(m_categoryLblTitle, _t("cat1", L"Select Categories"));
@@ -213,7 +213,7 @@ void CMenu::_CategorySettings(bool fromGameSet)
 	while(!m_exit)
 	{
 		_mainLoopCommon();
-		m_cf.tick();
+		CoverFlow.tick();
 		if(!m_btnMgr.selected(lastBtn))
 			m_btnMgr.noHover(false);
 			
@@ -226,17 +226,17 @@ void CMenu::_CategorySettings(bool fromGameSet)
 				string newHidCats = "";
 				for(int i = 1; i < m_max_categories; i++)
 				{
-					if(m_categories[i] == '1')
+					if(m_categories.at(i) == '1')
 					{
 						char cCh = static_cast<char>( i + 32);
 						newSelCats = newSelCats + cCh;
 					}
-					else if(m_categories[i] == '2')
+					else if(m_categories.at(i) == '2')
 					{
 						char cCh = static_cast<char>( i + 32);
 						newHidCats = newHidCats + cCh;
 					}
-					else if(m_categories[i] == '3')
+					else if(m_categories.at(i) == '3')
 					{
 						char cCh = static_cast<char>( i + 32);
 						newReqCats = newReqCats + cCh;
@@ -260,8 +260,9 @@ void CMenu::_CategorySettings(bool fromGameSet)
 		{
 			_setIDCats();
 			_hideCategorySettings();
-			m_cf.right();
+			CoverFlow.right();
 			curPage = 1;
+			m_categories.assign(m_max_categories, '0');
 			_getIDCats();
 			_showCategorySettings();
 		}
@@ -269,8 +270,9 @@ void CMenu::_CategorySettings(bool fromGameSet)
 		{
 			_setIDCats();
 			_hideCategorySettings();
-			m_cf.left();
+			CoverFlow.left();
 			curPage = 1;
+			m_categories.assign(m_max_categories, '0');			
 			_getIDCats();
 			_showCategorySettings();
 		}
@@ -300,9 +302,9 @@ void CMenu::_CategorySettings(bool fromGameSet)
 		{
 			if(m_btnMgr.selected(m_categoryBtnClear))
 			{
-				m_categories[0] = '1';
+				m_categories.at(0) = '1';
 				for(int j = 1; j < m_max_categories; ++j)
-					m_categories[j] = '0';
+					m_categories.at(j) = '0';
 				_updateCheckboxes();
 			}
 			for(u8 i = 1; i < 11; ++i)
@@ -321,19 +323,19 @@ void CMenu::_CategorySettings(bool fromGameSet)
 					int j = i + ((curPage - 1) * 10);
 					if(fromGameSet)
 					{
-						m_categories[j] = m_categories[j] == '0' ? '1' : '0';
+						m_categories.at(j) = m_categories.at(j) == '0' ? '1' : '0';
 					}
 					else
 					{
-						m_categories[j] = m_categories[j] == '0' ? '1' : m_categories[j] == '1' ? '2' : m_categories[j] == '2' ? '3' : '0';
-						if(m_categories[0] == '1' && m_categories[j] != '0')
-							m_categories[0] = '0';
+						m_categories.at(j) = m_categories.at(j) == '0' ? '1' : m_categories.at(j) == '1' ? '2' : m_categories.at(j) == '2' ? '3' : '0';
+						if(m_categories.at(0) == '1' && m_categories.at(j) != '0')
+							m_categories.at(0) = '0';
 					}
 					m_btnMgr.hide(m_categoryBtnCat[i], true);
 					m_btnMgr.hide(m_categoryBtnCats[i], true);
 					m_btnMgr.hide(m_categoryBtnCatHid[i], true);
 					m_btnMgr.hide(m_categoryBtnCatReq[i], true);
-					switch(m_categories[j])
+					switch(m_categories.at(j))
 					{
 						case '0':
 							m_btnMgr.show(m_categoryBtnCat[i]);
@@ -356,29 +358,29 @@ void CMenu::_CategorySettings(bool fromGameSet)
 	_hideCategorySettings();
 }
 
-void CMenu::_initCategorySettingsMenu(CMenu::SThemeData &theme)
+void CMenu::_initCategorySettingsMenu()
 {
-	_addUserLabels(theme, m_categoryLblUser, ARRAY_SIZE(m_categoryLblUser), "CATEGORY");
-	m_categoryBg = _texture(theme.texSet, "CATEGORY/BG", "texture", theme.bg);
-	m_categoryLblTitle = _addTitle(theme, "CATEGORY/TITLE", theme.titleFont, L"", 20, 30, 600, 60, theme.titleFontColor, FTGX_JUSTIFY_CENTER | FTGX_ALIGN_MIDDLE);
-	m_categoryBtnPageM = _addPicButton(theme, "CATEGORY/PAGE_MINUS", theme.btnTexMinus, theme.btnTexMinusS, 20, 400, 56, 56);
-	m_categoryLblPage = _addLabel(theme, "CATEGORY/PAGE_BTN", theme.btnFont, L"", 76, 400, 100, 56, theme.btnFontColor, FTGX_JUSTIFY_CENTER | FTGX_ALIGN_MIDDLE, theme.btnTexC);
-	m_categoryBtnPageP = _addPicButton(theme, "CATEGORY/PAGE_PLUS", theme.btnTexPlus, theme.btnTexPlusS, 176, 400, 56, 56);
-	m_categoryBtnBack = _addButton(theme, "CATEGORY/BACK_BTN", theme.btnFont, L"", 420, 400, 200, 56, theme.btnFontColor);
-	m_categoryBtnClear = _addButton(theme, "CATEGORY/CLEAR_BTN", theme.btnFont, L"", 255, 400, 150, 56, theme.btnFontColor);
+	_addUserLabels(m_categoryLblUser, ARRAY_SIZE(m_categoryLblUser), "CATEGORY");
+	m_categoryBg = _texture("CATEGORY/BG", "texture", theme.bg, false);
+	m_categoryLblTitle = _addTitle("CATEGORY/TITLE", theme.titleFont, L"", 20, 30, 600, 60, theme.titleFontColor, FTGX_JUSTIFY_CENTER | FTGX_ALIGN_MIDDLE);
+	m_categoryBtnPageM = _addPicButton("CATEGORY/PAGE_MINUS", theme.btnTexMinus, theme.btnTexMinusS, 20, 400, 56, 56);
+	m_categoryLblPage = _addLabel("CATEGORY/PAGE_BTN", theme.btnFont, L"", 76, 400, 100, 56, theme.btnFontColor, FTGX_JUSTIFY_CENTER | FTGX_ALIGN_MIDDLE, theme.btnTexC);
+	m_categoryBtnPageP = _addPicButton("CATEGORY/PAGE_PLUS", theme.btnTexPlus, theme.btnTexPlusS, 176, 400, 56, 56);
+	m_categoryBtnBack = _addButton("CATEGORY/BACK_BTN", theme.btnFont, L"", 420, 400, 200, 56, theme.btnFontColor);
+	m_categoryBtnClear = _addButton("CATEGORY/CLEAR_BTN", theme.btnFont, L"", 255, 400, 150, 56, theme.btnFontColor);
 	for(u8 i = 1; i < 6; ++i)
 	{ 	// left half
-		m_categoryBtnCat[i] = _addPicButton(theme, fmt("CATEGORY/CAT_%i_BTN", i), theme.checkboxoff, theme.checkboxoffs, 30, (42+i*58), 44, 48);
-		m_categoryBtnCats[i] = _addPicButton(theme, fmt("CATEGORY/CAT_%i_BTNS", i), theme.checkboxon, theme.checkboxons, 30, (42+i*58), 44, 48);
-		m_categoryBtnCatHid[i] = _addPicButton(theme, fmt("CATEGORY/CAT_%i_BTNHID", i), theme.checkboxHid, theme.checkboxHids, 30, (42+i*58), 44, 48);
-		m_categoryBtnCatReq[i] = _addPicButton(theme, fmt("CATEGORY/CAT_%i_BTNREQ", i), theme.checkboxReq, theme.checkboxReqs, 30, (42+i*58), 44, 48);
-		m_categoryLblCat[i] = _addLabel(theme, fmt("CATEGORY/CAT_%i", i), theme.lblFont, L"", 85, (42+i*58), 230, 48, theme.lblFontColor, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_MIDDLE);
+		m_categoryBtnCat[i] = _addPicButton(fmt("CATEGORY/CAT_%i_BTN", i), theme.checkboxoff, theme.checkboxoffs, 30, (42+i*58), 44, 48);
+		m_categoryBtnCats[i] = _addPicButton(fmt("CATEGORY/CAT_%i_BTNS", i), theme.checkboxon, theme.checkboxons, 30, (42+i*58), 44, 48);
+		m_categoryBtnCatHid[i] = _addPicButton(fmt("CATEGORY/CAT_%i_BTNHID", i), theme.checkboxHid, theme.checkboxHids, 30, (42+i*58), 44, 48);
+		m_categoryBtnCatReq[i] = _addPicButton(fmt("CATEGORY/CAT_%i_BTNREQ", i), theme.checkboxReq, theme.checkboxReqs, 30, (42+i*58), 44, 48);
+		m_categoryLblCat[i] = _addLabel(fmt("CATEGORY/CAT_%i", i), theme.lblFont, L"", 85, (42+i*58), 230, 48, theme.lblFontColor, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_MIDDLE);
 		// right half
-		m_categoryBtnCat[i+5] = _addPicButton(theme, fmt("CATEGORY/CAT_%i_BTN", i+5), theme.checkboxoff, theme.checkboxoffs, 325, (42+i*58), 44, 48);
-		m_categoryBtnCats[i+5] = _addPicButton(theme, fmt("CATEGORY/CAT_%i_BTNS", i+5), theme.checkboxon, theme.checkboxons, 325, (42+i*58), 44, 48);
-		m_categoryBtnCatHid[i+5] = _addPicButton(theme, fmt("CATEGORY/CAT_%i_BTNHID", i+5), theme.checkboxHid, theme.checkboxHids, 325, (42+i*58), 44, 48);
-		m_categoryBtnCatReq[i+5] = _addPicButton(theme, fmt("CATEGORY/CAT_%i_BTNREQ", i+5), theme.checkboxReq, theme.checkboxReqs, 325, (42+i*58), 44, 48);
-		m_categoryLblCat[i+5] = _addLabel(theme, fmt("CATEGORY/CAT_%i", i+5), theme.txtFont, L"", 380, (42+i*58), 230, 48, theme.lblFontColor, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_MIDDLE);
+		m_categoryBtnCat[i+5] = _addPicButton(fmt("CATEGORY/CAT_%i_BTN", i+5), theme.checkboxoff, theme.checkboxoffs, 325, (42+i*58), 44, 48);
+		m_categoryBtnCats[i+5] = _addPicButton(fmt("CATEGORY/CAT_%i_BTNS", i+5), theme.checkboxon, theme.checkboxons, 325, (42+i*58), 44, 48);
+		m_categoryBtnCatHid[i+5] = _addPicButton(fmt("CATEGORY/CAT_%i_BTNHID", i+5), theme.checkboxHid, theme.checkboxHids, 325, (42+i*58), 44, 48);
+		m_categoryBtnCatReq[i+5] = _addPicButton(fmt("CATEGORY/CAT_%i_BTNREQ", i+5), theme.checkboxReq, theme.checkboxReqs, 325, (42+i*58), 44, 48);
+		m_categoryLblCat[i+5] = _addLabel(fmt("CATEGORY/CAT_%i", i+5), theme.txtFont, L"", 380, (42+i*58), 230, 48, theme.lblFontColor, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_MIDDLE);
 	}
 	_setHideAnim(m_categoryLblTitle, "CATEGORY/TITLE", 0, 0, -2.f, 0.f);
 	_setHideAnim(m_categoryLblPage, "CATEGORY/PAGE_BTN", 0, 0, 1.f, -1.f);

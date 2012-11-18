@@ -28,8 +28,10 @@
 #include "types.h"
 #include "crc32.h"
 
+Plugin m_plugin;
 void Plugin::init(const string& m_pluginsDir)
 {
+	PluginMagicWord[8] = '\0';
 	pluginsDir = m_pluginsDir;
 	//Ready to add plugins
 	adding = true;
@@ -52,21 +54,21 @@ bool Plugin::AddPlugin(Config &plugin)
 		return false;
 
 	PluginOptions NewPlugin;
-	NewPlugin.DolName = plugin.getString(PLUGIN_DOMAIN, "dolFile");
-	NewPlugin.coverFolder = plugin.getString(PLUGIN_DOMAIN, "coverFolder");
-	NewPlugin.magicWord = strtoul(plugin.getString(PLUGIN_DOMAIN, "magic").c_str(), NULL, 16);
-	NewPlugin.caseColor = strtoul(plugin.getString(PLUGIN_DOMAIN, "coverColor").c_str(), NULL, 16);
-	NewPlugin.Args = plugin.getStrings(PLUGIN_DOMAIN, "arguments", '|');
-	string PluginName = plugin.getString(PLUGIN_DOMAIN, "displayname");
+	NewPlugin.DolName = plugin.getString(PLUGIN_INI_DEF, "dolFile");
+	NewPlugin.coverFolder = plugin.getString(PLUGIN_INI_DEF, "coverFolder");
+	NewPlugin.magicWord = strtoul(plugin.getString(PLUGIN_INI_DEF, "magic").c_str(), NULL, 16);
+	NewPlugin.caseColor = strtoul(plugin.getString(PLUGIN_INI_DEF, "coverColor").c_str(), NULL, 16);
+	NewPlugin.Args = plugin.getStrings(PLUGIN_INI_DEF, "arguments", '|');
+	string PluginName = plugin.getString(PLUGIN_INI_DEF, "displayname");
 	if(PluginName.size() < 2)
 	{
 		PluginName = NewPlugin.DolName;
 		PluginName.erase(PluginName.end() - 4, PluginName.end());
 	}
 	NewPlugin.DisplayName.fromUTF8(PluginName.c_str());
-	NewPlugin.consoleCoverID = plugin.getString(PLUGIN_DOMAIN,"consoleCoverID");
+	NewPlugin.consoleCoverID = plugin.getString(PLUGIN_INI_DEF,"consoleCoverID");
 
-	const char *bannerfilepath = fmt("%s/%s", pluginsDir.c_str(), plugin.getString(PLUGIN_DOMAIN,"bannerSound").c_str());
+	const char *bannerfilepath = fmt("%s/%s", pluginsDir.c_str(), plugin.getString(PLUGIN_INI_DEF,"bannerSound").c_str());
 	FILE *fp = fopen(bannerfilepath, "rb");
 	if(fp != NULL)
 	{
@@ -120,17 +122,17 @@ u32 Plugin::GetBannerSoundSize()
 	return 0;
 }
 
-char* Plugin::GetDolName(u32 magic)
+const char *Plugin::GetDolName(u32 magic)
 {
 	if((Plugin_Pos = GetPluginPosition(magic)) >= 0)
-		return (char*)Plugins[Plugin_Pos].DolName.c_str();
+		return Plugins[Plugin_Pos].DolName.c_str();
 	return NULL;
 }
 
-char* Plugin::GetCoverFolderName(u32 magic)
+const char *Plugin::GetCoverFolderName(u32 magic)
 {
 	if((Plugin_Pos = GetPluginPosition(magic)) >= 0)
-		return (char*)Plugins[Plugin_Pos].coverFolder.c_str();
+		return Plugins[Plugin_Pos].coverFolder.c_str();
 	return NULL;
 }
 
@@ -150,28 +152,24 @@ void Plugin::SetEnablePlugin(Config &cfg, u8 pos, u8 ForceMode)
 {
 	if(pos < Plugins.size())
 	{
-		char PluginMagicWord[9];
-		memset(PluginMagicWord, 0, sizeof(PluginMagicWord));
 		strncpy(PluginMagicWord, fmt("%08x", Plugins[pos].magicWord), 8);
 		if(ForceMode == 1)
-			cfg.setBool(PLUGIN_DOMAIN, PluginMagicWord, false);
+			cfg.setBool(PLUGIN_INI_DEF, PluginMagicWord, false);
 		else if(ForceMode == 2)
-			cfg.setBool(PLUGIN_DOMAIN, PluginMagicWord, true);
+			cfg.setBool(PLUGIN_INI_DEF, PluginMagicWord, true);
 		else
-			cfg.setBool(PLUGIN_DOMAIN, PluginMagicWord, cfg.getBool(PLUGIN_DOMAIN, PluginMagicWord) ? false : true);
+			cfg.setBool(PLUGIN_INI_DEF, PluginMagicWord, cfg.getBool(PLUGIN_INI_DEF, PluginMagicWord) ? false : true);
 	}
 }
 
 const vector<bool> &Plugin::GetEnabledPlugins(Config &cfg)
 {
 	enabledPlugins.clear();
-	char PluginMagicWord[9];
 	u8 enabledPluginsNumber = 0;
 	for(u8 i = 0; i < Plugins.size(); i++)
 	{
-		memset(PluginMagicWord, 0, sizeof(PluginMagicWord));
 		strncpy(PluginMagicWord, fmt("%08x", Plugins[i].magicWord), 8);
-		if(cfg.getBool(PLUGIN_DOMAIN, PluginMagicWord, true))
+		if(cfg.getBool(PLUGIN_INI_DEF, PluginMagicWord, true))
 		{
 			enabledPluginsNumber++;
 			enabledPlugins.push_back(true);
@@ -209,7 +207,7 @@ vector<dir_discHdr> Plugin::ParseScummvmINI(Config &ini, const char *Device, u32
 			continue;
 		}
 		memset((void*)&ListElement, 0, sizeof(dir_discHdr));
-		strncpy((char*)ListElement.id, PLUGIN_DOMAIN, 6);
+		strncpy(ListElement.id, PLUGIN_INI_DEF, 6);
 		ListElement.casecolor = Plugins.back().caseColor;
 		mbstowcs(ListElement.title, GameName.c_str(), 63);
 		strncpy(ListElement.path, GameDomain->c_str(), sizeof(ListElement.path));
@@ -264,8 +262,8 @@ string Plugin::GenerateCoverLink(dir_discHdr gameHeader, const string& constURL,
 		strncpy(gamePath, gameHeader.path, sizeof(gamePath));
 	const string& cachedCRC = Checksums.getString("CHECKSUMS", gamePath);
 	char crc_string[9];
-	memset(crc_string, 0, sizeof(crc_string));
-	if(cachedCRC.size() > 1)
+	crc_string[8] = '\0';
+	if(cachedCRC.size() == 8)
 	{
 		gprintf("CRC32 of %s is cached\n", gamePath);
 		strncpy(crc_string, cachedCRC.c_str(), 8);

@@ -28,9 +28,6 @@ Config CustomTitles;
 GameTDB gameTDB;
 
 dir_discHdr ListElement;
-discHdr WiiGameHeader;
-gc_discHdr GCGameHeader;
-
 void ListGenerator::Init(const char *settingsDir, const char *Language)
 {
 	if(settingsDir != NULL)
@@ -70,18 +67,18 @@ static void AddISO(const char *GameID, const char *GameTitle, const char *GamePa
 	if(GameID != NULL) strncpy(ListElement.id, GameID, 6);
 	if(GamePath != NULL) strncpy(ListElement.path, GamePath, sizeof(ListElement.path) - 1);
 	ListElement.casecolor = CustomTitles.getColor("COVERS", ListElement.id, GameColor).intVal();
-	string CustomTitle = CustomTitles.getString("TITLES", ListElement.id);
+	const char *CustomTitle = CustomTitles.getString("TITLES", ListElement.id).c_str();
 	if(gameTDB.IsLoaded())
 	{
 		if(ListElement.casecolor == GameColor)
 			ListElement.casecolor = gameTDB.GetCaseColor(ListElement.id);
-		if(CustomTitle.size() == 0)
-			gameTDB.GetTitle(ListElement.id, CustomTitle);
 		ListElement.wifi = gameTDB.GetWifiPlayers(ListElement.id);
 		ListElement.players = gameTDB.GetPlayers(ListElement.id);
+		if(CustomTitle == NULL || CustomTitle[0] == '\0')
+			gameTDB.GetTitle(ListElement.id, CustomTitle);
 	}
-	if(CustomTitle.size() > 0)
-		mbstowcs(ListElement.title, CustomTitle.c_str(), 63);
+	if(CustomTitle != NULL && CustomTitle[0] != '\0')
+		mbstowcs(ListElement.title, CustomTitle, 63);
 	else if(GameTitle != NULL)
 		mbstowcs(ListElement.title, GameTitle, 63);
 	Asciify(ListElement.title);
@@ -94,10 +91,10 @@ static void Create_Wii_WBFS_List(wbfs_t *handle)
 {
 	for(u32 i = 0; i < wbfs_count_discs(handle); i++)
 	{
-		memset((void*)&WiiGameHeader, 0, sizeof(discHdr));
-		s32 ret = wbfs_get_disc_info(handle, i, (u8*)&WiiGameHeader, sizeof(discHdr), NULL);
-		if(ret == 0 && WiiGameHeader.magic == WII_MAGIC)
-			AddISO((const char*)WiiGameHeader.id, (const char*)WiiGameHeader.title, 
+		memset((void*)&wii_hdr, 0, sizeof(discHdr));
+		s32 ret = wbfs_get_disc_info(handle, i, (u8*)&wii_hdr, sizeof(discHdr), NULL);
+		if(ret == 0 && wii_hdr.magic == WII_MAGIC)
+			AddISO((const char*)wii_hdr.id, (const char*)wii_hdr.title, 
 					NULL, 1, TYPE_WII_GAME);
 	}
 }
@@ -108,9 +105,9 @@ static void Create_Wii_EXT_List(char *FullPath)
 	if(fp)
 	{
 		fseek(fp, strcasestr(FullPath, ".wbfs") != NULL ? 512 : 0, SEEK_SET);
-		fread((void*)&WiiGameHeader, 1, sizeof(discHdr), fp);
-		if(WiiGameHeader.magic == WII_MAGIC)
-			AddISO((const char*)WiiGameHeader.id, (const char*)WiiGameHeader.title, 
+		fread((void*)&wii_hdr, 1, sizeof(discHdr), fp);
+		if(wii_hdr.magic == WII_MAGIC)
+			AddISO((const char*)wii_hdr.id, (const char*)wii_hdr.title, 
 					FullPath, 1, TYPE_WII_GAME);
 		fclose(fp);
 	}
@@ -130,10 +127,10 @@ static void Create_GC_List(char *FullPath)
 	}
 	if(fp)
 	{
-		fread((void*)&GCGameHeader, 1, sizeof(gc_discHdr), fp);
-		if(GCGameHeader.magic == GC_MAGIC)
+		fread((void*)&gc_hdr, 1, sizeof(gc_discHdr), fp);
+		if(gc_hdr.magic == GC_MAGIC)
 		{
-			AddISO((const char*)GCGameHeader.id, (const char*)GCGameHeader.title,
+			AddISO((const char*)gc_hdr.id, (const char*)gc_hdr.title,
 					FullPath, 0, TYPE_GC_GAME);
 			/* Check for disc 2 */
 			fseek(fp, 6, SEEK_SET);
@@ -201,18 +198,18 @@ static void Create_Channel_List()
 		ListElement.settings[1] = TITLE_LOWER(chan->title);
 		strncpy(ListElement.id, chan->id, 4);
 		ListElement.casecolor = CustomTitles.getColor("COVERS", ListElement.id, 1).intVal();
-		string CustomTitle = CustomTitles.getString("TITLES", ListElement.id);
+		const char *CustomTitle = CustomTitles.getString("TITLES", ListElement.id).c_str();
 		if(gameTDB.IsLoaded())
 		{
 			if(ListElement.casecolor == 1)
 				ListElement.casecolor = gameTDB.GetCaseColor(ListElement.id);
-			if(CustomTitle.size() == 0)
-				gameTDB.GetTitle(ListElement.id, CustomTitle);
 			ListElement.wifi = gameTDB.GetWifiPlayers(ListElement.id);
 			ListElement.players = gameTDB.GetPlayers(ListElement.id);
+			if(CustomTitle == NULL || CustomTitle[0] == '\0')
+				gameTDB.GetTitle(ListElement.id, CustomTitle);
 		}
-		if(CustomTitle.size() > 0)
-			mbstowcs(ListElement.title, CustomTitle.c_str(), 63);
+		if(CustomTitle != NULL && CustomTitle[0] != '\0')
+			mbstowcs(ListElement.title, CustomTitle, 63);
 		else
 			wcsncpy(ListElement.title, chan->name, 64);
 		ListElement.type = TYPE_CHANNEL;

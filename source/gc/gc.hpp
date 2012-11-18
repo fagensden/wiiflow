@@ -62,7 +62,9 @@ enum dmlvideomode
 	DML_VID_PROG_PATCH	= (1<<4),
 };
 
-void DML_New_SetOptions(const char *GamePath, char *CheatPath, const char *NewCheatPath, const char *partition, bool cheats, bool debugger, u8 NMM, u8 nodisc, u8 DMLvideoMode, u8 videoSetting, bool widescreen, bool new_dm_cfg);
+void DML_New_SetOptions(const char *GamePath, char *CheatPath, const char *NewCheatPath, 
+	const char *partition, bool cheats, bool debugger, u8 NMM, u8 nodisc, u8 DMLvideoMode, 
+	u8 videoSetting, bool widescreen, bool new_dm_cfg, bool activity_led);
 void DML_Old_SetOptions(const char *GamePath);
 void DML_New_SetBootDiscOption(bool new_dm_cfg);
 void DML_New_WriteOptions();
@@ -80,13 +82,13 @@ typedef struct global_config
 } gconfig;
 
 bool DEVO_Installed(const char *path);
-void DEVO_GetLoader(const char *loader);
-void DEVO_SetOptions(const char *isopath, int CurrentPartition, const char *gameID, bool memcard_emum);
+void DEVO_GetLoader(const char *path);
+void DEVO_SetOptions(const char *isopath, const char *gameID, 
+		bool memcard_emum);
 void DEVO_Boot();
 
 // General
-void GC_SetVideoMode(u8 videomode, u8 videoSetting);
+void GC_SetVideoMode(u8 videomode, u8 videoSetting, bool DIOSMIOS);
 void GC_SetLanguage(u8 lang);
-int GC_GameIsInstalled(char *discid, const char* partition, const char* dmlgamedir);
 
 #endif //_GC_HPP_

@@ -1,15 +1,14 @@
 
 #include "menu.hpp"
-#include "defines.h"
-#include "svnrev.h"
 #include "channel/nand.hpp"
 #include "loader/alt_ios.h"
 #include "loader/cios.h"
-#include "loader/sys.h"
+#include "const_str.hpp"
 
 const int pixels_to_skip = 10;
 
 extern const u8 english_txt[];
+static const wstringEx ENGLISH_TXT_W((const char*)english_txt);
 
 //About menu
 s16 m_aboutLblTitle;
@@ -91,14 +90,14 @@ void CMenu::_showAbout(void)
 	}
 }
 
-void CMenu::_initAboutMenu(CMenu::SThemeData &theme)
+void CMenu::_initAboutMenu()
 {
 	STexture emptyTex;
-	_addUserLabels(theme, m_aboutLblUser, ARRAY_SIZE(m_aboutLblUser), "ABOUT");
-	m_aboutBg = _texture(theme.texSet, "ABOUT/BG", "texture", theme.bg);
-	m_aboutLblTitle = _addTitle(theme, "ABOUT/TITLE", theme.titleFont, L"", 20, 30, 600, 60, theme.titleFontColor, FTGX_JUSTIFY_CENTER | FTGX_ALIGN_MIDDLE);
-	m_aboutLblInfo = _addText(theme, "ABOUT/INFO", theme.txtFont, L"", 40, 115, 560, 270, theme.txtFontColor, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_TOP);
-	m_aboutLblIOS = _addLabel(theme, "ABOUT/IOS", theme.txtFont, L"", 240, 400, 360, 56, theme.txtFontColor, FTGX_JUSTIFY_RIGHT | FTGX_ALIGN_MIDDLE);
+	_addUserLabels(m_aboutLblUser, ARRAY_SIZE(m_aboutLblUser), "ABOUT");
+	m_aboutBg = _texture("ABOUT/BG", "texture", theme.bg, false);
+	m_aboutLblTitle = _addTitle("ABOUT/TITLE", theme.titleFont, L"", 20, 30, 600, 60, theme.titleFontColor, FTGX_JUSTIFY_CENTER | FTGX_ALIGN_MIDDLE);
+	m_aboutLblInfo = _addText("ABOUT/INFO", theme.txtFont, L"", 40, 115, 560, 270, theme.txtFontColor, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_TOP);
+	m_aboutLblIOS = _addLabel("ABOUT/IOS", theme.txtFont, L"", 240, 400, 360, 56, theme.txtFontColor, FTGX_JUSTIFY_RIGHT | FTGX_ALIGN_MIDDLE);
 
 	_setHideAnim(m_aboutLblTitle, "ABOUT/TITLE", 0, 0, -2.f, 0.f);
 	_setHideAnim(m_aboutLblInfo, "ABOUT/INFO", 0, 100, 0.f, 0.f);
@@ -125,16 +124,15 @@ void CMenu::_textAbout(void)
 			help_text.fromUTF8(help);
 			MEM2_free(help);
 			fclose(f);
+			m_btnMgr.setText(m_aboutLblInfo, help_text);
 		}
 		else
-			help_text.fromUTF8((char*)english_txt);
-
-		m_btnMgr.setText(m_aboutLblInfo, wfmt(L"%s", help_text.toUTF8().c_str()), false);
+			m_btnMgr.setText(m_aboutLblInfo, ENGLISH_TXT_W);
 	}
 	else
 	{
-		m_btnMgr.setText(m_aboutLblTitle, wfmt( L"%s (%s-r%s)", APP_NAME, APP_VERSION, SVN_REV), false);
-	
+		m_btnMgr.setText(m_aboutLblTitle, VERSION_STRING);
+
 		wstringEx developers(wfmt(_fmt("about6", L"\nCurrent Developers:\n%s"), DEVELOPERS));
 		wstringEx pDevelopers(wfmt(_fmt("about7", L"Past Developers:\n%s"), PAST_DEVELOPERS));
 
@@ -157,22 +155,29 @@ void CMenu::_textAbout(void)
 			origGUI.toUTF8().c_str(),
 			codethx.toUTF8().c_str(),
 			sites.toUTF8().c_str(),
-			thanks.toUTF8().c_str()),
-			false
+			thanks.toUTF8().c_str())
 		);
 	}
-	
+	const char *IOS_Name = NULL;
 	switch(IOS_GetType(CurrentIOS.Version))
 	{
 		case IOS_TYPE_D2X:
+			IOS_Name = "D2X";
+			break;
 		case IOS_TYPE_WANIN:
+			IOS_Name = "Waninkoko";
+			break;
 		case IOS_TYPE_HERMES:
 		case IOS_TYPE_KWIIRK:
-			m_btnMgr.setText(m_aboutLblIOS, wfmt(_fmt("ios", L"IOS%i base %i v%i"), CurrentIOS.Version, CurrentIOS.Base, CurrentIOS.Revision), true);
+			IOS_Name = "Hermes";
 			break;
-		case IOS_TYPE_NEEK2O:
-		case IOS_TYPE_NORMAL_IOS:
-			m_btnMgr.setText(m_aboutLblIOS, wfmt( L"IOS%i v%i", CurrentIOS.Version, CurrentIOS.Revision), true);
+		default:
 			break;
 	}
+	if(IOS_Name == NULL)
+		m_btnMgr.setText(m_aboutLblIOS, wfmt(L"IOS%i v%i", CurrentIOS.Version, 
+			CurrentIOS.Revision), true);
+	else
+		m_btnMgr.setText(m_aboutLblIOS, wfmt(L"%s IOS%i[%i] v%d.%d", IOS_Name, CurrentIOS.Version,
+			CurrentIOS.Base, CurrentIOS.Revision, CurrentIOS.SubRevision), true);
 }

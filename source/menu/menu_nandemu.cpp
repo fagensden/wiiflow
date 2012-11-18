@@ -8,7 +8,6 @@
 #include "fileOps/fileOps.h"
 #include "loader/cios.h"
 #include "loader/nk.h"
-#include "loader/sys.h"
 
 // NandEmulation menu
 s16 m_nandemuLblTitle;
@@ -99,24 +98,24 @@ int CMenu::_FindEmuPart(string *emuPath, int part, bool searchvalid)
 	string tmpPath;
 	if(m_current_view == COVERFLOW_CHANNEL)
 	{
-		emuPartition = m_cfg.getInt("NAND", "partition", 0);
-		tmpPath = m_cfg.getString("NAND", "path", "");
+		emuPartition = m_cfg.getInt(CHANNEL_DOMAIN, "partition", 0);
+		tmpPath = m_cfg.getString(CHANNEL_DOMAIN, "path", "");
 		if(tmpPath.size() == 0)
 		{
-			m_cfg.setString("NAND", "path", STDEMU_DIR);
-			tmpPath = m_cfg.getString("NAND", "path", STDEMU_DIR);
+			m_cfg.setString(CHANNEL_DOMAIN, "path", STDEMU_DIR);
+			tmpPath = m_cfg.getString(CHANNEL_DOMAIN, "path", STDEMU_DIR);
 		}
 	}
 	else if(m_current_view == COVERFLOW_USB)
 	{
-		emuPartition = m_cfg.getInt("GAMES", "savepartition", -1);
+		emuPartition = m_cfg.getInt(WII_DOMAIN, "savepartition", -1);
 		if(emuPartition == -1)
-			emuPartition = m_cfg.getInt("NAND", "partition", 0);
-		tmpPath = m_cfg.getString("GAMES", "savepath", m_cfg.getString("NAND", "path", ""));
+			emuPartition = m_cfg.getInt(CHANNEL_DOMAIN, "partition", 0);
+		tmpPath = m_cfg.getString(WII_DOMAIN, "savepath", m_cfg.getString(CHANNEL_DOMAIN, "path", ""));
 		if(tmpPath.size() == 0)
 		{
-			m_cfg.setString("GAMES", "savepath", STDEMU_DIR);
-			tmpPath = m_cfg.getString("GAMES", "savepath", STDEMU_DIR);
+			m_cfg.setString(WII_DOMAIN, "savepath", STDEMU_DIR);
+			tmpPath = m_cfg.getString(WII_DOMAIN, "savepath", STDEMU_DIR);
 		}
 	}
 	
@@ -142,9 +141,9 @@ int CMenu::_FindEmuPart(string *emuPath, int part, bool searchvalid)
 			if(_TestEmuNand(i, tmpPath.c_str(), true) || searchvalid)
 			{
 				if(m_current_view == COVERFLOW_CHANNEL)
-					m_cfg.setInt("NAND", "partition", i);
+					m_cfg.setInt(CHANNEL_DOMAIN, "partition", i);
 				else if(m_current_view == COVERFLOW_USB)
-					m_cfg.setInt("GAMES", "savepartition", i);
+					m_cfg.setInt(WII_DOMAIN, "savepartition", i);
 					
 				*emuPath = tmpPath;
 				m_cfg.save();
@@ -169,20 +168,20 @@ bool CMenu::_checkSave(string id, bool nand)
 	if(nand)
 	{
 		u32 temp = 0;	
-		if(ISFS_ReadDir(sfmt("/title/00010000/%08x", savePath).c_str(), NULL, &temp) < 0)
-			if(ISFS_ReadDir(sfmt("/title/00010004/%08x", savePath).c_str(), NULL, &temp) < 0)
+		if(ISFS_ReadDir(fmt("/title/00010000/%08x", savePath), NULL, &temp) < 0)
+			if(ISFS_ReadDir(fmt("/title/00010004/%08x", savePath), NULL, &temp) < 0)
 				return false;
 	}
 	else
 	{	
-		int emuPartition = m_cfg.getInt("GAMES", "savepartition", -1);						
-		string emuPath = m_cfg.getString("GAMES", "savepath", "");
+		int emuPartition = m_cfg.getInt(WII_DOMAIN, "savepartition", -1);						
+		string emuPath = m_cfg.getString(WII_DOMAIN, "savepath", "");
 		if(emuPartition < 0 || emuPath.size() == 0)
 			return false;
 			
 		struct stat fstat;
-		if((stat(sfmt("%s:%s/title/00010000/%08x", DeviceName[emuPartition], emuPath.c_str(), savePath).c_str(), &fstat) != 0 ) 
-			&& (stat(sfmt("%s:%s/title/00010004/%08x", DeviceName[emuPartition], emuPath.c_str(), savePath).c_str(), &fstat) != 0))
+		if((stat(fmt("%s:%s/title/00010000/%08x", DeviceName[emuPartition], emuPath.c_str(), savePath), &fstat) != 0 ) 
+			&& (stat(fmt("%s:%s/title/00010004/%08x", DeviceName[emuPartition], emuPath.c_str(), savePath), &fstat) != 0))
 			return false;
 	}
 	return true;
@@ -191,14 +190,14 @@ bool CMenu::_checkSave(string id, bool nand)
 void CMenu::_enableNandEmu(bool fromconfig)
 {
 	_cfNeedsUpdate();
-	bool disable = (m_cfg.getBool("NAND", "disable", true) || neek2o()) && m_current_view == COVERFLOW_CHANNEL && !m_tempView;	
+	bool disable = (m_cfg.getBool(CHANNEL_DOMAIN, "disable", true) || neek2o()) && m_current_view == COVERFLOW_CHANNEL && !m_tempView;	
 
 	if(!disable)
 	{
 		bool isD2XnewerThanV6 = (CurrentIOS.Type == IOS_TYPE_NEEK2O);
 		if(CurrentIOS.Revision > 6 && CurrentIOS.Type == IOS_TYPE_D2X)
 			isD2XnewerThanV6 = true;
-		if(m_current_view == COVERFLOW_CHANNEL && !m_cfg.getBool("NAND", "disable", true) && !neek2o() && !m_tempView)
+		if(m_current_view == COVERFLOW_CHANNEL && !m_cfg.getBool(CHANNEL_DOMAIN, "disable", true) && !neek2o() && !m_tempView)
 			NandHandle.Enable_Emu();
 		u8 limiter = 0;
 		s8 direction = m_btnMgr.selected(m_configBtnPartitionP) ? 1 : -1;
@@ -217,7 +216,7 @@ void CMenu::_enableNandEmu(bool fromconfig)
 		}
 		gprintf("Next item: %s\n", DeviceName[currentPartition]);
 		if(m_tempView)
-			m_cfg.setInt("GAMES", "savepartition", currentPartition);
+			m_cfg.setInt(WII_DOMAIN, "savepartition", currentPartition);
 		else
 			m_cfg.setInt(_domainFromView(), "partition", currentPartition);
 	}
@@ -282,7 +281,7 @@ void CMenu::_showNandEmu(void)
 	m_btnMgr.show(m_nandemuLblTitle);
 	m_btnMgr.show(m_nandemuBtnBack);
 	int i;
-	if(((m_current_view == COVERFLOW_CHANNEL && !m_cfg.getBool("NAND", "disable", true)) || m_current_view == COVERFLOW_USB) && !m_locked)
+	if(((m_current_view == COVERFLOW_CHANNEL && !m_cfg.getBool(CHANNEL_DOMAIN, "disable", true)) || m_current_view == COVERFLOW_USB) && !m_locked)
 	{
 		m_btnMgr.show(m_nandemuLblEmulation);
 		m_btnMgr.show(m_nandemuLblEmulationVal);
@@ -299,12 +298,12 @@ void CMenu::_showNandEmu(void)
 		m_btnMgr.show(m_nandemuBtnNandDump);
 		if (m_current_view == COVERFLOW_CHANNEL)
 		{
-			i = min(max(0, m_cfg.getInt("NAND", "emulation", 0)), (int)ARRAY_SIZE(CMenu::_NandEmu) - 1);
+			i = min(max(0, m_cfg.getInt(CHANNEL_DOMAIN, "emulation", 0)), (int)ARRAY_SIZE(CMenu::_NandEmu) - 1);
 			m_btnMgr.setText(m_nandemuLblEmulationVal, _t(CMenu::_NandEmu[i].id, CMenu::_NandEmu[i].text));
 		}
 		else if (m_current_view == COVERFLOW_USB)
 		{
-			i = min(max(0, m_cfg.getInt("GAMES", "save_emulation", 0)), (int)ARRAY_SIZE(CMenu::_GlobalSaveEmu) - 1);
+			i = min(max(0, m_cfg.getInt(WII_DOMAIN, "save_emulation", 0)), (int)ARRAY_SIZE(CMenu::_GlobalSaveEmu) - 1);
 			m_btnMgr.setText(m_nandemuLblEmulationVal, _t(CMenu::_GlobalSaveEmu[i].id, CMenu::_GlobalSaveEmu[i].text));
 		}
 	}
@@ -333,9 +332,9 @@ int CMenu::_NandEmuCfg(void)
 		{
 			s8 direction = m_btnMgr.selected(m_nandemuBtnEmulationP) ? 1 : -1;
 			if(m_current_view == COVERFLOW_CHANNEL)
-				m_cfg.setInt("NAND", "emulation", (int)loopNum((u32)m_cfg.getInt("NAND", "emulation", 0) + direction, ARRAY_SIZE(CMenu::_NandEmu)));
+				m_cfg.setInt(CHANNEL_DOMAIN, "emulation", (int)loopNum((u32)m_cfg.getInt(CHANNEL_DOMAIN, "emulation", 0) + direction, ARRAY_SIZE(CMenu::_NandEmu)));
 			else if(m_current_view == COVERFLOW_USB)
-				m_cfg.setInt("GAMES", "save_emulation", (int)loopNum((u32)m_cfg.getInt("GAMES", "save_emulation", 0) + direction, ARRAY_SIZE(CMenu::_GlobalSaveEmu)));
+				m_cfg.setInt(WII_DOMAIN, "save_emulation", (int)loopNum((u32)m_cfg.getInt(WII_DOMAIN, "save_emulation", 0) + direction, ARRAY_SIZE(CMenu::_GlobalSaveEmu)));
 			_showNandEmu();
 		}	
 		else if(BTN_A_PRESSED && (m_btnMgr.selected(m_nandemuBtnNandDump) || m_btnMgr.selected(m_nandemuBtnAll) || m_btnMgr.selected(m_nandemuBtnMissing)))
@@ -408,9 +407,9 @@ int CMenu::_NandEmuCfg(void)
 
 int CMenu::_FlashSave(string gameId)
 {
-	int emuPartition = m_cfg.getInt("GAMES", "savepartition", m_cfg.getInt("NAND", "partition", 0));			
+	int emuPartition = m_cfg.getInt(WII_DOMAIN, "savepartition", m_cfg.getInt(CHANNEL_DOMAIN, "partition", 0));			
 	char basepath[MAX_FAT_PATH];	
-	snprintf(basepath, sizeof(basepath), "%s:%s", DeviceName[emuPartition], m_cfg.getString("GAMES", "savepath", m_cfg.getString("NAND", "path", "")).c_str());	
+	snprintf(basepath, sizeof(basepath), "%s:%s", DeviceName[emuPartition], m_cfg.getString(WII_DOMAIN, "savepath", m_cfg.getString(CHANNEL_DOMAIN, "path", "")).c_str());	
 
 	if(!_checkSave(gameId, false))
 		return 0;
@@ -486,9 +485,9 @@ int CMenu::_AutoExtractSave(string gameId)
 	string emuPath;
 
 	if(m_current_view == COVERFLOW_CHANNEL)
-		m_partRequest = m_cfg.getInt("NAND", "partition", -1);	
+		m_partRequest = m_cfg.getInt(CHANNEL_DOMAIN, "partition", -1);	
 	else if(m_current_view == COVERFLOW_USB)
-		m_partRequest = m_cfg.getInt("GAMES", "savepartition", -1);	
+		m_partRequest = m_cfg.getInt(WII_DOMAIN, "savepartition", -1);	
 	int emuPartition = _FindEmuPart(&emuPath, m_partRequest, false);
 	
 	if(emuPartition < 0)
@@ -705,19 +704,20 @@ int CMenu::_NandFlasher(void *obj)
 	char dest[ISFS_MAXPATH];
 	
 	if(m.m_current_view == COVERFLOW_CHANNEL)
-		m.m_partRequest = m.m_cfg.getInt("NAND", "partition", -1);	
+		m.m_partRequest = m.m_cfg.getInt(CHANNEL_DOMAIN, "partition", -1);	
 	else if(m.m_current_view == COVERFLOW_USB)
-		m.m_partRequest = m.m_cfg.getInt("GAMES", "savepartition", -1);
+		m.m_partRequest = m.m_cfg.getInt(WII_DOMAIN, "savepartition", -1);
 	
+	const char *SaveGameID = m.m_saveExtGameId.c_str();
 	int emuPartition = m._FindEmuPart(&emuPath, m.m_partRequest, false);	
-	int flashID = m.m_saveExtGameId.c_str()[0] << 24 | m.m_saveExtGameId.c_str()[1] << 16 | m.m_saveExtGameId.c_str()[2] << 8 | m.m_saveExtGameId.c_str()[3];
+	int flashID = SaveGameID[0] << 24 | SaveGameID[1] << 16 | SaveGameID[2] << 8 | SaveGameID[3];
 	
-	if(_saveExists(sfmt("%s:%s/title/00010000/%08x", DeviceName[emuPartition], emuPath.c_str(), flashID).c_str()))	
+	if(_saveExists(fmt("%s:%s/title/00010000/%08x", DeviceName[emuPartition], emuPath.c_str(), flashID)))	
 	{
 		snprintf(source, sizeof(source), "%s:%s/title/00010000/%08x", DeviceName[emuPartition], emuPath.c_str(), flashID);
 		snprintf(dest, sizeof(dest), "/title/00010000/%08x", flashID);
 	}
-	else if(_saveExists(sfmt("%s:%s/title/00010004/%08x", DeviceName[emuPartition], emuPath.c_str(), flashID).c_str()))
+	else if(_saveExists(fmt("%s:%s/title/00010004/%08x", DeviceName[emuPartition], emuPath.c_str(), flashID)))
 	{
 		snprintf(source, sizeof(source), "%s:%s/title/00010004/%08x", DeviceName[emuPartition], emuPath.c_str(), flashID);
 		snprintf(dest, sizeof(dest), "/title/00010004/%08x", flashID);
@@ -751,9 +751,9 @@ int CMenu::_NandDumper(void *obj)
 	NandHandle.ResetCounters();
 
 	if(m.m_current_view == COVERFLOW_CHANNEL)
-		m.m_partRequest = m.m_cfg.getInt("NAND", "partition", -1);	
+		m.m_partRequest = m.m_cfg.getInt(CHANNEL_DOMAIN, "partition", -1);	
 	else if(m.m_current_view == COVERFLOW_USB)
-		m.m_partRequest = m.m_cfg.getInt("GAMES", "savepartition", -1);
+		m.m_partRequest = m.m_cfg.getInt(WII_DOMAIN, "savepartition", -1);
 
 	emuPartition = m._FindEmuPart(&emuPath, m.m_partRequest, true);
 
@@ -842,32 +842,32 @@ int CMenu::_NandDumper(void *obj)
 	return 0;
 }
 
-void CMenu::_initNandEmuMenu(CMenu::SThemeData &theme)
+void CMenu::_initNandEmuMenu()
 {
-	_addUserLabels(theme, m_nandemuLblUser, ARRAY_SIZE(m_nandemuLblUser), "NANDEMU");
-	m_nandemuBg = _texture(theme.texSet, "NANDEMU/BG", "texture", theme.bg);
-	m_nandemuLblTitle = _addTitle(theme, "NANDEMU/TITLE", theme.titleFont, L"", 20, 30, 600, 60, theme.titleFontColor, FTGX_JUSTIFY_CENTER | FTGX_ALIGN_MIDDLE);
-	m_nandfileLblMessage = _addLabel(theme, "NANDEMU/FMESSAGE", theme.lblFont, L"", 40, 230, 560, 100, theme.lblFontColor, FTGX_JUSTIFY_CENTER | FTGX_ALIGN_TOP);
-	m_nandemuLblMessage = _addLabel(theme, "NANDEMU/MESSAGE", theme.lblFont, L"", 40, 350, 560, 100, theme.lblFontColor, FTGX_JUSTIFY_CENTER | FTGX_ALIGN_TOP);
-	m_nandfileLblDialog = _addLabel(theme, "NANDEMU/FDIALOG", theme.lblFont, L"", 40, 60, 560, 200, theme.lblFontColor, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_MIDDLE);
-	m_nandfinLblDialog = _addLabel(theme, "NANDEMU/FINDIALOG", theme.lblFont, L"", 40, 120, 560, 200, theme.lblFontColor, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_MIDDLE);
-	m_nandemuLblDialog = _addLabel(theme, "NANDEMU/DIALOG", theme.lblFont, L"", 40, 180, 560, 200, theme.lblFontColor, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_MIDDLE);
-	m_nandfilePBar = _addProgressBar(theme, "NANDEMU/FILEPROGRESS_BAR", 40, 200, 560, 20);
-	m_nandemuPBar = _addProgressBar(theme, "NANDEMU/PROGRESS_BAR", 40, 320, 560, 20);
-	m_nandemuLblEmulation = _addLabel(theme, "NANDEMU/EMU_SAVE", theme.lblFont, L"", 40, 130, 340, 56, theme.lblFontColor, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_MIDDLE);
-	m_nandemuLblEmulationVal = _addLabel(theme, "NANDEMU/EMU_SAVE_BTN_GLOBAL", theme.btnFont, L"", 400, 130, 144, 56, theme.btnFontColor, FTGX_JUSTIFY_CENTER | FTGX_ALIGN_MIDDLE, theme.btnTexC);
-	m_nandemuBtnEmulationM = _addPicButton(theme, "NANDEMU/EMU_SAVE_MINUS", theme.btnTexMinus, theme.btnTexMinusS, 344, 130, 56, 56);
-	m_nandemuBtnEmulationP = _addPicButton(theme, "NANDEMU/EMU_SAVE_PLUS", theme.btnTexPlus, theme.btnTexPlusS, 544, 130, 56, 56);
-	m_nandemuLblSaveDump = _addLabel(theme, "NANDEMU/SAVE_DUMP", theme.lblFont, L"", 40, 190, 340, 56, theme.lblFontColor, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_MIDDLE);
-	m_nandemuBtnAll = _addButton(theme, "NANDEMU/ALL_BTN", theme.btnFont, L"", 350, 190, 250, 56, theme.btnFontColor);
-	m_nandemuBtnMissing = _addButton(theme, "NANDEMU/MISSING_BTN", theme.btnFont, L"", 350, 250, 250, 56, theme.btnFontColor);
-	m_nandemuLblNandDump = _addLabel(theme, "NANDEMU/NAND_DUMP", theme.lblFont, L"", 40, 310, 340, 56, theme.lblFontColor, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_MIDDLE);
-	m_nandemuBtnNandDump = _addButton(theme, "NANDEMU/NAND_DUMP_BTN", theme.btnFont, L"", 350, 310, 250, 56, theme.btnFontColor);
-	m_nandemuBtnBack = _addButton(theme, "NANDEMU/BACK_BTN", theme.btnFont, L"", 420, 400, 200, 56, theme.btnFontColor);
-	m_nandemuBtnExtract = _addButton(theme, "NANDEMU/EXTRACT", theme.titleFont, L"", 72, 180, 496, 56, theme.titleFontColor);
-	m_nandemuBtnDisable = _addButton(theme, "NANDEMU/DISABLE", theme.titleFont, L"", 72, 270, 496, 56, theme.titleFontColor);
-	m_nandemuBtnPartition = _addButton(theme, "NANDEMU/PARTITION", theme.titleFont, L"", 72, 360, 496, 56, theme.titleFontColor);
-	m_nandemuLblInit = _addLabel(theme, "NANDEMU/INIT", theme.lblFont, L"", 40, 40, 560, 140, theme.lblFontColor, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_MIDDLE);
+	_addUserLabels(m_nandemuLblUser, ARRAY_SIZE(m_nandemuLblUser), "NANDEMU");
+	m_nandemuBg = _texture("NANDEMU/BG", "texture", theme.bg, false);
+	m_nandemuLblTitle = _addTitle("NANDEMU/TITLE", theme.titleFont, L"", 20, 30, 600, 60, theme.titleFontColor, FTGX_JUSTIFY_CENTER | FTGX_ALIGN_MIDDLE);
+	m_nandfileLblMessage = _addLabel("NANDEMU/FMESSAGE", theme.lblFont, L"", 40, 230, 560, 100, theme.lblFontColor, FTGX_JUSTIFY_CENTER | FTGX_ALIGN_TOP);
+	m_nandemuLblMessage = _addLabel("NANDEMU/MESSAGE", theme.lblFont, L"", 40, 350, 560, 100, theme.lblFontColor, FTGX_JUSTIFY_CENTER | FTGX_ALIGN_TOP);
+	m_nandfileLblDialog = _addLabel("NANDEMU/FDIALOG", theme.lblFont, L"", 40, 60, 560, 200, theme.lblFontColor, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_MIDDLE);
+	m_nandfinLblDialog = _addLabel("NANDEMU/FINDIALOG", theme.lblFont, L"", 40, 120, 560, 200, theme.lblFontColor, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_MIDDLE);
+	m_nandemuLblDialog = _addLabel("NANDEMU/DIALOG", theme.lblFont, L"", 40, 180, 560, 200, theme.lblFontColor, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_MIDDLE);
+	m_nandfilePBar = _addProgressBar("NANDEMU/FILEPROGRESS_BAR", 40, 200, 560, 20);
+	m_nandemuPBar = _addProgressBar("NANDEMU/PROGRESS_BAR", 40, 320, 560, 20);
+	m_nandemuLblEmulation = _addLabel("NANDEMU/EMU_SAVE", theme.lblFont, L"", 40, 130, 340, 56, theme.lblFontColor, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_MIDDLE);
+	m_nandemuLblEmulationVal = _addLabel("NANDEMU/EMU_SAVE_BTN_GLOBAL", theme.btnFont, L"", 400, 130, 144, 56, theme.btnFontColor, FTGX_JUSTIFY_CENTER | FTGX_ALIGN_MIDDLE, theme.btnTexC);
+	m_nandemuBtnEmulationM = _addPicButton("NANDEMU/EMU_SAVE_MINUS", theme.btnTexMinus, theme.btnTexMinusS, 344, 130, 56, 56);
+	m_nandemuBtnEmulationP = _addPicButton("NANDEMU/EMU_SAVE_PLUS", theme.btnTexPlus, theme.btnTexPlusS, 544, 130, 56, 56);
+	m_nandemuLblSaveDump = _addLabel("NANDEMU/SAVE_DUMP", theme.lblFont, L"", 40, 190, 340, 56, theme.lblFontColor, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_MIDDLE);
+	m_nandemuBtnAll = _addButton("NANDEMU/ALL_BTN", theme.btnFont, L"", 350, 190, 250, 56, theme.btnFontColor);
+	m_nandemuBtnMissing = _addButton("NANDEMU/MISSING_BTN", theme.btnFont, L"", 350, 250, 250, 56, theme.btnFontColor);
+	m_nandemuLblNandDump = _addLabel("NANDEMU/NAND_DUMP", theme.lblFont, L"", 40, 310, 340, 56, theme.lblFontColor, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_MIDDLE);
+	m_nandemuBtnNandDump = _addButton("NANDEMU/NAND_DUMP_BTN", theme.btnFont, L"", 350, 310, 250, 56, theme.btnFontColor);
+	m_nandemuBtnBack = _addButton("NANDEMU/BACK_BTN", theme.btnFont, L"", 420, 400, 200, 56, theme.btnFontColor);
+	m_nandemuBtnExtract = _addButton("NANDEMU/EXTRACT", theme.titleFont, L"", 72, 180, 496, 56, theme.titleFontColor);
+	m_nandemuBtnDisable = _addButton("NANDEMU/DISABLE", theme.titleFont, L"", 72, 270, 496, 56, theme.titleFontColor);
+	m_nandemuBtnPartition = _addButton("NANDEMU/PARTITION", theme.titleFont, L"", 72, 360, 496, 56, theme.titleFontColor);
+	m_nandemuLblInit = _addLabel("NANDEMU/INIT", theme.lblFont, L"", 40, 40, 560, 140, theme.lblFontColor, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_MIDDLE);
 
 	_setHideAnim(m_nandemuLblTitle, "NANDEMU/TITLE", 0, -100, 0.f, 0.f);
 	_setHideAnim(m_nandfileLblMessage, "NANDEMU/FMESSAGE", 0, 0, -2.f, 0.f);

@@ -16,7 +16,6 @@
 #include "config/config.hpp"
 #include "loader/disc.h"
 #include "loader/utils.h"
-#include "memory/smartptr.hpp"
 #include "music/gui_sound.h"
 
 using namespace std;
@@ -40,15 +39,15 @@ public:
 	CCoverFlow(void);
 	~CCoverFlow(void);
 	// 
-	bool init(u8 *font, u32 font_size, bool vid_50hz);
+	bool init(const u8 *font, const u32 font_size, bool vid_50hz);
 	// Cover list management
 	void clear(void);
 	void shutdown(void);
 	void reserve(u32 capacity);
-	void addItem(dir_discHdr *hdr, const char *picPath, const char *boxPicPath, int playcount = 0, unsigned int lastPlayed = 0);
+	void addItem(dir_discHdr *hdr, const char *picPath, const char *boxPicPath, const char *blankBoxPicPath, int playcount = 0, unsigned int lastPlayed = 0);
 	bool empty(void) const { return m_items.empty(); }
 	// 
-	bool start(const char *id = 0);
+	bool start(const char *id = NULL);
 	void stopCoverLoader(bool empty = false);
 	void startCoverLoader(void);
 	// 
@@ -72,20 +71,20 @@ public:
 	void flip(bool force = false, bool f = true);
 	void cancel(void);
 	bool selected(void) const { return m_selected; }
-	void makeEffectTexture(CVideo &vid, const STexture &bg);
+	void makeEffectTexture(const STexture * &bg);
 	void drawText(bool withRectangle = false);
 	void draw(void);
 	void drawEffect(void);
 	void hideCover(void);
 	void showCover(void);
-	void mouse(CVideo &vid, int chan, int x, int y);
-	bool mouseOver(CVideo &vid, int x, int y);
+	void mouse(int chan, int x, int y);
+	bool mouseOver(int x, int y);
 	// Accessors for settings
 	void setCompression(bool enable) { m_compressTextures = enable; }
 	bool getBoxMode(void) const { return m_box;}
 	void setBufferSize(u32 numCovers);
 	void setTextures(const string &loadingPic, const string &loadingPicFlat, const string &noCoverPic, const string &noCoverPicFlat);
-	void setFont(SFont font, const CColor &color);
+	void setFont(const SFont &font, const CColor &color);
 	void setRange(u32 rows, u32 columns);
 	void setBoxMode(bool box);
 	void setHQcover(bool HQ);
@@ -115,9 +114,9 @@ public:
 	void setRowAngles(bool selected, const Vector3D &top, const Vector3D &bottom);
 	void setCoverFlipping(const Vector3D &pos, const Vector3D &angle, const Vector3D &scale);
 	void setBlur(u32 blurResolution, u32 blurRadius, float blurFactor);
-	bool setSorting(Sorting sorting);
+	void setSorting(Sorting sorting);
 	// 
-	void setSounds(const SmartGuiSound &sound, const SmartGuiSound &hoverSound, const SmartGuiSound &selectSound, const SmartGuiSound &cancelSound);
+	void setSounds(GuiSound *flipSound, GuiSound *hoverSound, GuiSound *selectSound, GuiSound *cancelSound);
 	void setSoundVolume(u8 vol);
 	void stopSound(void);
 	// 
@@ -132,6 +131,10 @@ public:
 	dir_discHdr * getNextHdr(void) const;
 	wstringEx getTitle(void) const;
 	u64 getChanTitle(void) const;
+	//
+	bool getRenderTex(void);
+	void setRenderTex(bool);
+	void RenderTex(void);
 private:
 	enum DrawMode { CFDR_NORMAL, CFDR_STENCIL, CFDR_SHADOW };
 	struct SLayout
@@ -190,13 +193,14 @@ private:
 		dir_discHdr *hdr;
 		string picPath;
 		string boxPicPath;
+		string blankBoxPicPath;
 		int playcount;
 		unsigned int lastPlayed;
 		STexture texture;
 		volatile bool boxTexture;
 		volatile enum TexState state;
 		// 
-		CItem(dir_discHdr *itemHdr, const char *itemPic, const char *itemBoxPic, int playcount, unsigned int lastPlayed);
+		CItem(dir_discHdr *itemHdr, const char *itemPic, const char *itemBoxPic, const char *itemBlankBoxPic, int playcount, unsigned int lastPlayed);
 	};
 	struct CCover
 	{
@@ -236,7 +240,12 @@ private:
 	int m_jump;
 	mutex_t m_mutex;
 	volatile bool m_loadingCovers;
+	volatile bool m_coverThrdBusy;
 	volatile bool m_moved;
+	//
+	volatile bool m_renderTex;
+	STexture *m_renderingTex;
+	//
 	volatile int m_hqCover;
 	bool m_selected;
 	int m_tickCount;
@@ -285,10 +294,10 @@ private:
 	Vector3D m_flipCoverAngle;
 	Vector3D m_flipCoverScale;
 	u8 sndCopyNum;
-	SmartGuiSound m_sound[4];
-	SmartGuiSound m_hoverSound;
-	SmartGuiSound m_selectSound;
-	SmartGuiSound m_cancelSound;
+	GuiSound *m_flipSound;
+	GuiSound *m_hoverSound;
+	GuiSound *m_selectSound;
+	GuiSound *m_cancelSound;
 	u8 m_soundVolume;
 	float m_lodBias;
 	u8 m_aniso;
@@ -297,8 +306,8 @@ private:
 private:
 	void _draw(DrawMode dm = CFDR_NORMAL, bool mirror = false, bool blend = true);
 	u32 _currentPos(void) const;
-	void _effectBg(const STexture &tex);
-	void _effectBlur(CVideo &vid, bool vertical);
+	void _effectBg(const STexture * &tex);
+	void _effectBlur(bool vertical);
 	bool _effectVisible(void);
 	void _drawMirrorZ(void);
 	void _drawTitle(int i, bool mirror, bool rectangle);
@@ -324,15 +333,14 @@ private:
 	void _loadAllCovers(int i);
 	static bool _calcTexLQLOD(STexture &tex);
 	void _dropHQLOD(int i);
-	bool _loadCoverTexPNG(u32 i, bool box, bool hq);
-	CLRet _loadCoverTex(u32 i, bool box, bool hq);
+	bool _loadCoverTexPNG(u32 i, bool box, bool hq, bool blankBoxCover);
+	CLRet _loadCoverTex(u32 i, bool box, bool hq, bool blankBoxCover);
 	bool _invisibleCover(u32 x, u32 y);
 	void _instantTarget(int i);
 	void _transposeCover(vector<CCover> &dst, u32 rows, u32 columns, int pos);
-	void _playSound(void);
-	
-	void _stopSound(SmartGuiSound snd);
-	void _playSound(SmartGuiSound snd);
+
+	void _stopSound(GuiSound * &snd);
+	void _playSound(GuiSound * &snd);
 
 	static bool _sortByPlayCount(CItem item1, CItem item2);
 	static bool _sortByLastPlayed(CItem item1, CItem item2);
@@ -348,5 +356,7 @@ private:
 	CCoverFlow(const CCoverFlow &);
 	CCoverFlow &operator=(const CCoverFlow &);
 };
+
+extern CCoverFlow CoverFlow;
 
 #endif // !defined(__COVERFLOW_HPP)

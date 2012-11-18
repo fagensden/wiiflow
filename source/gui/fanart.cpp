@@ -23,11 +23,11 @@ void CFanart::unload()
 {
 	m_cfg.unload();
 	m_loaded = false;
+	for(vector<CFanartElement>::iterator Elm = m_elms.begin(); Elm != m_elms.end(); Elm++)
+		Elm->Cleanup();
 	m_elms.clear();
-	if(m_bg.data.get() != NULL)
-		m_bg.data.release();
-	if(m_bglq.data.get() != NULL)
-		m_bglq.data.release();
+	m_bg.Cleanup();
+	m_bglq.Cleanup();
 }
 
 bool CFanart::load(Config &m_globalConfig, const char *path, const char *id)
@@ -40,31 +40,27 @@ bool CFanart::load(Config &m_globalConfig, const char *path, const char *id)
 	unload();
 
 	char dir[64];
-	memset(dir,0, 64);
+	dir[63] = '\0';
 	strncpy(dir, fmt("%s/%s", path, id), 63);
-	STexture fanBg, fanBgLq;
 
-	STexture::TexErr texErr = fanBg.fromImageFile(fmt("%s/background.png", dir));
-	if(texErr == STexture::TE_ERROR)
+	TexErr texErr = m_bg.fromImageFile(fmt("%s/background.png", dir));
+	if(texErr == TE_ERROR)
 	{
-		memset(dir,0, 64);
 		strncpy(dir, fmt("%s/%.3s", path, id), 63);
-		texErr = fanBg.fromImageFile(fmt("%s/background.png", dir));
+		texErr = m_bg.fromImageFile(fmt("%s/background.png", dir));
 	}
-
-	if (texErr == STexture::TE_OK)
+	if(texErr == TE_OK)
 	{
 		char cfg_char[64];
-		memset(cfg_char,0, 64);
+		cfg_char[63] = '\0';
 		strncpy(cfg_char, fmt("%s/%s.ini", dir, id), 63);
 		m_cfg.load(cfg_char);
 		if(!m_cfg.loaded())
 		{
-			memset(cfg_char,0, 64);
 			strncpy(cfg_char, fmt("%s/%.3s.ini", dir, id), 63);
 			m_cfg.load(cfg_char);
 		}
-		fanBgLq.fromImageFile(fmt("%s/background_lq.png", dir));
+		m_bglq.fromImageFile(fmt("%s/background_lq.png", dir));
 		for(int i = 1; i <= 6; i++)
 		{
 			CFanartElement elm(m_cfg, dir, i);
@@ -78,20 +74,18 @@ bool CFanart::load(Config &m_globalConfig, const char *path, const char *id)
 		m_globalHideCover = m_globalConfig.getOptBool("FANART", "hidecover", 2); // 0 is false, 1 is true, 2 is default
 		m_globalShowCoverAfterAnimation = m_globalConfig.getOptBool("FANART", "show_cover_after_animation", 2);
 	}
-
-	m_bg = fanBg;
-	m_bglq = fanBgLq;
-
 	return retval;
 }
 
-void CFanart::getBackground(STexture &hq, STexture &lq)
+void CFanart::getBackground(const STexture * &hq, const STexture * &lq)
 {
 	if(m_loaded)
 	{
-		hq = m_bg;
-		lq = m_bglq;
+		hq = &m_bg;
+		lq = &m_bglq;
 	}
+	if(lq == NULL || lq->data == NULL)
+		lq = hq;
 }
 
 CColor CFanart::getTextColor(CColor themeTxtColor)
@@ -189,7 +183,7 @@ void CFanart::draw(bool front)
 CFanartElement::CFanartElement(Config &cfg, const char *dir, int artwork)
 	: m_artwork(artwork), m_isValid(false)
 {
-	m_isValid = m_art.fromImageFile(fmt("%s/artwork%d.png", dir, artwork)) == STexture::TE_OK;
+	m_isValid = (m_art.fromImageFile(fmt("%s/artwork%d.png", dir, artwork)) == TE_OK);
 	if (!m_isValid)	return;
 
 	const char *section = fmt("artwork%d", artwork);
@@ -220,10 +214,9 @@ CFanartElement::CFanartElement(Config &cfg, const char *dir, int artwork)
 	m_step_angle = m_event_duration == 0 ? 0 : (m_angle - m_event_angle) / m_event_duration;
 }
 
-CFanartElement::~CFanartElement(void)
+void CFanartElement::Cleanup(void)
 {
-	if(m_art.data.get() != NULL)
-		m_art.data.release();
+	m_art.Cleanup();
 }
 
 bool CFanartElement::IsValid()
@@ -283,7 +276,7 @@ void CFanartElement::draw()
 	guMtxTransApply(modelViewMtx, modelViewMtx, m_event_x, m_event_y, 0.f);
 	GX_LoadPosMtxImm(modelViewMtx, GX_PNMTX0);
 
-	GX_InitTexObj(&artwork, m_art.data.get(), m_art.width, m_art.height, m_art.format, GX_CLAMP, GX_CLAMP, GX_FALSE);
+	GX_InitTexObj(&artwork, m_art.data, m_art.width, m_art.height, m_art.format, GX_CLAMP, GX_CLAMP, GX_FALSE);
 	GX_LoadTexObj(&artwork, GX_TEXMAP0);
 
 	float w = (float)(m_art.width / 2); // * m_event_scaleX;

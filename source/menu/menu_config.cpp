@@ -2,7 +2,6 @@
 #include "menu.hpp"
 #include "channel/nand.hpp"
 #include "loader/nk.h"
-#include "loader/sys.h"
 
 const int CMenu::_nbCfgPages = 6;
 static const int g_curPage = 1;
@@ -60,17 +59,14 @@ void CMenu::_showConfig(void)
 		m_btnMgr.show(m_configLblDownload);
 		m_btnMgr.show(m_configBtnDownload);
 	
-		bool disable = (m_cfg.getBool("NAND", "disable", true) || neek2o()) && m_current_view == COVERFLOW_CHANNEL && !m_tempView;
-		char *partitionname = disable ? (char *)"NAND" : (char *)DeviceName[m_tempView ? m_cfg.getInt("GAMES", "savepartition", 0) : m_cfg.getInt(_domainFromView(), "partition", 0)];
-
-		for(u8 i = 0; strncmp((const char *)&partitionname[i], "\0", 1) != 0; i++)
-			partitionname[i] = toupper(partitionname[i]);
+		bool disable = (m_current_view == COVERFLOW_CHANNEL) && (m_cfg.getBool(CHANNEL_DOMAIN, "disable", true) || neek2o()) && !m_tempView;
+		const char *partitionname = disable ? CHANNEL_DOMAIN : DeviceName[m_tempView ? m_cfg.getInt(WII_DOMAIN, "savepartition", 0) : m_cfg.getInt(_domainFromView(), "partition", 0)];
 
 		for(u8 i = 0; i < ARRAY_SIZE(m_configLblUser); ++i)
 			if(m_configLblUser[i] != -1)
 				m_btnMgr.show(m_configLblUser[i]);
 		
-		m_btnMgr.setText(m_configLblPartition, (string)partitionname);
+		m_btnMgr.setText(m_configLblPartition, upperCase(partitionname));
 
 		m_btnMgr.show(m_configLblCfg4);
 		m_btnMgr.show(m_configBtnCfg4);
@@ -82,13 +78,13 @@ void CMenu::_showConfig(void)
 void CMenu::_cfNeedsUpdate(void)
 {
 	if (!m_cfNeedsUpdate)
-		m_cf.clear();
+		CoverFlow.clear();
 	m_cfNeedsUpdate = true;
 }
 
 void CMenu::_config(int page)
 {
-	m_curGameId = m_cf.getId();
+	m_curGameId = CoverFlow.getId();
 	m_cfNeedsUpdate = false;
 	int change = CONFIG_PAGE_NO_CHANGE;
 	while(!m_exit)
@@ -183,11 +179,11 @@ int CMenu::_config1(void)
 			if (m_btnMgr.selected(m_configBtnDownload))
 			{
 				_cfNeedsUpdate();
-				m_cf.stopCoverLoader(true);
+				CoverFlow.stopCoverLoader(true);
 				_hideConfig();
 				_download();
 				_showConfig();
-				m_cf.startCoverLoader();
+				CoverFlow.startCoverLoader();
 			}
 			else if ((m_btnMgr.selected(m_configBtnUnlock)) || (m_btnMgr.selected(m_configBtnSetCode)))
 				_code();
@@ -199,30 +195,24 @@ int CMenu::_config1(void)
 			else if (m_btnMgr.selected(m_configBtnCfg4))
 			{
 				_cfNeedsUpdate();
-				m_cf.stopCoverLoader(true);
+				CoverFlow.stopCoverLoader(true);
 				_hideConfig();
 				if(m_current_view != COVERFLOW_PLUGIN)
 					_NandEmuCfg();
 				else
 					_PluginSettings();
 				_showConfig();
-				m_cf.startCoverLoader();
+				CoverFlow.startCoverLoader();
 			}
 		}
 	}
 	
 	if (currentPartition != bCurrentPartition)
 	{	
-		bool disable = (m_cfg.getBool("NAND", "disable", true) || neek2o()) && m_current_view == COVERFLOW_CHANNEL && !m_tempView;
-
+		bool disable = (m_cfg.getBool(CHANNEL_DOMAIN, "disable", true) || neek2o()) 
+						&& m_current_view == COVERFLOW_CHANNEL && !m_tempView;
 		if(!disable)
 		{
-			char *newpartition = (char *)DeviceName[m_cfg.getInt(m_tempView ? "GAMES" : _domainFromView(), m_tempView ? "savepartition" : "partition", currentPartition)];
-
-			for(u8 i = 0; strncmp((const char *)&newpartition[i], "\0", 1) != 0; i++)
-				newpartition[i] = toupper(newpartition[i]);
-
-			//gprintf("Switching partition to %s\n", newpartition);
 			_showWaitMessage();
 			_loadList();
 			_hideWaitMessage();
@@ -234,26 +224,26 @@ int CMenu::_config1(void)
 	return change;
 }
 
-void CMenu::_initConfigMenu(CMenu::SThemeData &theme)
+void CMenu::_initConfigMenu()
 {
-	_addUserLabels(theme, m_configLblUser, ARRAY_SIZE(m_configLblUser), "CONFIG");
-	m_configBg = _texture(theme.texSet, "CONFIG/BG", "texture", theme.bg);
-	m_configLblTitle = _addTitle(theme, "CONFIG/TITLE", theme.titleFont, L"", 20, 30, 600, 60, theme.titleFontColor, FTGX_JUSTIFY_CENTER | FTGX_ALIGN_MIDDLE);
-	m_configLblDownload = _addLabel(theme, "CONFIG/DOWNLOAD", theme.lblFont, L"", 40, 130, 340, 56, theme.lblFontColor, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_MIDDLE);
-	m_configBtnDownload = _addButton(theme, "CONFIG/DOWNLOAD_BTN", theme.btnFont, L"", 400, 130, 200, 56, theme.btnFontColor);
-	m_configLblParental = _addLabel(theme, "CONFIG/PARENTAL", theme.lblFont, L"", 40, 190, 340, 56, theme.lblFontColor, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_MIDDLE);
-	m_configBtnUnlock = _addButton(theme, "CONFIG/UNLOCK_BTN", theme.btnFont, L"", 400, 190, 200, 56, theme.btnFontColor);
-	m_configBtnSetCode = _addButton(theme, "CONFIG/SETCODE_BTN", theme.btnFont, L"", 400, 190, 200, 56, theme.btnFontColor);
-	m_configLblPartitionName = _addLabel(theme, "CONFIG/PARTITION", theme.lblFont, L"", 40, 250, 340, 56, theme.lblFontColor, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_MIDDLE);
-	m_configLblPartition = _addLabel(theme, "CONFIG/PARTITION_BTN", theme.btnFont, L"", 456, 250, 88, 56, theme.btnFontColor, FTGX_JUSTIFY_CENTER | FTGX_ALIGN_MIDDLE, theme.btnTexC);
-	m_configBtnPartitionM = _addPicButton(theme, "CONFIG/PARTITION_MINUS", theme.btnTexMinus, theme.btnTexMinusS, 400, 250, 56, 56);
-	m_configBtnPartitionP = _addPicButton(theme, "CONFIG/PARTITION_PLUS", theme.btnTexPlus, theme.btnTexPlusS, 544, 250, 56, 56);
-	m_configLblCfg4 = _addLabel(theme, "CONFIG/CFG4", theme.lblFont, L"", 40, 310, 340, 56, theme.lblFontColor, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_MIDDLE);
-	m_configBtnCfg4 = _addButton(theme, "CONFIG/CFG4_BTN", theme.btnFont, L"", 400, 310, 200, 56, theme.btnFontColor);
-	m_configLblPage = _addLabel(theme, "CONFIG/PAGE_BTN", theme.btnFont, L"", 76, 400, 80, 56, theme.btnFontColor, FTGX_JUSTIFY_CENTER | FTGX_ALIGN_MIDDLE, theme.btnTexC);
-	m_configBtnPageM = _addPicButton(theme, "CONFIG/PAGE_MINUS", theme.btnTexMinus, theme.btnTexMinusS, 20, 400, 56, 56);
-	m_configBtnPageP = _addPicButton(theme, "CONFIG/PAGE_PLUS", theme.btnTexPlus, theme.btnTexPlusS, 156, 400, 56, 56);
-	m_configBtnBack = _addButton(theme, "CONFIG/BACK_BTN", theme.btnFont, L"", 420, 400, 200, 56, theme.btnFontColor);
+	_addUserLabels(m_configLblUser, ARRAY_SIZE(m_configLblUser), "CONFIG");
+	m_configBg = _texture("CONFIG/BG", "texture", theme.bg, false);
+	m_configLblTitle = _addTitle("CONFIG/TITLE", theme.titleFont, L"", 20, 30, 600, 60, theme.titleFontColor, FTGX_JUSTIFY_CENTER | FTGX_ALIGN_MIDDLE);
+	m_configLblDownload = _addLabel("CONFIG/DOWNLOAD", theme.lblFont, L"", 40, 130, 340, 56, theme.lblFontColor, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_MIDDLE);
+	m_configBtnDownload = _addButton("CONFIG/DOWNLOAD_BTN", theme.btnFont, L"", 400, 130, 200, 56, theme.btnFontColor);
+	m_configLblParental = _addLabel("CONFIG/PARENTAL", theme.lblFont, L"", 40, 190, 340, 56, theme.lblFontColor, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_MIDDLE);
+	m_configBtnUnlock = _addButton("CONFIG/UNLOCK_BTN", theme.btnFont, L"", 400, 190, 200, 56, theme.btnFontColor);
+	m_configBtnSetCode = _addButton("CONFIG/SETCODE_BTN", theme.btnFont, L"", 400, 190, 200, 56, theme.btnFontColor);
+	m_configLblPartitionName = _addLabel("CONFIG/PARTITION", theme.lblFont, L"", 40, 250, 340, 56, theme.lblFontColor, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_MIDDLE);
+	m_configLblPartition = _addLabel("CONFIG/PARTITION_BTN", theme.btnFont, L"", 456, 250, 88, 56, theme.btnFontColor, FTGX_JUSTIFY_CENTER | FTGX_ALIGN_MIDDLE, theme.btnTexC);
+	m_configBtnPartitionM = _addPicButton("CONFIG/PARTITION_MINUS", theme.btnTexMinus, theme.btnTexMinusS, 400, 250, 56, 56);
+	m_configBtnPartitionP = _addPicButton("CONFIG/PARTITION_PLUS", theme.btnTexPlus, theme.btnTexPlusS, 544, 250, 56, 56);
+	m_configLblCfg4 = _addLabel("CONFIG/CFG4", theme.lblFont, L"", 40, 310, 340, 56, theme.lblFontColor, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_MIDDLE);
+	m_configBtnCfg4 = _addButton("CONFIG/CFG4_BTN", theme.btnFont, L"", 400, 310, 200, 56, theme.btnFontColor);
+	m_configLblPage = _addLabel("CONFIG/PAGE_BTN", theme.btnFont, L"", 76, 400, 80, 56, theme.btnFontColor, FTGX_JUSTIFY_CENTER | FTGX_ALIGN_MIDDLE, theme.btnTexC);
+	m_configBtnPageM = _addPicButton("CONFIG/PAGE_MINUS", theme.btnTexMinus, theme.btnTexMinusS, 20, 400, 56, 56);
+	m_configBtnPageP = _addPicButton("CONFIG/PAGE_PLUS", theme.btnTexPlus, theme.btnTexPlusS, 156, 400, 56, 56);
+	m_configBtnBack = _addButton("CONFIG/BACK_BTN", theme.btnFont, L"", 420, 400, 200, 56, theme.btnFontColor);
 
 	_setHideAnim(m_configLblTitle, "CONFIG/TITLE", 0, 0, -2.f, 0.f);
 

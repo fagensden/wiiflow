@@ -4,8 +4,6 @@
 
 #include <gccore.h>
 #include <vector>
-
-#include "memory/smartptr.hpp"
 #include "vector.hpp"
 #include "texture.hpp"
 
@@ -93,7 +91,7 @@ private:
 	bool m_aaAlpha;
 	int m_aaWidth;
 	int m_aaHeight;
-	SmartBuf m_aaBuffer[8];
+	u8 *m_aaBuffer[8];
 	u32 m_aaBufferSize[8];
 	float m_vpX;
 	float m_vpY;
@@ -120,6 +118,9 @@ private:
 private:
 	CVideo(const CVideo &);
 };
+
+void DrawTexture(STexture * &tex);
+void DrawRectangle(f32 x, f32 y, f32 width, f32 height, GXColor color);
 
 extern CVideo m_vid;
 #endif //!defined(__VIDEO_HPP)
