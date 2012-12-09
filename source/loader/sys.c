@@ -13,22 +13,19 @@
 #include "sys.h"
 #include "channel/channel_launcher.h"
 #include "loader/nk.h"
-#include "gecko/gecko.h"
+#include "gecko/gecko.hpp"
 #include "memory/mem2.hpp"
 #include "memory/memory.h"
 #include "wiiuse/wpad.h"
 
 /* Variables */
-bool reset = false;
-bool shutdown = false;
-u8 ExitOption = 0;
+volatile bool reset = false;
+volatile bool shutdown = false;
+volatile u8 ExitOption = 0;
 const char *NeekPath = NULL;
-
-extern void __exception_closeall();
 
 void __Wpad_PowerCallback()
 {
-	/* Poweroff console */
 	shutdown = 1;
 }
 
@@ -115,6 +112,7 @@ void Sys_Exit(void)
 		IOS_ReloadIOS(0xfe);
 	else if(ExitOption == EXIT_TO_HBC)
 	{
+		WII_LaunchTitle(HBC_LULZ);
 		WII_LaunchTitle(HBC_108);
 		WII_LaunchTitle(HBC_JODI);
 		WII_LaunchTitle(HBC_HAXX);

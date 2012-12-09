@@ -6,7 +6,7 @@
 #include "booter/external_booter.hpp"
 #include "channel/nand.hpp"
 #include "devicemounter/DeviceHandler.hpp"
-#include "gecko/gecko.h"
+#include "gecko/gecko.hpp"
 #include "gui/video.hpp"
 #include "gui/text.hpp"
 #include "homebrew/homebrew.h"
@@ -27,7 +27,7 @@ int main(int argc, char **argv)
 {
 	mainIOS = DOL_MAIN_IOS;
 	__exception_setreload(5);
-	InitGecko(); //USB Gecko and SD buffer
+	Gecko_Init(); //USB Gecko and SD/WiFi buffer
 	gprintf(" \nWelcome to %s!\nThis is the debug output.\n", VERSION_STRING.c_str());
 
 	m_vid.init(); // Init video
@@ -64,26 +64,13 @@ int main(int argc, char **argv)
 	NandHandle.Init_ISFS();
 	/* Handle (c)IOS Loading */
 	if(neek2o() || Sys_DolphinMode())
-	{
-		iosOK = true;
-		memset(&CurrentIOS, 0, sizeof(IOS_Info));
-		CurrentIOS.Version = 254;
-		CurrentIOS.Type = IOS_TYPE_NEEK2O;
-		CurrentIOS.Base = 254;
-		CurrentIOS.Revision = 999;
-		DCFlushRange(&CurrentIOS, sizeof(IOS_Info));
-		DeviceHandle.SetModes();
-	}
-	else if(AHBRPOT_Patched() && IOS_GetVersion() == 58)
-	{
-		gprintf("AHBPROT patched out, use IOS58\n");
+		iosOK = loadIOS(IOS_GetVersion(), false);
+	else if((AHBRPOT_Patched() && IOS_GetVersion() == 58) || /* Normal HBC or FW Boot */
+	(!AHBRPOT_Patched() && IOS_GetType(mainIOS) == IOS_TYPE_STUB)) /* Maybe old HBC or WiiU */
 		iosOK = loadIOS(58, false);
-	}
-	else
-	{
-		gprintf("Loading cIOS: %d\n", mainIOS);	
+	else /* cIOS wanted */
 		iosOK = loadIOS(mainIOS, false) && CustomIOS(CurrentIOS.Type);
-	}
+
 	// Init
 	Sys_Init();
 	Sys_ExitTo(EXIT_TO_HBC);

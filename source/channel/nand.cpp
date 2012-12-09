@@ -36,8 +36,9 @@
 #include <malloc.h>
 
 #include "nand.hpp"
+#include "identify.h"
 #include "fileOps/fileOps.h"
-#include "gecko/gecko.h"
+#include "gecko/gecko.hpp"
 #include "loader/alt_ios.h"
 #include "loader/cios.h"
 #include "loader/fs.h"
@@ -1049,36 +1050,34 @@ s32 Nand::Do_Region_Change(string id)
 	return 1;
 }
 
-extern "C" { extern s32 MagicPatches(s32); }
-
 void Nand::Enable_ISFS_Patches(void)
 {
 	if(AHBRPOT_Patched())
-		gprintf("Enabling ISFS Patches: %i\n", MagicPatches(1));
+		Patch_ISFS_Permission(true);
 }
 
 void Nand::Disable_ISFS_Patches(void)
 {
 	if(AHBRPOT_Patched())
-		gprintf("Disabling ISFS Patches: %i\n", MagicPatches(0));
+		Patch_ISFS_Permission(false);
 }
 
 void Nand::Init_ISFS()
 {
-	if(IOS_GetVersion() == 58)
+	gprintf("Init ISFS\n");
+	ISFS_Initialize();
+	if(IOS_GetType(IOS_GetVersion()) == IOS_TYPE_NORMAL_IOS)
 	{
 		Enable_ISFS_Patches();
 		AccessPatched = true;
 	}
-	gprintf("Init ISFS\n");
-	ISFS_Initialize();
 }
 
-void Nand::DeInit_ISFS()
+void Nand::DeInit_ISFS(bool KeepPatches)
 {
 	gprintf("Deinit ISFS\n");
 	ISFS_Deinitialize();
-	if(AccessPatched)
+	if(AccessPatched && !KeepPatches)
 	{
 		Disable_ISFS_Patches();
 		AccessPatched = false;

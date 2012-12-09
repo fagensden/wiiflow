@@ -13,13 +13,13 @@
 #include "channel/channel_launcher.h"
 #include "channel/channels.h"
 #include "channel/nand.hpp"
+#include "channel/identify.h"
 #include "devicemounter/DeviceHandler.hpp"
 #include "devicemounter/sdhc.h"
 #include "devicemounter/usbstorage.h"
 #include "fileOps/fileOps.h"
 #include "gc/gc.hpp"
 #include "gc/gcdisc.hpp"
-#include "gecko/gecko.h"
 #include "gui/WiiMovie.hpp"
 #include "gui/GameTDB.hpp"
 #include "gui/Gekko.h"
@@ -34,6 +34,7 @@
 #include "loader/fst.h"
 #include "loader/cios.h"
 #include "loader/nk.h"
+#include "memory/memory.h"
 #include "network/http.h"
 #include "network/gcard.h"
 
@@ -814,6 +815,9 @@ void CMenu::_launch(dir_discHdr *hdr)
 void CMenu::_launchGC(dir_discHdr *hdr, bool disc)
 {
 	const char *id = hdr->id;
+	memcpy((u8*)Disc_ID, id, 6);
+	DCFlushRange((u8*)Disc_ID, 32);
+
 	const char *path = hdr->path;
 	m_cfg.setString(GC_DOMAIN, "current_item", id);
 	m_gcfg1.setInt("PLAYCOUNT", id, m_gcfg1.getInt("PLAYCOUNT", id, 0) + 1);
@@ -940,14 +944,14 @@ void CMenu::_launchHomebrew(const char *filepath, vector<string> arguments)
 	BootHomebrew();
 }
 
-int CMenu::_loadIOS(u8 gameIOS, int userIOS, string id)
+int CMenu::_loadIOS(u8 gameIOS, int userIOS, string id, bool RealNAND_Channels)
 {
 	gprintf("Game ID# %s requested IOS %d.  User selected %d\n", id.c_str(), gameIOS, userIOS);
-	if(neek2o())
+	if(neek2o() || (RealNAND_Channels && IOS_GetType(mainIOS) == IOS_TYPE_STUB))
 	{
 		if(!loadIOS(gameIOS, false))
 		{
-			_reload_wifi_gecko();
+			_netInit();
 			error(sfmt("errgame4", L"Couldn't load IOS %i", gameIOS));
 			return LOAD_IOS_FAILED;
 		}
@@ -1007,7 +1011,7 @@ int CMenu::_loadIOS(u8 gameIOS, int userIOS, string id)
 		gprintf("Reloading IOS into %d\n", gameIOS);
 		if(!loadIOS(gameIOS, true))
 		{
-			_reload_wifi_gecko();
+			_netInit();
 			error(sfmt("errgame4", L"Couldn't load IOS %i", gameIOS));
 			return LOAD_IOS_FAILED;
 		}
@@ -1095,7 +1099,7 @@ void CMenu::_launchChannel(dir_discHdr *hdr)
 	gameIOS = ChannelHandle.GetRequestedIOS(gameTitle);
 	if(NAND_Emu && !neek2o())
 		NandHandle.Disable_Emu();
-	if(_loadIOS(gameIOS, userIOS, id) == LOAD_IOS_FAILED)
+	if(_loadIOS(gameIOS, userIOS, id, !NAND_Emu) == LOAD_IOS_FAILED)
 		Sys_Exit();
 	if((CurrentIOS.Type == IOS_TYPE_D2X || neek2o()) && returnTo != 0)
 	{
@@ -1127,6 +1131,8 @@ void CMenu::_launchChannel(dir_discHdr *hdr)
 	{
 		setLanguage(language);
 		ocarina_load_code(cheatFile, cheatSize);
+		Patch_Channel_Boot(); /* Patch for everything */
+		NandHandle.Patch_AHB(); /* Identify may takes it */
 		Identify(gameTitle);
 		ExternalBooter_ChannelSetup(gameTitle);
 		WiiFlow_ExternalBooter(videoMode, vipatch, countryPatch, patchVidMode, aspectRatio, 0, TYPE_CHANNEL);

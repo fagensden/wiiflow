@@ -12,7 +12,8 @@
 #include "channel/channels.h"
 #include "cheats/gct.h"
 #include "devicemounter/DeviceHandler.hpp"
-#include "gecko/gecko.h"
+#include "gecko/gecko.hpp"
+#include "gecko/wifi_gecko.hpp"
 #include "gui/coverflow.hpp"
 #include "gui/cursor.hpp"
 #include "gui/fanart.hpp"
@@ -115,8 +116,8 @@ private:
 	string m_ver;
 	/* End Updates */
 	// 
-	STexture m_prevBg;
 	STexture m_curBg;
+	const STexture *m_prevBg;
 	const STexture *m_nextBg;
 	const STexture *m_lqBg;
 	u8 m_bgCrossFade;
@@ -898,7 +899,7 @@ private:
 	void _showConfig4(void);
 	void _showConfigAdv(void);
 	void _showConfigSnd(void);
-	void _enableNandEmu(bool fromconfig);
+	void _setPartition(s8 direction = 0);
 	void _showGame(void);
 	void _showDownload(void);
 	void _showSettings();
@@ -969,9 +970,11 @@ public:
 	void directlaunch(const char *GameID);
 private:
 	bool m_use_wifi_gecko;
-	void _reload_wifi_gecko();
+	bool m_use_sd_logging;
+	bool init_network;
+	void _netInit();
 	bool _loadFile(u8 * &buffer, u32 &size, const char *path, const char *file);
-	int _loadIOS(u8 ios, int userIOS, string id);
+	int _loadIOS(u8 ios, int userIOS, string id, bool RealNAND_Channels = false);
 	void _launch(dir_discHdr *hdr);
 	void _launchGame(dir_discHdr *hdr, bool dvd);
 	void _launchChannel(dir_discHdr *hdr);
@@ -1093,6 +1096,7 @@ private:
 	static int _version[9];
 	static const SCFParamDesc _cfParams[];
 	static const int _nbCfgPages;
+	static const u32 SVN_REV_NUM;
 };
 
 #define ARRAY_SIZE(a)		(sizeof a / sizeof a[0])

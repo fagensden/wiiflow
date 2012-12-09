@@ -143,8 +143,12 @@ CMenu::CMenu()
 	m_current_view = COVERFLOW_USB;
 	m_Emulator_boot = false;
 	m_music_info = true;
+	m_prevBg = NULL;
 	m_nextBg = NULL;
 	m_lqBg = NULL;
+	m_use_sd_logging = false;
+	m_use_wifi_gecko = false;
+	init_network = false;
 }
 
 void CMenu::init()
@@ -203,15 +207,16 @@ void CMenu::init()
 	fsop_MakeFolder(m_appDir.c_str());
 	/* Load/Create our wiiflow.ini */
 	m_cfg.load(fmt("%s/" CFG_FILENAME, m_appDir.c_str()));
-	/* Check if we want WiFi/SD Gecko */
-	m_use_wifi_gecko = m_cfg.getBool("DEBUG", "wifi_gecko");
-	if (m_cfg.getBool("GENERAL", "async_network") || has_enabled_providers() || m_use_wifi_gecko)
-		_reload_wifi_gecko();
-	if(!WriteToSD)
-	{
-		WriteToSD = m_cfg.getBool("DEBUG", "sd_write_log", false);
-		bufferMessages = WriteToSD;
-	}
+	/* Check if we want WiFi Gecko */
+	m_use_wifi_gecko = m_cfg.getBool("DEBUG", "wifi_gecko", false);
+	WiFiDebugger.SetBuffer(m_use_wifi_gecko);
+	/* Check if we want SD Gecko */
+	m_use_sd_logging = m_cfg.getBool("DEBUG", "sd_write_log", false);
+	LogToSD_SetBuffer(m_use_sd_logging);
+	/* Init Network if wanted */
+	init_network = (m_cfg.getBool("GENERAL", "async_network") || has_enabled_providers() || m_use_wifi_gecko);
+	if(init_network)
+		_netInit();
 	/* Check if we want a cIOS loaded */
 	int ForceIOS = min(m_cfg.getInt("GENERAL", "force_cios_rev", 0), 254);
 	if(ForceIOS > 0)
@@ -295,7 +300,7 @@ void CMenu::init()
 		_load_installed_cioses();
 	else
 		_installed_cios[CurrentIOS.Version] = CurrentIOS.Version;
-
+	/* Path Settings */
 	snprintf(m_app_update_drive, sizeof(m_app_update_drive), "%s:/", drive);
 	m_dataDir = fmt("%s:/%s", drive, APPDATA_DIR);
 	gprintf("Data Directory: %s\n", m_dataDir.c_str());
@@ -326,7 +331,13 @@ void CMenu::init()
 	m_fanartDir = m_cfg.getString("GENERAL", "dir_fanart", fmt("%s/fanart", m_dataDir.c_str()));
 	m_screenshotDir = m_cfg.getString("GENERAL", "dir_screenshot", fmt("%s/screenshots", m_dataDir.c_str()));
 	m_helpDir = m_cfg.getString("GENERAL", "dir_help", fmt("%s/help", m_dataDir.c_str()));
-	
+
+	/* Cache Reload Checks */
+	u32 ini_rev = m_cfg.getInt("GENERAL", "ini_rev", 0);
+	if(ini_rev != SVN_REV_NUM)
+		fsop_deleteFolder(m_listCacheDir.c_str());
+	m_cfg.setInt("GENERAL", "ini_rev", SVN_REV_NUM);
+
 	//DeviceHandler::SetWatchdog(m_cfg.getUInt("GENERAL", "watchdog_timeout", 10));
 
 	const char *domain = _domainFromView();
@@ -518,7 +529,6 @@ void CMenu::cleanup()
 	CoverFlow.shutdown();
 
 	wiiLightOff();
-	_deinitNetwork();
 	Close_Inputs();
 
 	LWP_MutexDestroy(m_mutex);
@@ -527,13 +537,15 @@ void CMenu::cleanup()
 	cleaned_up = true;
 	//gprintf(" \nMemory cleaned up\n");
 	gprintf("MEM1_freesize(): %i\nMEM2_freesize(): %i\n", MEM1_freesize(), MEM2_freesize());
+	/* Lets deinit our possible wifi gecko here */
+	_deinitNetwork();
 }
 
 void CMenu::_Theme_Cleanup(void)
 {
 	/* Backgrounds */
 	theme.bg.Cleanup();
-	m_prevBg.Cleanup();
+	m_prevBg = NULL;
 	m_nextBg = NULL;
 	m_curBg.Cleanup();
 	m_lqBg = NULL;
@@ -630,14 +642,13 @@ void CMenu::_Theme_Cleanup(void)
 	theme.soundSet.clear();
 }
 
-void CMenu::_reload_wifi_gecko(void)
+void CMenu::_netInit(void)
 {
-	if(m_use_wifi_gecko)
-	{
-		_initAsyncNetwork();
-		while(net_get_status() == -EBUSY)
-			usleep(100);
-	}
+	if(!init_network)
+		return;
+	_initAsyncNetwork();
+	while(net_get_status() == -EBUSY)
+		usleep(100);
 }
 
 void CMenu::_setAA(int aa)
@@ -1950,7 +1961,7 @@ void CMenu::_mainLoopCommon(bool withCF, bool adjusting)
 	_updateBg();
 	if(CoverFlow.getRenderTex())
 		CoverFlow.RenderTex();
-	if(withCF)
+	if(withCF && m_lqBg != NULL)
 		CoverFlow.makeEffectTexture(m_lqBg);
 	if(withCF && m_aa > 0)
 	{
@@ -2060,36 +2071,39 @@ void CMenu::_mainLoopCommon(bool withCF, bool adjusting)
 
 void CMenu::_setBg(const STexture &tex, const STexture &lqTex)
 {
-	m_lqBg = &lqTex;
+	/* Not setting same bg again */
 	if(m_nextBg == &tex)
 		return;
-	m_prevBg.CopyTexture(m_curBg);
-	m_curBg.Cleanup();
+	m_lqBg = &lqTex;
+	/* before setting new next bg set previous */
+	if(m_nextBg != NULL)
+		m_prevBg = m_nextBg;
 	m_nextBg = &tex;
 	m_bgCrossFade = 0xFF;
 }
 
 void CMenu::_updateBg(void)
 {
+	if(m_bgCrossFade == 0)
+		return;
+	m_bgCrossFade = max(0, (int)m_bgCrossFade - 14);
+
 	Mtx modelViewMtx;
 	GXTexObj texObj;
 	GXTexObj texObj2;
 
-	if (m_bgCrossFade == 0) return;
-	m_bgCrossFade = max(0, (int)m_bgCrossFade - 14);
-	if(m_bgCrossFade == 0 && m_nextBg != NULL)
-	{
-		m_curBg.CopyTexture(*m_nextBg);
-		return;
-	}
+	/* last pass so remove previous bg */
+	if(m_bgCrossFade == 0)
+		m_prevBg = NULL;
+
 	GX_ClearVtxDesc();
-	GX_SetNumTevStages(m_prevBg.data == NULL ? 1 : 2);
+	GX_SetNumTevStages(m_prevBg == NULL ? 1 : 2);
 	GX_SetNumChans(0);
 	GX_SetVtxDesc(GX_VA_POS, GX_DIRECT);
 	GX_SetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
 	GX_SetVtxDesc(GX_VA_TEX0, GX_DIRECT);
 	GX_SetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_TEX_ST, GX_F32, 0);
-	GX_SetNumTexGens(m_prevBg.data == NULL ? 1 : 2);
+	GX_SetNumTexGens(m_prevBg == NULL ? 1 : 2);
 	GX_SetTexCoordGen(GX_TEXCOORD0, GX_TG_MTX2x4, GX_TG_TEX0, GX_IDENTITY);
 	GX_SetTexCoordGen(GX_TEXCOORD1, GX_TG_MTX2x4, GX_TG_TEX0, GX_IDENTITY);
 	GX_SetTevKColor(GX_KCOLOR0, CColor(m_bgCrossFade, 0xFF - m_bgCrossFade, 0, 0));
@@ -2116,9 +2130,9 @@ void CMenu::_updateBg(void)
 		GX_InitTexObj(&texObj, m_nextBg->data, m_nextBg->width, m_nextBg->height, m_nextBg->format, GX_CLAMP, GX_CLAMP, GX_FALSE);
 		GX_LoadTexObj(&texObj, GX_TEXMAP0);
 	}
-	if(m_prevBg.data != NULL)
+	if(m_prevBg != NULL && m_prevBg->data != NULL)
 	{
-		GX_InitTexObj(&texObj2, m_prevBg.data, m_prevBg.width, m_prevBg.height, m_prevBg.format, GX_CLAMP, GX_CLAMP, GX_FALSE);
+		GX_InitTexObj(&texObj2, m_prevBg->data, m_prevBg->width, m_prevBg->height, m_prevBg->format, GX_CLAMP, GX_CLAMP, GX_FALSE);
 		GX_LoadTexObj(&texObj2, GX_TEXMAP1);
 	}
 	GX_Begin(GX_QUADS, GX_VTXFMT0, 4);
@@ -2137,11 +2151,6 @@ void CMenu::_updateBg(void)
 	m_curBg.format = GX_TF_RGBA8;
 	m_curBg.maxLOD = 0;
 	m_vid.renderToTexture(m_curBg, true);
-	if(m_curBg.data == NULL && m_nextBg != NULL)
-	{
-		m_curBg.CopyTexture(*m_nextBg);
-		m_bgCrossFade = 0;
-	}
 }
 
 void CMenu::_drawBg(void)

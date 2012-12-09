@@ -9,8 +9,6 @@
 #include "lockMutex.hpp"
 #include "channel/nand.hpp"
 #include "devicemounter/usbstorage.h"
-#include "gecko/gecko.h"
-#include "gecko/wifi_gecko.h"
 #include "gui/GameTDB.hpp"
 #include "gui/pngu.h"
 #include "loader/fs.h"
@@ -351,8 +349,10 @@ int CMenu::_coverDownloaderMissing(CMenu *m)
 
 static bool checkPNGBuf(u8 *data)
 {
-	PNGUPROP imgProp;
+	if(data == NULL)
+		return false;
 
+	PNGUPROP imgProp;
 	IMGCTX ctx = PNGU_SelectImageFromBuffer(data);
 	if (ctx == NULL)
 		return false;
@@ -365,18 +365,22 @@ static bool checkPNGFile(const char *filename)
 {
 	u8 *buffer = NULL;
 	FILE *file = fopen(filename, "rb");
-	if (file == NULL) return false;
+	if(file == NULL)
+		return false;
 	fseek(file, 0, SEEK_END);
-	long fileSize = ftell(file);
+	u32 fileSize = ftell(file);
 	fseek(file, 0, SEEK_SET);
-	if (fileSize > 0)
+	if(fileSize > 0)
 	{
 		buffer = (u8*)MEM2_alloc(fileSize);
 		if(buffer != NULL)
 			fread(buffer, 1, fileSize, file);
 	}
 	fclose(file);
-	return buffer == NULL ? false : checkPNGBuf(buffer);
+	bool ret = checkPNGBuf(buffer);
+	if(buffer != NULL)
+		MEM2_free(buffer);
+	return ret;
 }
 
 void CMenu::_initAsyncNetwork()
@@ -411,19 +415,13 @@ s32 CMenu::_networkComplete(s32 ok, void *usrData)
 	bool wifigecko = m->m_cfg.getBool("DEBUG", "wifi_gecko", false);
 	gprintf("NET: Network init complete, enabled wifi_gecko: %s\n", wifigecko ? "yes" : "no");
 
-	if (wifigecko)
+	if(wifigecko)
 	{
-		// Get ip
-		std::string ip = m->m_cfg.getString("DEBUG", "wifi_gecko_ip");
+		const string &ip = m->m_cfg.getString("DEBUG", "wifi_gecko_ip");
 		u16 port = m->m_cfg.getInt("DEBUG", "wifi_gecko_port", 4405);
-
-		if (ip.size() > 0 && port != 0)
-		{
-			gprintf("NET: WIFI Gecko to %s:%d\n", ip.c_str(), port);
-			WifiGecko_Init(ip.c_str(), port);
-		}
+		if(ip.size() > 0 && port != 0)
+			WiFiDebugger.Init(ip.c_str(), port);
 	}
-
 	return 0;
 }
 
