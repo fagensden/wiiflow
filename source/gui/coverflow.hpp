@@ -47,14 +47,15 @@ public:
 	void addItem(dir_discHdr *hdr, const char *picPath, const char *boxPicPath, const char *blankBoxPicPath, int playcount = 0, unsigned int lastPlayed = 0);
 	bool empty(void) const { return m_items.empty(); }
 	// 
-	bool start(const char *id = NULL);
+	bool start();
 	void stopCoverLoader(bool empty = false);
 	void startCoverLoader(void);
+	void defaultLoad(void);
 	// 
 	void simulateOtherScreenFormat(bool s);
 	// Commands
 	void tick(void);
-	bool findId(const char *id, bool instant = false);
+	bool findId(const char *id, bool instant = false, bool path = false);
 	void pageUp(void);
 	void pageDown(void);
 	void nextLetter(wchar_t *c);
@@ -71,7 +72,7 @@ public:
 	void flip(bool force = false, bool f = true);
 	void cancel(void);
 	bool selected(void) const { return m_selected; }
-	void makeEffectTexture(const STexture * &bg);
+	void makeEffectTexture(const TexData * &bg);
 	void drawText(bool withRectangle = false);
 	void draw(void);
 	void drawEffect(void);
@@ -125,8 +126,8 @@ public:
 	bool fullCoverCached(const char *id);
 	bool preCacheCover(const char *id, const u8 *png, bool full);
 	// 
-	string getId(void) const;
-	string getNextId(void) const;
+	const char *getId(void) const;
+	const char *getNextId(void) const;
 	dir_discHdr * getHdr(void) const;
 	dir_discHdr * getNextHdr(void) const;
 	wstringEx getTitle(void) const;
@@ -196,7 +197,7 @@ private:
 		string blankBoxPicPath;
 		int playcount;
 		unsigned int lastPlayed;
-		STexture texture;
+		TexData texture;
 		volatile bool boxTexture;
 		volatile enum TexState state;
 		// 
@@ -244,19 +245,19 @@ private:
 	volatile bool m_moved;
 	//
 	volatile bool m_renderTex;
-	STexture *m_renderingTex;
+	TexData *m_renderingTex;
 	//
 	volatile int m_hqCover;
 	bool m_selected;
 	int m_tickCount;
-	STexture m_loadingTexture;
-	STexture m_noCoverTexture;
-	STexture m_dvdSkin;
-	STexture m_dvdSkin_Red;
-	STexture m_dvdSkin_Black;
-	STexture m_dvdSkin_Yellow;
-	STexture m_dvdSkin_GreenOne;
-	STexture m_dvdSkin_GreenTwo;
+	TexData m_loadingTexture;
+	TexData m_noCoverTexture;
+	TexData m_dvdSkin;
+	TexData m_dvdSkin_Red;
+	TexData m_dvdSkin_Black;
+	TexData m_dvdSkin_Yellow;
+	TexData m_dvdSkin_GreenOne;
+	TexData m_dvdSkin_GreenTwo;
 	// Settings
 	string m_pngLoadCover;
 	string m_pngLoadCoverFlat;
@@ -287,7 +288,7 @@ private:
 	float m_shadowScale;
 	float m_shadowX;
 	float m_shadowY;
-	STexture m_effectTex;
+	TexData m_effectTex;
 	u32 m_blurRadius;
 	float m_blurFactor;
 	Vector3D m_flipCoverPos;
@@ -306,7 +307,7 @@ private:
 private:
 	void _draw(DrawMode dm = CFDR_NORMAL, bool mirror = false, bool blend = true);
 	u32 _currentPos(void) const;
-	void _effectBg(const STexture * &tex);
+	void _effectBg(const TexData * &tex);
 	void _effectBlur(bool vertical);
 	bool _effectVisible(void);
 	void _drawMirrorZ(void);
@@ -324,14 +325,14 @@ private:
 	Vector3D _cameraMoves(void);
 	Vector3D _coverMovesA(void);
 	Vector3D _coverMovesP(void);
-	STexture &_coverTexture(int i);
+	TexData &_coverTexture(int i);
 	void _left(int repeatDelay, u32 step);
 	void _right(int repeatDelay, u32 step);
 	void _jump(void);
 	void _completeJump(void);
 	void _setJump(int j);
 	void _loadAllCovers(int i);
-	static bool _calcTexLQLOD(STexture &tex);
+	static bool _calcTexLQLOD(TexData &tex);
 	void _dropHQLOD(int i);
 	bool _loadCoverTexPNG(u32 i, bool box, bool hq, bool blankBoxCover);
 	CLRet _loadCoverTex(u32 i, bool box, bool hq, bool blankBoxCover);

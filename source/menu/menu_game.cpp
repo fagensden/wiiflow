@@ -263,7 +263,7 @@ static void _extractBnr(dir_discHdr *hdr)
 	if(disc != NULL)
 	{
 		void *bnr = NULL;
-		size = wbfs_extract_file(disc, (char *) "opening.bnr", &bnr);
+		size = wbfs_extract_file(disc, (char*)"opening.bnr", &bnr);
 		if(size > 0)
 			CurrentBanner.SetBanner((u8*)bnr, size);
 		WBFS_CloseDisc(disc);
@@ -296,7 +296,7 @@ static u8 GetRequestedGameIOS(dir_discHdr *hdr)
 	if(disc != NULL)
 	{
 		u8 *titleTMD = NULL;
-		u32 tmd_size = wbfs_extract_file(disc, (char *) "TMD", (void **)&titleTMD);
+		u32 tmd_size = wbfs_extract_file(disc, (char*)"TMD", (void**)&titleTMD);
 		if(titleTMD != NULL && tmd_size > 0x18B)
 			IOS = titleTMD[0x18B];
 		WBFS_CloseDisc(disc);
@@ -331,11 +331,11 @@ void CMenu::_hideGame(bool instant)
 void CMenu::_showGame(void)
 {
 	CoverFlow.showCover();
-	
-	if (m_fa.load(m_cfg, m_fanartDir.c_str(), CoverFlow.getId().c_str()))
+
+	if(m_fa.load(m_cfg, m_fanartDir.c_str(), CoverFlow.getId()))
 	{
-		const STexture *bg = NULL;
-		const STexture *bglq = NULL;
+		const TexData *bg = NULL;
+		const TexData *bglq = NULL;
 		m_fa.getBackground(bg, bglq);
 		if(bg != NULL && bglq != NULL)
 			_setBg(*bg, *bglq);
@@ -375,6 +375,7 @@ static void setLanguage(int l)
 void CMenu::_game(bool launch)
 {
 	m_gcfg1.load(fmt("%s/" GAME_SETTINGS1_FILENAME, m_settingsDir.c_str()));
+	m_zoom_banner = m_cfg.getBool(_domainFromView(), "show_full_banner", false) && !NoGameID(CoverFlow.getHdr()->type);
 	if(!launch)
 	{
 		SetupInput();
@@ -383,7 +384,7 @@ void CMenu::_game(bool launch)
 		m_gameSelected = true;
 	}
 
-	m_zoom_banner = m_cfg.getBool(_domainFromView(), "show_full_banner", false) && !NoGameID(CoverFlow.getHdr()->type);
+
 	if(m_banner.GetZoomSetting() != m_zoom_banner)
 		m_banner.ToogleZoom();
 
@@ -407,7 +408,7 @@ void CMenu::_game(bool launch)
 			m_gameSelected = true;
 			startGameSound = 1;
 		}
-		if(BTN_B_PRESSED && (m_btnMgr.selected(m_gameBtnFavoriteOn) || m_btnMgr.selected(m_gameBtnFavoriteOff)))
+		if(BTN_B_PRESSED && !m_locked && (m_btnMgr.selected(m_gameBtnFavoriteOn) || m_btnMgr.selected(m_gameBtnFavoriteOff)))
 		{
 			_hideGame();
 			m_banner.SetShowBanner(false);
@@ -438,7 +439,7 @@ void CMenu::_game(bool launch)
 		}
 		else if(BTN_MINUS_PRESSED)
 		{
-			const char *videoPath = fmt("%s/%.3s.thp", m_videoDir.c_str(), CoverFlow.getId().c_str());
+			const char *videoPath = fmt("%s/%.3s.thp", m_videoDir.c_str(), CoverFlow.getId());
 			FILE *file = fopen(videoPath, "r");
 			if(file)
 			{
@@ -448,7 +449,7 @@ void CMenu::_game(bool launch)
 				m_banner.SetShowBanner(false);
 				_hideGame();
 				/* Set Background empty */
-				STexture EmptyBG;
+				TexData EmptyBG;
 				_setBg(EmptyBG, EmptyBG);
 				/* Lets play the movie */
 				WiiMovie movie(videoPath);
@@ -470,7 +471,7 @@ void CMenu::_game(bool launch)
 					ButtonsPressed();
 				}
 				movie.Stop();
-				m_curBg.Cleanup();
+				TexHandle.Cleanup(m_curBg);
 				/* Finished, so lets re-setup the background */
 				_setBg(m_mainBg, m_mainBgLQ);
 				_updateBg();
@@ -530,6 +531,9 @@ void CMenu::_game(bool launch)
 				m_zoom_banner = m_banner.ToogleZoom();
 				m_cfg.setBool(_domainFromView(), "show_full_banner", m_zoom_banner);
 				m_show_zone_game = false;
+				m_btnMgr.hide(m_gameBtnPlayFull);
+				m_btnMgr.hide(m_gameBtnBackFull);
+				m_btnMgr.hide(m_gameBtnToogleFull);
 			}
 			else if(m_btnMgr.selected(m_gameBtnSettings))
 			{
@@ -765,8 +769,6 @@ void CMenu::directlaunch(const char *GameID)
 
 void CMenu::_launch(dir_discHdr *hdr)
 {
-	/* No need to do that separate */
-	NandHandle.Disable_Emu();
 	/* Lets boot that shit */
 	if(hdr->type == TYPE_WII_GAME)
 		_launchGame(hdr, false);
@@ -776,40 +778,39 @@ void CMenu::_launch(dir_discHdr *hdr)
 		_launchChannel(hdr);
 	else if(hdr->type == TYPE_PLUGIN)
 	{
-		string title;
-		string path(hdr->path);
-		if(path.find(':') != string::npos)
+		char title[101];
+		memset(&title, 0, sizeof(title));
+		const char *path;
+		if(strchr(hdr->path, ':') != NULL)
 		{
-			path.erase(path.begin(), path.begin() + path.find_first_of('/') + 1);
-			title = string(path.begin() + path.find_last_of('/') + 1, path.end());
-			path.erase(path.end() - title.size() - 1, path.end());
+			strncpy(title, strrchr(hdr->path, '/') + 1, 100);
+			*strrchr(hdr->path, '/') = '\0';
+			path = strchr(hdr->path, '/') + 1;
 		}
 		else
 		{
-			char gametitle[64];
-			wcstombs(gametitle, hdr->title, 63);
-			title = gametitle;
+			path = hdr->path;
+			wcstombs(title, hdr->title, 63);
 		}
-		string loader(m_pluginsDir);
-		if(loader.find("usb") != string::npos)
-			loader.erase(3,1);
-		loader.append("/WiiFlowLoader.dol");
 		m_cfg.setString(PLUGIN_DOMAIN, "current_item", title);
-		string device(currentPartition == 0 ? "sd" : 
-			(DeviceHandle.GetFSType(currentPartition) == PART_FS_NTFS ? "ntfs" : "usb"));
+		const char *device = (currentPartition == 0 ? "sd" : (DeviceHandle.GetFSType(currentPartition) == PART_FS_NTFS ? "ntfs" : "usb"));
+		const char *loader = fmt("%s:/%s/WiiFlowLoader.dol", device, strchr(m_pluginsDir.c_str(), '/') + 1);
 		vector<string> arguments = m_plugin.CreateArgs(device, path, title, loader, hdr->settings[0]);
 		_launchHomebrew(fmt("%s/%s", m_pluginsDir.c_str(), m_plugin.GetDolName(hdr->settings[0])), arguments);
 	}
 	else if(hdr->type == TYPE_HOMEBREW)
 	{
-		string title(&hdr->path[string(hdr->path).find_last_of("/")+1]);
-		char gamepath[128];
-		snprintf(gamepath, sizeof(gamepath), "%s/boot.dol", hdr->path);
-		if(!fsop_FileExist((const char*)gamepath))
-			snprintf(gamepath, sizeof(gamepath), "%s/boot.elf", hdr->path);
-		m_cfg.setString(HOMEBREW_DOMAIN, "current_item", title);
-		_launchHomebrew(gamepath, m_homebrewArgs);
+		const char *gamepath = fmt("%s/boot.dol", hdr->path);
+		if(!fsop_FileExist(gamepath))
+			gamepath = fmt("%s/boot.elf", hdr->path);
+		if(fsop_FileExist(gamepath))
+		{
+			m_cfg.setString(HOMEBREW_DOMAIN, "current_item", strrchr(hdr->path, '/') + 1);
+			_launchHomebrew(gamepath, m_homebrewArgs);
+		}
 	}
+	ShutdownBeforeExit();
+	Sys_Exit();
 }
 
 void CMenu::_launchGC(dir_discHdr *hdr, bool disc)
@@ -949,9 +950,10 @@ int CMenu::_loadIOS(u8 gameIOS, int userIOS, string id, bool RealNAND_Channels)
 	gprintf("Game ID# %s requested IOS %d.  User selected %d\n", id.c_str(), gameIOS, userIOS);
 	if(neek2o() || (RealNAND_Channels && IOS_GetType(mainIOS) == IOS_TYPE_STUB))
 	{
-		if(!loadIOS(gameIOS, false))
+		bool ret = loadIOS(gameIOS, false);
+		_netInit();
+		if(ret == false)
 		{
-			_netInit();
 			error(sfmt("errgame4", L"Couldn't load IOS %i", gameIOS));
 			return LOAD_IOS_FAILED;
 		}
@@ -1009,9 +1011,10 @@ int CMenu::_loadIOS(u8 gameIOS, int userIOS, string id, bool RealNAND_Channels)
 	if(gameIOS != CurrentIOS.Version)
 	{
 		gprintf("Reloading IOS into %d\n", gameIOS);
-		if(!loadIOS(gameIOS, true))
+		bool ret = loadIOS(gameIOS, true);
+		_netInit();
+		if(ret == false)
 		{
-			_netInit();
 			error(sfmt("errgame4", L"Couldn't load IOS %i", gameIOS));
 			return LOAD_IOS_FAILED;
 		}
@@ -1063,9 +1066,7 @@ void CMenu::_launchChannel(dir_discHdr *hdr)
 	m_gcfg1.setInt("PLAYCOUNT", id, m_gcfg1.getInt("PLAYCOUNT", id, 0) + 1); 
 	m_gcfg1.setUInt("LASTPLAYED", id, time(NULL));
 
-	string emuPath;
-	m_partRequest = m_cfg.getInt(CHANNEL_DOMAIN, "partition", 0);
-	int emuPartition = _FindEmuPart(&emuPath, m_partRequest, false);
+	string emuPath = m_cfg.getString(CHANNEL_DOMAIN, "path");
 	int emulate_mode = min(max(0, m_cfg.getInt(CHANNEL_DOMAIN, "emulation", 1)), (int)ARRAY_SIZE(CMenu::_NandEmu) - 1);
 	
 	int userIOS = m_gcfg2.getInt(id, "ios", 0);
@@ -1080,6 +1081,9 @@ void CMenu::_launchChannel(dir_discHdr *hdr)
 
 	if(NAND_Emu && !neek2o())
 	{
+		NANDemuView = true;
+		NandHandle.SetNANDEmu(currentPartition); /* Init NAND Emu */
+		NandHandle.SetPaths(emuPath.c_str(), DeviceName[currentPartition]);
 		if(useNK2o)
 		{
 			if(!Load_Neek2o_Kernel())
@@ -1088,17 +1092,12 @@ void CMenu::_launchChannel(dir_discHdr *hdr)
 				Sys_Exit();
 			}
 			ShutdownBeforeExit();
-			Launch_nk(gameTitle, emuPath.size() > 1 ? emuPath.c_str() : NULL, 
+			Launch_nk(gameTitle, NandHandle.Get_NandPath(), 
 				returnTo ? (((u64)(0x00010001) << 32) | (returnTo & 0xFFFFFFFF)) : 0);
-			while(1);
+			while(1) usleep(500);
 		}
-		DeviceHandle.UnMount(emuPartition);
-		NandHandle.SetPaths(emuPath.c_str(), emuPartition, false);
-		NandHandle.Enable_Emu();
 	}
 	gameIOS = ChannelHandle.GetRequestedIOS(gameTitle);
-	if(NAND_Emu && !neek2o())
-		NandHandle.Disable_Emu();
 	if(_loadIOS(gameIOS, userIOS, id, !NAND_Emu) == LOAD_IOS_FAILED)
 		Sys_Exit();
 	if((CurrentIOS.Type == IOS_TYPE_D2X || neek2o()) && returnTo != 0)
@@ -1108,7 +1107,8 @@ void CMenu::_launchChannel(dir_discHdr *hdr)
 	}
 	if(NAND_Emu && !neek2o())
 	{
-		NandHandle.SetPaths(emuPath.c_str(), emuPartition, false);
+		/* Enable our Emu NAND */
+		DeviceHandle.UnMountAll();
 		if(emulate_mode == 1)
 			NandHandle.Set_FullMode(true);
 		else
@@ -1119,8 +1119,8 @@ void CMenu::_launchChannel(dir_discHdr *hdr)
 			error(_t("errgame5", L"Enabling emu failed!"));
 			Sys_Exit();
 		}
+		DeviceHandle.MountAll();
 	}
-
 	if(WII_Launch)
 	{
 		ShutdownBeforeExit();
@@ -1204,7 +1204,7 @@ void CMenu::_launchGame(dir_discHdr *hdr, bool dvd)
 		{
 			/* Read header */
 			Disc_ReadHeader(&wii_hdr);
-			id = string((char*)wii_hdr.id, 6);
+			id = string((const char*)wii_hdr.id, 6);
 		}
 		gprintf("Game ID: %s\n", id.c_str());
 	}
@@ -1219,14 +1219,11 @@ void CMenu::_launchGame(dir_discHdr *hdr, bool dvd)
 	int language = min((u32)m_gcfg2.getInt(id, "language", 0), ARRAY_SIZE(CMenu::_languages) - 1u);
 	language = (language == 0) ? min((u32)m_cfg.getInt("GENERAL", "game_language", 0), ARRAY_SIZE(CMenu::_languages) - 1) : language;
 
-	const char *rtrn = m_gcfg2.getBool(id, "returnto", true) ? m_cfg.getString("GENERAL", "returnto").c_str() : NULL;
+	const char *rtrn = m_cfg.getString("GENERAL", "returnto", "").c_str();
 	int aspectRatio = min((u32)m_gcfg2.getInt(id, "aspect_ratio", 0), ARRAY_SIZE(CMenu::_AspectRatio) - 1u)-1;
 
 	string emuPath;
-	m_partRequest = m_cfg.getInt(WII_DOMAIN, "savepartition", -1);
-	if(m_partRequest == -1)
-		m_partRequest = m_cfg.getInt(CHANNEL_DOMAIN, "partition", 0);
-	int emuPartition = _FindEmuPart(&emuPath, m_partRequest, false);
+	int emuPartition = _FindEmuPart(emuPath, false);
 	
 	u8 emulate_mode = min((u32)m_gcfg2.getInt(id, "emulate_save", 0), ARRAY_SIZE(CMenu::_SaveEmu) - 1u);
 
@@ -1251,7 +1248,7 @@ void CMenu::_launchGame(dir_discHdr *hdr, bool dvd)
 					if(_TestEmuNand(m_cfg.getInt(WII_DOMAIN, "savepartition", 0), emuPath.c_str(), true))
 					{
 						emuPartition = m_cfg.getInt(WII_DOMAIN, "savepartition", -1);
-						string emuPath = m_cfg.getString(WII_DOMAIN, "savepath", m_cfg.getString(CHANNEL_DOMAIN, "path", ""));						
+						emuPath = m_cfg.getString(WII_DOMAIN, "savepath", m_cfg.getString(CHANNEL_DOMAIN, "path", ""));						
 						break;
 					}
 				}
@@ -1259,19 +1256,18 @@ void CMenu::_launchGame(dir_discHdr *hdr, bool dvd)
 			}
 			else
 			{
-				emuPartition = _FindEmuPart(&emuPath, 1, true);
+				emuPartition = _FindEmuPart(emuPath, true);
 				NandHandle.CreatePath("%s:/wiiflow", DeviceName[emuPartition]);
 				NandHandle.CreatePath("%s:/wiiflow/nandemu", DeviceName[emuPartition]);
 			}
 		}
-		
+		/* Init NAND Emu Settings */
+		NANDemuView = true;
+		NandHandle.SetNANDEmu(emuPartition);
+		NandHandle.SetPaths(emuPath.c_str(), DeviceName[emuPartition]);
+		/* Set them */
 		m_cfg.setInt(WII_DOMAIN, "savepartition", emuPartition);
 		m_cfg.setString(WII_DOMAIN, "savepath", emuPath);
-		m_cfg.save();
-		
-		char basepath[64];
-		snprintf(basepath, sizeof(basepath), "%s:%s", DeviceName[emuPartition], emuPath.c_str());
-		
 		if(emulate_mode == 2 || emulate_mode > 3)
 		{
 			if(emulate_mode == 2)
@@ -1279,13 +1275,13 @@ void CMenu::_launchGame(dir_discHdr *hdr, bool dvd)
 				m_forceext = false;
 				_hideWaitMessage();
 				if(!_AutoExtractSave(id))
-					NandHandle.CreateTitleTMD(basepath, hdr);
+					NandHandle.CreateTitleTMD(hdr);
 				_showWaitMessage();
 			}
 		}
 		if(emulate_mode > 2)
 		{
-			NandHandle.CreateConfig(basepath);
+			NandHandle.CreateConfig();
 			NandHandle.Do_Region_Change(id);
 		}
 	}
@@ -1315,7 +1311,7 @@ void CMenu::_launchGame(dir_discHdr *hdr, bool dvd)
 	if(!debuggerselect && cheatFile == NULL)
 		hooktype = 0;
 
-	if(rtrn != NULL && strlen(rtrn) == 4)
+	if(strlen(rtrn) == 4)
 		returnTo = rtrn[0] << 24 | rtrn[1] << 16 | rtrn[2] << 8 | rtrn[3];
 	int userIOS = m_gcfg2.getInt(id, "ios", 0);	
 	int gameIOS = dvd && !neek2o() ? userIOS : GetRequestedGameIOS(hdr);
@@ -1338,9 +1334,8 @@ void CMenu::_launchGame(dir_discHdr *hdr, bool dvd)
 	}
 	if(emulate_mode && !neek2o() && CurrentIOS.Type == IOS_TYPE_D2X)
 	{
-		NandHandle.SetPaths(emuPath.c_str(), emuPartition, false);
-		DeviceHandle.UnMount(emuPartition);
-
+		/* Enable our Emu NAND */
+		DeviceHandle.UnMountAll();
 		if(emulate_mode == 3)
 			NandHandle.Set_RCMode(true);
 		else if(emulate_mode == 4)
@@ -1353,9 +1348,7 @@ void CMenu::_launchGame(dir_discHdr *hdr, bool dvd)
 			error(_t("errgame6", L"Enabling emu after reload failed!"));
 			Sys_Exit();
 		}
-		if(!DeviceHandle.IsInserted(currentPartition))
-			DeviceHandle.Mount(currentPartition);
-		DeviceHandle.Mount(emuPartition);
+		DeviceHandle.MountAll();
 	}
 	bool wbfs_partition = false;
 	if(!dvd)
@@ -1383,38 +1376,38 @@ void CMenu::_launchGame(dir_discHdr *hdr, bool dvd)
 void CMenu::_initGameMenu()
 {
 	CColor fontColor(0xD0BFDFFF);
-	STexture texFavOn;
-	STexture texFavOnSel;
-	STexture texFavOff;
-	STexture texFavOffSel;
-	STexture texAdultOn;
-	STexture texAdultOnSel;
-	STexture texAdultOff;
-	STexture texAdultOffSel;
-	STexture texDelete;
-	STexture texDeleteSel;
-	STexture texSettings;
-	STexture texSettingsSel;
-	STexture texToogleBanner;
-	STexture bgLQ;
+	TexData texFavOn;
+	TexData texFavOnSel;
+	TexData texFavOff;
+	TexData texFavOffSel;
+	TexData texAdultOn;
+	TexData texAdultOnSel;
+	TexData texAdultOff;
+	TexData texAdultOffSel;
+	TexData texDelete;
+	TexData texDeleteSel;
+	TexData texSettings;
+	TexData texSettingsSel;
+	TexData texToogleBanner;
+	TexData bgLQ;
 
-	texFavOn.fromPNG(favoriteson_png);
-	texFavOnSel.fromPNG(favoritesons_png);
-	texFavOff.fromPNG(favoritesoff_png);
-	texFavOffSel.fromPNG(favoritesoffs_png);
-	texAdultOn.fromPNG(stopkidon_png);
-	texAdultOnSel.fromPNG(stopkidons_png);
-	texAdultOff.fromPNG(stopkidoff_png);
-	texAdultOffSel.fromPNG(stopkidoffs_png);
-	texDelete.fromPNG(delete_png);
-	texDeleteSel.fromPNG(deletes_png);
-	texSettings.fromPNG(btngamecfg_png);
-	texSettingsSel.fromPNG(btngamecfgs_png);
-	texToogleBanner.fromPNG(blank_png);
+	TexHandle.fromPNG(texFavOn, favoriteson_png);
+	TexHandle.fromPNG(texFavOnSel, favoritesons_png);
+	TexHandle.fromPNG(texFavOff, favoritesoff_png);
+	TexHandle.fromPNG(texFavOffSel, favoritesoffs_png);
+	TexHandle.fromPNG(texAdultOn, stopkidon_png);
+	TexHandle.fromPNG(texAdultOnSel, stopkidons_png);
+	TexHandle.fromPNG(texAdultOff, stopkidoff_png);
+	TexHandle.fromPNG(texAdultOffSel, stopkidoffs_png);
+	TexHandle.fromPNG(texDelete, delete_png);
+	TexHandle.fromPNG(texDeleteSel, deletes_png);
+	TexHandle.fromPNG(texSettings, btngamecfg_png);
+	TexHandle.fromPNG(texSettingsSel, btngamecfgs_png);
+	TexHandle.fromPNG(texToogleBanner, blank_png);
 
 	_addUserLabels(m_gameLblUser, ARRAY_SIZE(m_gameLblUser), "GAME");
 	m_gameBg = _texture("GAME/BG", "texture", theme.bg, false);
-	if(m_theme.loaded() && bgLQ.fromImageFile(fmt("%s/%s", m_themeDataDir.c_str(), m_theme.getString("GAME/BG", "texture").c_str()), GX_TF_CMPR, 64, 64) == TE_OK)
+	if(m_theme.loaded() && TexHandle.fromImageFile(bgLQ, fmt("%s/%s", m_themeDataDir.c_str(), m_theme.getString("GAME/BG", "texture").c_str()), GX_TF_CMPR, 64, 64) == TE_OK)
 		m_gameBgLQ = bgLQ;
 
 	m_gameBtnPlay = _addButton("GAME/PLAY_BTN", theme.btnFont, L"", 420, 344, 200, 56, theme.btnFontColor);
@@ -1584,7 +1577,7 @@ void CMenu::_gameSoundThread(CMenu *m)
 		fclose(fp);
 	}
 	m_banner.LoadBanner(m->m_wbf1_font, m->m_wbf2_font);
-	soundBin = CurrentBanner.GetFile((char *)"sound.bin", &sndSize);
+	soundBin = CurrentBanner.GetFile("sound.bin", &sndSize);
 	CurrentBanner.ClearBanner();
 
 	if(soundBin != NULL)

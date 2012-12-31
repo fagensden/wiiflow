@@ -16,17 +16,16 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <string.h>
-#include <malloc.h>
-
 #include "lz77.h"
 #include "loader/utils.h"
+#include "memory/mem2.hpp"
 
 u32 packBytes(int a, int b, int c, int d)
 {
     return (d << 24) | (c << 16) | (b << 8) | (a);
 }
  
-s32 __decompressLZ77_11(u8 *in, u32 inputLen, u8 **output, u32 *outputLen)
+s32 __decompressLZ77_11(const u8 *in, const u32 inputLen, u8 **output, u32 *outputLen)
 {
     int x, y;
  
@@ -46,7 +45,7 @@ s32 __decompressLZ77_11(u8 *in, u32 inputLen, u8 **output, u32 *outputLen)
  
     //printf("Decompressed size : %i\n", decompressedSize);
  
-    out = malloc(ALIGN32(decompressedSize));
+    out = MEM2_memalign(32, decompressedSize);
 	if (out == NULL)
 	{
 		printf("Out of memory\n");
@@ -117,12 +116,11 @@ s32 __decompressLZ77_11(u8 *in, u32 inputLen, u8 **output, u32 *outputLen)
 	return 0;
 }
  
-s32 __decompressLZ77_10(u8 *in, u8 **output, u32 *outputLen)
+s32 __decompressLZ77_10(const u8 *in, u8 **output, u32 *outputLen)
 {
 	int x, y;
-	 
 	u8 *out = NULL;
-	 
+
 	u32 compressedPos = 0;
 	u32 decompressedSize = 0x4;
 	u32 decompressedPos = 0;
@@ -133,7 +131,7 @@ s32 __decompressLZ77_10(u8 *in, u8 **output, u32 *outputLen)
 	 
 	//printf("Decompressed size : %i\n", decompressedSize);
 	 
-	out = malloc(ALIGN32(decompressedSize));
+	out = MEM2_memalign(32, decompressedSize);
 	if (out == NULL)
 	{
 		printf("Out of memory\n");
@@ -183,17 +181,14 @@ s32 __decompressLZ77_10(u8 *in, u8 **output, u32 *outputLen)
 	return 0;
 }
  
-int isLZ77compressed(u8 *buffer)
+int isLZ77compressed(const u8 *buffer)
 {
-	if ((buffer[0] == LZ77_0x10_FLAG) || (buffer[0] == LZ77_0x11_FLAG))
-	{
+	if((buffer[0] == LZ77_0x10_FLAG) || (buffer[0] == LZ77_0x11_FLAG))
 		return 1;
-	}
-	 
 	return 0;
 }
  
-int decompressLZ77content(u8 *buffer, u32 length, u8 **output, u32 *outputLen)
+int decompressLZ77content(const u8 *buffer, const u32 length, u8 **output, u32 *outputLen)
 {
     int ret;
 	switch (buffer[0])

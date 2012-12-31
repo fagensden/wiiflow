@@ -24,12 +24,15 @@
 #include "Config.h"
 #include "channel/nand.hpp"
 #include "devicemounter/DeviceHandler.hpp"
+#include "gecko/wifi_gecko.hpp"
 #include "gui/text.hpp"
 #include "loader/fst.h"
 #include "loader/mload.h"
 #include "loader/wdvd.h"
+#include "loader/sys.h"
 #include "homebrew/homebrew.h"
 #include "memory/mem2.hpp"
+#include "network/http.h"
 #include "plugin/crc32.h"
 
 /* External WiiFlow Game Booter */
@@ -80,6 +83,8 @@ void WiiFlow_ExternalBooter(u8 vidMode, bool vipatch, bool countryString, u8 pat
 	/* Copy in booter */
 	memcpy(EXT_ADDR, booter, booter_size);
 	DCFlushRange(EXT_ADDR, booter_size);
+	/* Wii Games will need it */
+	net_wc24cleanup();
 	/* Boot it */
 	JumpToEntry(EXT_ENTRY);
 }
@@ -108,4 +113,14 @@ void ShutdownBeforeExit(bool KeepPatches)
 	DeviceHandle.UnMountAll();
 	NandHandle.DeInit_ISFS(KeepPatches);
 	WDVD_Close();
+	Close_Inputs();
+	/* Deinit network */
+	if(networkInit == true)
+	{
+		while(net_get_status() == -EBUSY)
+			usleep(50);
+		WiFiDebugger.Close();
+		net_deinit();
+		networkInit = false;
+	}
 }

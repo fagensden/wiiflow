@@ -19,8 +19,8 @@
 #include "wiiuse/wpad.h"
 
 /* Variables */
-volatile bool reset = false;
-volatile bool shutdown = false;
+bool reset = false;
+bool shutdown = false;
 volatile u8 ExitOption = 0;
 const char *NeekPath = NULL;
 
@@ -57,16 +57,9 @@ void Close_Inputs(void)
 
 bool Sys_Exiting(void)
 {
+	DCFlushRange(&reset, 32);
+	DCFlushRange(&shutdown, 32);
 	return reset || shutdown;
-}
-
-void Sys_Shutdown(void)
-{
-	/* via hollywood registers first */
-	*HW_GPIO_OUT |= (1<<1);
-	usleep(50000);
-	/* If it failed just do the libogc way */
-	SYS_ResetSystem(SYS_SHUTDOWN, 0, 0);
 }
 
 int Sys_GetExitTo(void)
@@ -103,6 +96,11 @@ void Sys_Exit(void)
 
 	/* Shutdown Inputs */
 	Close_Inputs();
+	/* Just shutdown  console*/
+	if(ExitOption == BUTTON_CALLBACK)
+		SYS_ResetSystem(SYS_POWEROFF_STANDBY, 0, 0);
+
+	/* We wanna to boot sth */
 	WII_Initialize();
 	if(ExitOption == EXIT_TO_WFNK2O)
 		Launch_nk(0x1000144574641LL, NeekPath, 0);
@@ -117,8 +115,6 @@ void Sys_Exit(void)
 		WII_LaunchTitle(HBC_JODI);
 		WII_LaunchTitle(HBC_HAXX);
 	}
-	else if(ExitOption == BUTTON_CALLBACK)
-		Sys_Shutdown();
 	/* else Return to Menu */
 	SYS_ResetSystem(SYS_RETURNTOMENU, 0, 0);
 	exit(1);

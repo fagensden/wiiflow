@@ -5,6 +5,7 @@
 #include "const_str.hpp"
 #include "booter/external_booter.hpp"
 #include "channel/nand.hpp"
+#include "channel/nand_save.hpp"
 #include "devicemounter/DeviceHandler.hpp"
 #include "gecko/gecko.hpp"
 #include "gui/video.hpp"
@@ -22,11 +23,13 @@
 
 CMenu mainMenu;
 bool useMainIOS = false;
+volatile bool NANDemuView = false;
+volatile bool networkInit = false;
 
 int main(int argc, char **argv)
 {
 	mainIOS = DOL_MAIN_IOS;
-	__exception_setreload(5);
+	__exception_setreload(10);
 	Gecko_Init(); //USB Gecko and SD/WiFi buffer
 	gprintf(" \nWelcome to %s!\nThis is the debug output.\n", VERSION_STRING.c_str());
 
@@ -62,14 +65,15 @@ int main(int argc, char **argv)
 	}
 	/* Init ISFS */
 	NandHandle.Init_ISFS();
+	if(InternalSave.CheckSave()) /* Maybe new IOS settings */
+		InternalSave.LoadIOS();
 	/* Handle (c)IOS Loading */
-	if(neek2o() || Sys_DolphinMode())
+	if(neek2o() || Sys_DolphinMode()) /* wont reload anythin */
 		iosOK = loadIOS(IOS_GetVersion(), false);
-	else if((AHBRPOT_Patched() && IOS_GetVersion() == 58) || /* Normal HBC or FW Boot */
-	(!AHBRPOT_Patched() && IOS_GetType(mainIOS) == IOS_TYPE_STUB)) /* Maybe old HBC or WiiU */
-		iosOK = loadIOS(58, false);
-	else /* cIOS wanted */
+	else if(useMainIOS && CustomIOS(IOS_GetType(mainIOS))) /* Requested */
 		iosOK = loadIOS(mainIOS, false) && CustomIOS(CurrentIOS.Type);
+	else /* safe reload to the default IOS */
+		iosOK = NandHandle.LoadDefaultIOS();
 
 	// Init
 	Sys_Init();

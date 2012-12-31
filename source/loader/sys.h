@@ -31,7 +31,6 @@ enum
 
 /* Prototypes */
 void Sys_Init(void);
-void Sys_Shutdown(void);
 bool Sys_DolphinMode(void);
 bool Sys_Exiting(void);
 void Sys_Exit(void);
@@ -48,6 +47,8 @@ bool AHBRPOT_Patched(void);
 extern void __exception_setreload(int t);
 extern int mainIOS;
 extern bool useMainIOS;
+extern volatile bool NANDemuView;
+extern volatile bool networkInit;
 extern u8 currentPartition;
 
 #ifdef __cplusplus

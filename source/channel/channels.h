@@ -39,7 +39,7 @@ using namespace std;
 
 typedef struct
 {
-	u64  title;
+	u64 title;
 	char id[4];
 	wchar_t name[IMET_MAX_NAME_LEN+1];
 } Channel;
@@ -55,7 +55,7 @@ public:
 
 	u32 Count();
 	wchar_t *GetName(int index);
-	char *GetId(int index);
+	const char *GetId(int index);
 	u64 GetTitle(int index);
 	Channel *GetChannel(int index);
 
@@ -65,7 +65,7 @@ private:
 
 	int GetLanguage(const char *lang);
 	u64* GetChannelList(u32* count);
-	bool GetAppNameFromTmd(u64 title, char* app, bool dol = false, u32* bootcontent = NULL);
+	bool GetAppNameFromTmd(u64 title, char* app, u32* bootcontent = NULL);
 	bool GetChannelNameFromApp(u64 title, wchar_t* name, int language);
 
 	void Search();

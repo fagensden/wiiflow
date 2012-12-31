@@ -150,10 +150,8 @@ void CMenu::_showMain(void)
 				m_btnMgr.show(m_mainLblInit);
 				break;
 			case COVERFLOW_CHANNEL:
-				if(!m_cfg.getBool(CHANNEL_DOMAIN, "disable", true))
+				if(NANDemuView)
 				{
-					NandHandle.Disable_Emu();
-					DeviceHandle.MountAll();
 					_hideMain();
 					if(!_AutoCreateNand())
 						m_cfg.setBool(CHANNEL_DOMAIN, "disable", true);
@@ -174,13 +172,10 @@ void CMenu::_showMain(void)
 				break;
 		}
 	}
-	else if(!neek2o() && m_current_view == COVERFLOW_CHANNEL && !m_cfg.getBool(CHANNEL_DOMAIN, "disable", true))
-		NandHandle.Enable_Emu();
 }
 
 void CMenu::LoadView(void)
 {
-	m_curGameId = CoverFlow.getId();
 	_hideMain(true);
 	CoverFlow.clear();
 	if(!m_vid.showingWaitMessage())
@@ -237,10 +232,7 @@ int CMenu::main(void)
 	u32 disc_check = 0;
 	int done = 0;
 
-	if (m_cfg.getBool("GENERAL", "async_network", false) || has_enabled_providers())
-		_initAsyncNetwork();
 	SetupInput(true);
-
 	GameTDB m_gametdb; 
  	m_gametdb.OpenFile(fmt("%s/wiitdb.xml", m_settingsDir.c_str()));
 	m_GameTDBLoaded = false;
@@ -393,7 +385,7 @@ int CMenu::main(void)
 			else if(m_btnMgr.selected(m_mainBtnInfo))
 			{
 				_hideMain();
-				_about();
+				_about(true);
 				_showMain();
 				if(BTN_B_HELD)
 					bUsed = true;
@@ -406,7 +398,6 @@ int CMenu::main(void)
 				_showWaitMessage();
 				m_gameSound.Stop();
 				CheckGameSoundThread();
-				NandHandle.Disable_Emu();
 				/* Create Fake Header */
 				dir_discHdr hdr;
 				memset(&hdr, 0, sizeof(dir_discHdr));
@@ -421,7 +412,6 @@ int CMenu::main(void)
 			{
 				m_favorites = !m_favorites;
 				m_cfg.setBool(_domainFromView(), "favorites", m_favorites);
-				m_curGameId = CoverFlow.getId();
 				_initCF();
 			}
 			else if(!CoverFlow.empty() && CoverFlow.select())
@@ -795,7 +785,7 @@ int CMenu::main(void)
 	else if(Sys_GetExitTo() == EXIT_TO_SMNK2O || Sys_GetExitTo() == EXIT_TO_WFNK2O)
 	{
 		string emuPath;
-		_FindEmuPart(&emuPath, m_cfg.getInt(CHANNEL_DOMAIN, "partition", 0), false);
+		_FindEmuPart(emuPath, false);
 		Sys_SetNeekPath(emuPath.size() > 1 ? emuPath.c_str() : NULL);
 	}
 	//gprintf("Saving configuration files\n");
@@ -807,65 +797,65 @@ int CMenu::main(void)
 
 void CMenu::_initMainMenu()
 {
-	STexture texQuit;
-	STexture texQuitS;
-	STexture texInfo;
-	STexture texInfoS;
-	STexture texConfig;
-	STexture texConfigS;
-	STexture texDML;
-	STexture texDMLs;
-	STexture texEmu;
-	STexture texEmus;
-	STexture texDVD;
-	STexture texDVDs;
-	STexture texUsb;
-	STexture texUsbs;
-	STexture texChannel;
-	STexture texChannels;
-	STexture texHomebrew;
-	STexture texHomebrews;
-	STexture texPrev;
-	STexture texPrevS;
-	STexture texNext;
-	STexture texNextS;
-	STexture texFavOn;
-	STexture texFavOnS;
-	STexture texFavOff;
-	STexture texFavOffS;
-	STexture bgLQ;
-	STexture emptyTex;
+	TexData texQuit;
+	TexData texQuitS;
+	TexData texInfo;
+	TexData texInfoS;
+	TexData texConfig;
+	TexData texConfigS;
+	TexData texDML;
+	TexData texDMLs;
+	TexData texEmu;
+	TexData texEmus;
+	TexData texDVD;
+	TexData texDVDs;
+	TexData texUsb;
+	TexData texUsbs;
+	TexData texChannel;
+	TexData texChannels;
+	TexData texHomebrew;
+	TexData texHomebrews;
+	TexData texPrev;
+	TexData texPrevS;
+	TexData texNext;
+	TexData texNextS;
+	TexData texFavOn;
+	TexData texFavOnS;
+	TexData texFavOff;
+	TexData texFavOffS;
+	TexData bgLQ;
+	TexData emptyTex;
 
 	m_mainBg = _texture("MAIN/BG", "texture", theme.bg, false);
-	if(m_theme.loaded() && bgLQ.fromImageFile(fmt("%s/%s", m_themeDataDir.c_str(), m_theme.getString("MAIN/BG", "texture").c_str()), GX_TF_CMPR, 64, 64) == TE_OK)
+	if(m_theme.loaded() && TexHandle.fromImageFile(bgLQ, fmt("%s/%s", m_themeDataDir.c_str(), m_theme.getString("MAIN/BG", "texture").c_str()), GX_TF_CMPR, 64, 64) == TE_OK)
 		m_mainBgLQ = bgLQ;
 
-	texQuit.fromPNG(btnquit_png);
-	texQuitS.fromPNG(btnquits_png);
-	texInfo.fromPNG(btninfo_png);
-	texInfoS.fromPNG(btninfos_png);
-	texConfig.fromPNG(btnconfig_png);
-	texConfigS.fromPNG(btnconfigs_png);
-	texDVD.fromPNG(btndvd_png);
-	texDVDs.fromPNG(btndvds_png);
-	texUsb.fromPNG(btnusb_png);
-	texUsbs.fromPNG(btnusbs_png);
-	texDML.fromPNG(btndml_png);
-	texDMLs.fromPNG(btndmls_png);
-	texEmu.fromPNG(btnemu_png);
-	texEmus.fromPNG(btnemus_png);
-	texChannel.fromPNG(btnchannel_png);
-	texChannels.fromPNG(btnchannels_png);
-	texHomebrew.fromPNG(btnhomebrew_png);
-	texHomebrews.fromPNG(btnhomebrews_png);
-	texPrev.fromPNG(btnprev_png);
-	texPrevS.fromPNG(btnprevs_png);
-	texNext.fromPNG(btnnext_png);
-	texNextS.fromPNG(btnnexts_png);
-	texFavOn.fromPNG(favoriteson_png);
-	texFavOnS.fromPNG(favoritesons_png);
-	texFavOff.fromPNG(favoritesoff_png);
-	texFavOffS.fromPNG(favoritesoffs_png);
+	TexHandle.fromPNG(texQuit, btnquit_png);
+	TexHandle.fromPNG(texQuitS, btnquits_png);
+	TexHandle.fromPNG(texInfo, btninfo_png);
+	TexHandle.fromPNG(texInfoS, btninfos_png);
+	TexHandle.fromPNG(texConfig, btnconfig_png);
+	TexHandle.fromPNG(texConfigS, btnconfigs_png);
+	TexHandle.fromPNG(texDVD, btndvd_png);
+	TexHandle.fromPNG(texDVDs, btndvds_png);
+	TexHandle.fromPNG(texUsb, btnusb_png);
+	TexHandle.fromPNG(texUsbs, btnusbs_png);
+	TexHandle.fromPNG(texDML, btndml_png);
+	TexHandle.fromPNG(texDMLs, btndmls_png);
+	TexHandle.fromPNG(texEmu, btnemu_png);
+	TexHandle.fromPNG(texEmus, btnemus_png);
+	TexHandle.fromPNG(texChannel, btnchannel_png);
+	TexHandle.fromPNG(texChannels, btnchannels_png);
+	TexHandle.fromPNG(texHomebrew, btnhomebrew_png);
+	TexHandle.fromPNG(texHomebrews, btnhomebrews_png);
+	TexHandle.fromPNG(texPrev, btnprev_png);
+	TexHandle.fromPNG(texPrevS, btnprevs_png);
+	TexHandle.fromPNG(texNext, btnnext_png);
+	TexHandle.fromPNG(texNextS, btnnexts_png);
+	TexHandle.fromPNG(texFavOn, favoriteson_png);
+	TexHandle.fromPNG(texFavOnS, favoritesons_png);
+	TexHandle.fromPNG(texFavOff, favoritesoff_png);
+	TexHandle.fromPNG(texFavOffS, favoritesoffs_png);
 
 	_addUserLabels(m_mainLblUser, ARRAY_SIZE(m_mainLblUser), "MAIN");
 
@@ -1046,15 +1036,9 @@ wstringEx CMenu::_getNoticeTranslation(int sorting, wstringEx curLetter)
 
 void CMenu::_setPartition(s8 direction)
 {
-	_cfNeedsUpdate();
-	bool disable = m_current_view == COVERFLOW_CHANNEL && !m_tempView && 
-				(m_cfg.getBool(CHANNEL_DOMAIN, "disable", true) || neek2o());
-	if(disable)
+	if(m_current_view == COVERFLOW_CHANNEL && NANDemuView == false)
 		return;
-
-	if(m_current_view == COVERFLOW_CHANNEL)
-		NandHandle.Enable_Emu();
-
+	_cfNeedsUpdate();
 	if(direction != 0)
 	{
 		u8 limiter = 0;
@@ -1075,5 +1059,10 @@ void CMenu::_setPartition(s8 direction)
 	if(m_tempView)
 		m_cfg.setInt(WII_DOMAIN, "savepartition", currentPartition);
 	else
+	{
 		m_cfg.setInt(_domainFromView(), "partition", currentPartition);
+		_checkForSinglePlugin();
+		if(enabledPluginsCount == 1)
+			m_cfg.setInt("PLUGINS/PARTITION", PluginMagicWord, currentPartition);
+	}
 }

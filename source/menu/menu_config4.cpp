@@ -74,16 +74,15 @@ void CMenu::_showConfig4(void)
 
 	wstringEx channelName = m_loc.getWString(m_curLanguage, "disabled", L"Disabled");
 
-	NandHandle.Disable_Emu();
 	ChannelHandle.Init(m_loc.getString(m_curLanguage, "gametdb_code", "EN"));
 	amountOfChannels = ChannelHandle.Count();
 
-	string currentChanId = m_cfg.getString("GENERAL", "returnto" );
-	if (currentChanId.size() > 0)
+	const string &currentChanId = m_cfg.getString("GENERAL", "returnto");
+	if(!currentChanId.empty())
 	{
-		for (int i = 0; i < amountOfChannels; i++)
+		for(int i = 0; i < amountOfChannels; i++)
 		{
-			if (currentChanId == ChannelHandle.GetId(i))
+			if(strncmp(currentChanId.c_str(), ChannelHandle.GetId(i), 4) == 0)
 			{
 				channelName = custom_titles.getWString("TITLES", currentChanId, titles.getWString("TITLES", currentChanId, ChannelHandle.GetName(i)));
 				break;
@@ -143,8 +142,6 @@ int CMenu::_config4(void)
 			}
 		}
 	}
-	if(!neek2o() && m_current_view == COVERFLOW_CHANNEL && m_cfg.getBool(CHANNEL_DOMAIN, "disable", true)  == false)
-		NandHandle.Enable_Emu();
 	_hideConfig4();
 	return change;
 }

@@ -43,6 +43,9 @@ public:
 	void loadDefaultFont(void);
 	void TempLoadIOS(int IOS = 0);
 	u8 m_current_view;
+	u8 enabledPluginPos;
+	u8 enabledPluginsCount;
+	char PluginMagicWord[9];
 private:
 	struct SZone
 	{
@@ -53,7 +56,6 @@ private:
 		bool hide;
 	};
 	CCursor m_cursor[WPAD_MAX_WIIMOTES];
-	CButtonsMgr m_btnMgr;
 	CFanart m_fa;
 	Config m_cfg;
 	Config m_loc;
@@ -76,7 +78,6 @@ private:
 	bool m_music_info;
 	s16 m_showtimer;
 	string m_curLanguage;
-	string m_curGameId;
 
 	u8 m_numCFVersions;
 
@@ -116,29 +117,29 @@ private:
 	string m_ver;
 	/* End Updates */
 	// 
-	STexture m_curBg;
-	const STexture *m_prevBg;
-	const STexture *m_nextBg;
-	const STexture *m_lqBg;
+	TexData m_curBg;
+	const TexData *m_prevBg;
+	const TexData *m_nextBg;
+	const TexData *m_lqBg;
 	u8 m_bgCrossFade;
 	//
-	STexture m_errorBg;
-	STexture m_mainBg;
-	STexture m_configBg;
-	STexture m_config3Bg;
-	STexture m_configScreenBg;
-	STexture m_config4Bg;
-	STexture m_configAdvBg;
-	STexture m_configSndBg;
-	STexture m_downloadBg;
-	STexture m_gameBg;
-	STexture m_codeBg;
-	STexture m_aboutBg;
-	STexture m_systemBg;
-	STexture m_wbfsBg;
-	STexture m_gameSettingsBg;
-	STexture m_gameBgLQ;
-	STexture m_mainBgLQ;
+	TexData m_errorBg;
+	TexData m_mainBg;
+	TexData m_configBg;
+	TexData m_config3Bg;
+	TexData m_configScreenBg;
+	TexData m_config4Bg;
+	TexData m_configAdvBg;
+	TexData m_configSndBg;
+	TexData m_downloadBg;
+	TexData m_gameBg;
+	TexData m_codeBg;
+	TexData m_aboutBg;
+	TexData m_systemBg;
+	TexData m_wbfsBg;
+	TexData m_gameSettingsBg;
+	TexData m_gameBgLQ;
+	TexData m_mainBgLQ;
 //Main Coverflow
 	s16 m_mainBtnConfig;
 	s16 m_mainBtnInfo;
@@ -202,8 +203,8 @@ private:
 	s16 m_configAdvBtnCurLanguageP;
 	s16 m_configAdvLblCFTheme;
 	s16 m_configAdvBtnCFTheme;
-	s16 m_configAdvLblInstall;
-	s16 m_configAdvBtnInstall;
+	s16 m_configAdvLblBootChange;
+	s16 m_configAdvBtnBootChange;
 	s16 m_configAdvLblUser[4];
 	s16 m_config3LblGameLanguage;
 	s16 m_config3LblLanguage;
@@ -383,7 +384,7 @@ private:
 	s16 m_gameBtnSettings;
 	s16 m_gameBtnBack;
 	s16 m_gameLblUser[5];
-// Parental code menu	
+// Parental code menu
 	s16 m_codeLblTitle;
 	s16 m_codeBtnKey[10];
 	s16 m_codeBtnBack;
@@ -394,7 +395,6 @@ private:
 //menu_wbfs
 	s16 m_wbfsLblTitle;
 	s16 m_wbfsPBar;
-	s16 m_wbfsBtnBack;
 	s16 m_wbfsBtnGo;
 	s16 m_wbfsLblDialog;
 	s16 m_wbfsLblMessage;
@@ -533,7 +533,7 @@ private:
 	s16 m_cheatLblItem[4];
 	s16 m_cheatBtnItem[4];
 	s16 m_cheatLblUser[4];
-	STexture m_cheatBg;
+	TexData m_cheatBg;
 	GCTCheats m_cheatfile;
 // Gameinfo menu
 	s16 m_gameinfoLblTitle;
@@ -549,11 +549,11 @@ private:
 	s16 m_gameinfoLblUser[5];
 	s16 m_gameinfoLblControlsReq[4];
 	s16 m_gameinfoLblControls[4];
-	STexture m_gameinfoBg;
-	STexture m_rating;
-	STexture m_wifi;
-	STexture m_controlsreq[4];
-	STexture m_controls[4];
+	TexData m_gameinfoBg;
+	TexData m_rating;
+	TexData m_wifi;
+	TexData m_controlsreq[4];
+	TexData m_controls[4];
 // NandEmulation
 	string m_saveExtGameId;
 	bool m_forceext;
@@ -646,7 +646,6 @@ private:
 	bool m_show_zone_game;
 
 	volatile bool m_exit;
-	volatile bool m_networkInit;
 	volatile bool m_thrdStop;
 	volatile bool m_thrdWorking;
 	volatile bool m_thrdNetwork;
@@ -677,7 +676,7 @@ private:
 	};
 	typedef pair<string, u32> FontDesc;
 	typedef map<FontDesc, SFont> FontSet;
-	typedef map<string, STexture> TexSet;
+	typedef map<string, TexData> TexSet;
 	typedef map<string, GuiSound*> SoundSet;
 	struct SThemeData
 	{
@@ -694,85 +693,85 @@ private:
 		CColor titleFontColor;
 		CColor selubtnFontColor;
 		CColor selsbtnFontColor;
-		STexture bg;
-		STexture btnTexL;
-		STexture btnTexR;
-		STexture btnTexC;
-		STexture btnTexLS;
-		STexture btnTexRS;
-		STexture btnTexCS;
-		STexture btnTexLH;
-		STexture btnTexRH;
-		STexture btnTexCH;
-		STexture btnTexLSH;
-		STexture btnTexRSH;
-		STexture btnTexCSH;
-		STexture btnAUOn;
-		STexture btnAUOns;
-		STexture btnAUOff;
-		STexture btnAUOffs;
-		STexture btnENOn;
-		STexture btnENOns;
-		STexture btnENOff;
-		STexture btnENOffs;
-		STexture btnJAOn;
-		STexture btnJAOns;
-		STexture btnJAOff;
-		STexture btnJAOffs;
-		STexture btnFROn;
-		STexture btnFROns;
-		STexture btnFROff;
-		STexture btnFROffs;
-		STexture btnDEOn;
-		STexture btnDEOns;
-		STexture btnDEOff;
-		STexture btnDEOffs;
-		STexture btnESOn;
-		STexture btnESOns;
-		STexture btnESOff;
-		STexture btnESOffs;
-		STexture btnITOn;
-		STexture btnITOns;
-		STexture btnITOff;
-		STexture btnITOffs;
-		STexture btnNLOn;
-		STexture btnNLOns;
-		STexture btnNLOff;
-		STexture btnNLOffs;
-		STexture btnPTOn;
-		STexture btnPTOns;
-		STexture btnPTOff;
-		STexture btnPTOffs;
-		STexture btnRUOn;
-		STexture btnRUOns;
-		STexture btnRUOff;
-		STexture btnRUOffs;
-		STexture btnKOOn;
-		STexture btnKOOns;
-		STexture btnKOOff;
-		STexture btnKOOffs;
-		STexture btnZHCNOn;
-		STexture btnZHCNOns;
-		STexture btnZHCNOff;
-		STexture btnZHCNOffs;
-		STexture checkboxoff;
-		STexture checkboxoffs;
-		STexture checkboxon;
-		STexture checkboxons;
-		STexture checkboxHid;
-		STexture checkboxHids;
-		STexture checkboxReq;
-		STexture checkboxReqs;
-		STexture pbarTexL;
-		STexture pbarTexR;
-		STexture pbarTexC;
-		STexture pbarTexLS;
-		STexture pbarTexRS;
-		STexture pbarTexCS;
-		STexture btnTexPlus;
-		STexture btnTexPlusS;
-		STexture btnTexMinus;
-		STexture btnTexMinusS;
+		TexData bg;
+		TexData btnTexL;
+		TexData btnTexR;
+		TexData btnTexC;
+		TexData btnTexLS;
+		TexData btnTexRS;
+		TexData btnTexCS;
+		TexData btnTexLH;
+		TexData btnTexRH;
+		TexData btnTexCH;
+		TexData btnTexLSH;
+		TexData btnTexRSH;
+		TexData btnTexCSH;
+		TexData btnAUOn;
+		TexData btnAUOns;
+		TexData btnAUOff;
+		TexData btnAUOffs;
+		TexData btnENOn;
+		TexData btnENOns;
+		TexData btnENOff;
+		TexData btnENOffs;
+		TexData btnJAOn;
+		TexData btnJAOns;
+		TexData btnJAOff;
+		TexData btnJAOffs;
+		TexData btnFROn;
+		TexData btnFROns;
+		TexData btnFROff;
+		TexData btnFROffs;
+		TexData btnDEOn;
+		TexData btnDEOns;
+		TexData btnDEOff;
+		TexData btnDEOffs;
+		TexData btnESOn;
+		TexData btnESOns;
+		TexData btnESOff;
+		TexData btnESOffs;
+		TexData btnITOn;
+		TexData btnITOns;
+		TexData btnITOff;
+		TexData btnITOffs;
+		TexData btnNLOn;
+		TexData btnNLOns;
+		TexData btnNLOff;
+		TexData btnNLOffs;
+		TexData btnPTOn;
+		TexData btnPTOns;
+		TexData btnPTOff;
+		TexData btnPTOffs;
+		TexData btnRUOn;
+		TexData btnRUOns;
+		TexData btnRUOff;
+		TexData btnRUOffs;
+		TexData btnKOOn;
+		TexData btnKOOns;
+		TexData btnKOOff;
+		TexData btnKOOffs;
+		TexData btnZHCNOn;
+		TexData btnZHCNOns;
+		TexData btnZHCNOff;
+		TexData btnZHCNOffs;
+		TexData checkboxoff;
+		TexData checkboxoffs;
+		TexData checkboxon;
+		TexData checkboxons;
+		TexData checkboxHid;
+		TexData checkboxHids;
+		TexData checkboxReq;
+		TexData checkboxReqs;
+		TexData pbarTexL;
+		TexData pbarTexR;
+		TexData pbarTexC;
+		TexData pbarTexLS;
+		TexData pbarTexRS;
+		TexData pbarTexCS;
+		TexData btnTexPlus;
+		TexData btnTexPlusS;
+		TexData btnTexMinus;
+		TexData btnTexMinusS;
 		GuiSound *clickSound;
 		GuiSound *hoverSound;
 		GuiSound *cameraSound;
@@ -811,6 +810,7 @@ private:
 	bool _loadEmuList(void);
 	bool _loadHomebrewList(void);
 	void _initCF(void);
+	void _initBoot(void);
 	// 
 	void _initMainMenu();
 	void _initErrorMenu();
@@ -861,6 +861,9 @@ private:
 	void _textNandEmu(void);
 	void _textHome(void);
 	void _textExitTo(void);
+	void _textBoot(void);
+	//
+	void _refreshBoot(void);
 	//
 	void _hideCheatSettings(bool instant = false);
 	void _hideError(bool instant = false);
@@ -892,7 +895,7 @@ private:
 	//
 	void _showError(void);
 	void _showMain(void);
-	void _showConfigCommon(const STexture & bg, int page);
+	void _showConfigCommon(const TexData & bg, int page);
 	void _showConfig(void);
 	void _showConfig3(void);
 	void _showConfigScreen(void);
@@ -922,9 +925,10 @@ private:
 	void _updatePluginText(void);
 	void _updatePluginCheckboxes(void);
 	void _updateCheckboxes(void);
+	void _checkForSinglePlugin(void);
 	void _getIDCats(void);
 	void _setIDCats(void);
-	void _setBg(const STexture &tex, const STexture &lqTex);
+	void _setBg(const TexData &tex, const TexData &lqTex);
 	void _updateBg(void);
 	void _drawBg(void);
 	void _updateText(void);
@@ -965,6 +969,7 @@ private:
 	void _CategorySettings(bool fromGameSet = false);
 	bool _Home();
 	bool _ExitTo();
+	void _Boot();
 	void _mainLoopCommon(bool withCF = false, bool adjusting = false);
 public:
 	void directlaunch(const char *GameID);
@@ -990,15 +995,15 @@ private:
 	void _buildMenus(void);
 	void _cleanupDefaultFont();
 	void _Theme_Cleanup();
-	string _getId(void);
+	const char *_getId(void);
 	const char *_domainFromView(void);
 	const char *_cfDomain(bool selected = false);
 	void UpdateCache(u32 view = COVERFLOW_MAX);
 	int MIOSisDML();
 	void RemoveCover(const char *id);
 	SFont _font(CMenu::FontSet &fontSet, const char *domain, const char *key, u32 fontSize, u32 lineSpacing, u32 weight, u32 index, const char *genKey);
-	STexture _texture(const char *domain, const char *key, STexture &def, bool freeDef = true);
-	vector<STexture> _textures(const char *domain, const char *key);
+	TexData _texture(const char *domain, const char *key, TexData &def, bool freeDef = true);
+	vector<TexData> _textures(const char *domain, const char *key);
 	void _showWaitMessage();
 public:
 	void _hideWaitMessage();
@@ -1009,11 +1014,11 @@ private:
 	u16 _textStyle(const char *domain, const char *key, u16 def);
 	s16 _addButton(const char *domain, SFont font, const wstringEx &text, int x, int y, u32 width, u32 height, const CColor &color);
 	s16 _addSelButton(const char *domain, SFont font, const wstringEx &text, int x, int y, u32 width, u32 height, const CColor &color);
-	s16 _addPicButton(const char *domain, STexture &texNormal, STexture &texSelected, int x, int y, u32 width, u32 height);
+	s16 _addPicButton(const char *domain, TexData &texNormal, TexData &texSelected, int x, int y, u32 width, u32 height);
 	s16 _addTitle(const char *domain, SFont font, const wstringEx &text, int x, int y, u32 width, u32 height, const CColor &color, s16 style);
 	s16 _addText(const char *domain, SFont font, const wstringEx &text, int x, int y, u32 width, u32 height, const CColor &color, s16 style);
 	s16 _addLabel(const char *domain, SFont font, const wstringEx &text, int x, int y, u32 width, u32 height, const CColor &color, s16 style);
-	s16 _addLabel(const char *domain, SFont font, const wstringEx &text, int x, int y, u32 width, u32 height, const CColor &color, s16 style, STexture &bg);
+	s16 _addLabel(const char *domain, SFont font, const wstringEx &text, int x, int y, u32 width, u32 height, const CColor &color, s16 style, TexData &bg);
 	s16 _addProgressBar(const char *domain, int x, int y, u32 width, u32 height);
 	void _setHideAnim(s16 id, const char *domain, int dx, int dy, float scaleX, float scaleY);
 	void _addUserLabels(s16 *ids, u32 size, const char *domain);
@@ -1036,12 +1041,11 @@ private:
 	void _initAsyncNetwork();
 	bool _isNetworkAvailable();
 	int _initNetwork();
-	void _deinitNetwork();
 	void LoadView(void);
 	void _getGrabStatus(void);
 	static void _addDiscProgress(int status, int total, void *user_data);
 	static void _Messenger(int message, int info, char *cinfo, void *user_data);
-	static void _ShowProgress(int dumpstat, int dumpprog, int filestat, int fileprog, int files, int folders, char *tmess, void *user_data);
+	static void _ShowProgress(int dumpstat, int dumpprog, int filestat, int fileprog, int files, int folders, const char *tmess, void *user_data);
 	static int _gameInstaller(void *obj);	
 	static int _GCgameInstaller(void *obj);
 	static int _GCcopyGame(void *obj);
@@ -1057,7 +1061,7 @@ private:
 	void _stopSounds(void);
 	static int _NandDumper(void *obj);
 	static int _NandFlasher(void *obj);
-	int _FindEmuPart(string *emuPath, int part, bool searchvalid);
+	int _FindEmuPart(string &emuPath, bool searchvalid);
 	bool _checkSave(string id, bool nand);
 	bool _TestEmuNand(int epart, const char *path, bool indept);	
 

@@ -35,7 +35,7 @@ void CMenu::_hideConfig(bool instant)
 			m_btnMgr.hide(m_configLblUser[i], instant);
 }
 
-void CMenu::_showConfigCommon(const STexture & bg, int page)
+void CMenu::_showConfigCommon(const TexData &bg, int page)
 {
 	_setBg(bg, bg);
 	m_btnMgr.show(m_configLblTitle);
@@ -84,7 +84,6 @@ void CMenu::_cfNeedsUpdate(void)
 
 void CMenu::_config(int page)
 {
-	m_curGameId = CoverFlow.getId();
 	m_cfNeedsUpdate = false;
 	int change = CONFIG_PAGE_NO_CHANGE;
 	while(!m_exit)
@@ -207,19 +206,12 @@ int CMenu::_config1(void)
 			}
 		}
 	}
-	
-	if (currentPartition != bCurrentPartition)
+	if(currentPartition != bCurrentPartition)
 	{	
-		bool disable = (m_cfg.getBool(CHANNEL_DOMAIN, "disable", true) || neek2o()) 
-						&& m_current_view == COVERFLOW_CHANNEL && !m_tempView;
-		if(!disable)
-		{
-			_showWaitMessage();
-			_loadList();
-			_hideWaitMessage();
-		}
+		_showWaitMessage();
+		_loadList();
+		_hideWaitMessage();
 	}
-
 	_hideConfig();
 	
 	return change;
