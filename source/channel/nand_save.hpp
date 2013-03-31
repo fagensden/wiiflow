@@ -23,16 +23,18 @@ typedef struct _ios_settings_t
 {
 	u8 cios;
 	bool use_cios;
-} __attribute__((packed)) ios_settings_t;
+} ATTRIBUTE_PACKED ios_settings_t;
 
 class NandSave
 {
 public:
 	NandSave();
 	bool CheckSave();
-	void LoadIOS();
+	void LoadSettings();
 	void SaveIOS(u8 ios, bool use_ios);
+	void SavePort(u8 port);
 private:
+	void WriteFile(const char *file_name, u8 *content, u32 size);
 	s32 fd;
 	s32 ret;
 	bool loaded;

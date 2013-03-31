@@ -2,22 +2,7 @@
 #include "text.hpp"
 #include "memory/mem2.hpp"
 
-int currentStr = 0;
-static char fmt_buffer[MAX_USES][MAX_MSG_SIZE];
 static char general_buffer[MAX_MSG_SIZE * 2];
-
-// Simplified use of sprintf
-char *fmt(const char *format, ...)
-{
-	va_list va;
-	va_start(va, format);
-	currentStr = (currentStr + 1) % MAX_USES;
-	vsnprintf(fmt_buffer[currentStr], MAX_MSG_SIZE - 1, format, va);
-	fmt_buffer[currentStr][MAX_MSG_SIZE - 1] = '\0';
-	va_end(va);
-	return fmt_buffer[currentStr];
-}
-
 string sfmt(const char *format, ...)
 {
 	va_list va;
@@ -237,13 +222,11 @@ bool SFont::fromFile(const char *filename, u32 size, u32 lspacing, u32 w, u32 id
 static const wchar_t *g_whitespaces = L" \f\n\r\t\v";
 void CText::setText(const SFont &font, const wstringEx &t)
 {
-	CText::SWord w;
+	SWord w;
 	m_lines.clear();
-	if(font.font != NULL)
-		m_font = font;
-	if(m_font.font == NULL)
+	if(font.font == NULL)
 		return;
-
+	m_font = font;
 	firstLine = 0;
 	// Don't care about performance
 	vector<wstringEx> lines = stringToVector(t, L'\n');
@@ -252,7 +235,7 @@ void CText::setText(const SFont &font, const wstringEx &t)
 	for (u32 k = 0; k < lines.size(); ++k)
 	{
 		wstringEx &l = lines[k];
-		m_lines.push_back(CText::CLine());
+		m_lines.push_back(CLine());
 		m_lines.back().reserve(32);
 		wstringEx::size_type i = l.find_first_not_of(g_whitespaces);
 		wstringEx::size_type j;
@@ -277,7 +260,7 @@ void CText::setText(const SFont &font, const wstringEx &t)
 
 void CText::setText(const SFont &font, const wstringEx &t, u32 startline)
 {
-	CText::SWord w;
+	SWord w;
 	totalHeight = 0;
 
 	m_lines.clear();
@@ -294,7 +277,7 @@ void CText::setText(const SFont &font, const wstringEx &t, u32 startline)
 	for (u32 k = 0; k < lines.size(); ++k)
 	{
 		wstringEx &l = lines[k];
-		m_lines.push_back(CText::CLine());
+		m_lines.push_back(CLine());
 		m_lines.back().reserve(32);
 		wstringEx::size_type i = l.find_first_not_of(g_whitespaces);
 		wstringEx::size_type j;
@@ -333,7 +316,7 @@ void CText::setFrame(float width, u16 style, bool ignoreNewlines, bool instant)
 
 	for (u32 k = firstLine; k < m_lines.size(); ++k)
 	{
-		CText::CLine &words = m_lines[k];
+		CLine &words = m_lines[k];
 		if (words.empty())
 		{
 			posY += (float)m_font.lineSpacing;
@@ -459,48 +442,4 @@ string rtrim(string s)
 {
 	s.erase(find_if(s.rbegin(), s.rend(), not1(ptr_fun<int, int>(isspace))).base(), s.end());
 	return s;
-}
-
-void Asciify( wchar_t *str )
-{
-	const wchar_t *ptr = str;
-	wchar_t *ctr = str;
-
-	while(*ptr != '\0')
-	{
-		switch(*ptr)
-		{
-			case 0x14c:
-				*ctr = 0x4f;
-				break;
-		}
-		*ctr = *ptr;
-		++ptr;
-		++ctr;
-	}
-	*ctr = '\0';
-}
-
-void Asciify2( char *str )
-{
-	u8 i=0;
-	for( i=0; i < strlen(str); ++i )
-	{
-		if( str[i] < 0x20 || str[i] > 0x7F )
-			str[i] = '_';
-		else {
-			switch( str[i] )
-			{
-				case '*':
-				case '\"':
-				case '|':
-				case '<':
-				case '>':
-				case '?':
-				case ':':
-					str[i] = '_';
-				break;
-			}
-		}
-	}
 }

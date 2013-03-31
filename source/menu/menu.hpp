@@ -42,7 +42,13 @@ public:
 	void cleanup(void);
 	void loadDefaultFont(void);
 	void TempLoadIOS(int IOS = 0);
+
+	const char *getBoxPath(const dir_discHdr *element);
+	const char *getFrontPath(const dir_discHdr *element);
+	const char *getBlankCoverPath(const dir_discHdr *element);
+
 	u8 m_current_view;
+	int m_last_view;
 	u8 enabledPluginPos;
 	u8 enabledPluginsCount;
 	char PluginMagicWord[9];
@@ -148,6 +154,7 @@ private:
 	s16 m_mainLblLetter;
 	s16 m_mainLblCurMusic;
 #ifdef SHOWMEM
+	s16 m_mem1FreeSize;
 	s16 m_mem2FreeSize;
 #endif
 #ifdef SHOWMEMGECKO
@@ -573,7 +580,7 @@ private:
 	u8 pointerhidedelay[WPAD_MAX_WIIMOTES];
 	u16 stickPointer_x[WPAD_MAX_WIIMOTES];
 	u16 stickPointer_y[WPAD_MAX_WIIMOTES];
-	
+
 	u8 m_wpadLeftDelay;
 	u8 m_wpadDownDelay;
 	u8 m_wpadRightDelay;
@@ -587,9 +594,13 @@ private:
 	u8 m_padUpDelay;
 	u8 m_padADelay;
 	//u8 m_padBDelay;
-	
-	u32 wii_btnsPressed;
-	u32 wii_btnsHeld;
+
+	u32 wii_btnsPressed[WPAD_MAX_WIIMOTES];
+	u32 wii_btnsHeld[WPAD_MAX_WIIMOTES];
+	bool wBtn_Pressed(int btn, u8 ext);
+	bool wBtn_PressedChan(int btn, u8 ext, int &chan);
+	bool wBtn_Held(int btn, u8 ext);
+	bool wBtn_HeldChan(int btn, u8 ext, int &chan);
 	u32 gc_btnsPressed;
 	u32 gc_btnsHeld;
 
@@ -604,6 +615,7 @@ private:
 	bool  enable_wmote_roll;
 
 	bool m_cfNeedsUpdate;
+	bool LastViewRequested(void);
 
 	void SetupInput(bool reset_pos = false);
 	void ScanInput(void);
@@ -624,7 +636,7 @@ private:
 	bool wRoll_Left(void);
 	bool wRoll_Right(void);
 
-	bool wii_btnRepeat(s64 btn);
+	bool wii_btnRepeat(u8 btn);
 	bool gc_btnRepeat(s64 btn);
 
 	bool WPadIR_Valid(int chan);
@@ -863,7 +875,7 @@ private:
 	void _textExitTo(void);
 	void _textBoot(void);
 	//
-	void _refreshBoot(void);
+	void _refreshBoot(u8 port = 0);
 	//
 	void _hideCheatSettings(bool instant = false);
 	void _hideError(bool instant = false);
@@ -969,7 +981,7 @@ private:
 	void _CategorySettings(bool fromGameSet = false);
 	bool _Home();
 	bool _ExitTo();
-	void _Boot();
+	bool _Boot();
 	void _mainLoopCommon(bool withCF = false, bool adjusting = false);
 public:
 	void directlaunch(const char *GameID);
@@ -980,11 +992,12 @@ private:
 	void _netInit();
 	bool _loadFile(u8 * &buffer, u32 &size, const char *path, const char *file);
 	int _loadIOS(u8 ios, int userIOS, string id, bool RealNAND_Channels = false);
-	void _launch(dir_discHdr *hdr);
+	void _launch(const dir_discHdr *hdr);
 	void _launchGame(dir_discHdr *hdr, bool dvd);
 	void _launchChannel(dir_discHdr *hdr);
 	void _launchHomebrew(const char *filepath, vector<string> arguments);
 	void _launchGC(dir_discHdr *hdr, bool disc);
+	void _launchShutdown();
 	void _setAA(int aa);
 	void _loadCFCfg();
 	void _loadCFLayout(int version, bool forceAA = false, bool otherScrnFmt = false);
@@ -1102,6 +1115,8 @@ private:
 	static const int _nbCfgPages;
 	static const u32 SVN_REV_NUM;
 };
+
+extern CMenu mainMenu;
 
 #define ARRAY_SIZE(a)		(sizeof a / sizeof a[0])
 

@@ -44,8 +44,9 @@ public:
 	void clear(void);
 	void shutdown(void);
 	void reserve(u32 capacity);
-	void addItem(dir_discHdr *hdr, const char *picPath, const char *boxPicPath, const char *blankBoxPicPath, int playcount = 0, unsigned int lastPlayed = 0);
+	void addItem(dir_discHdr *hdr, int playcount = 0, unsigned int lastPlayed = 0);
 	bool empty(void) const { return m_items.empty(); }
+	u32 size(void) const { return m_items.size(); }
 	// 
 	bool start();
 	void stopCoverLoader(bool empty = false);
@@ -128,14 +129,18 @@ public:
 	// 
 	const char *getId(void) const;
 	const char *getNextId(void) const;
-	dir_discHdr * getHdr(void) const;
-	dir_discHdr * getNextHdr(void) const;
+	const dir_discHdr * getHdr(void) const;
+	const dir_discHdr * getNextHdr(void) const;
+	const dir_discHdr * getSpecificHdr(u32) const;
 	wstringEx getTitle(void) const;
 	u64 getChanTitle(void) const;
 	//
 	bool getRenderTex(void);
 	void setRenderTex(bool);
 	void RenderTex(void);
+	//
+	static u32 InternalCoverColor(const char *ID, u32 DefCaseColor);
+	static bool checkCoverColor(const char *ID, const char *checkID[], u32 len);
 private:
 	enum DrawMode { CFDR_NORMAL, CFDR_STENCIL, CFDR_SHADOW };
 	struct SLayout
@@ -191,18 +196,14 @@ private:
 	enum TexState { STATE_Loading, STATE_Ready, STATE_NoCover };
 	struct CItem
 	{
+		CItem(dir_discHdr *itemHdr, int playcount, unsigned int lastPlayed);
 		dir_discHdr *hdr;
-		string picPath;
-		string boxPicPath;
-		string blankBoxPicPath;
 		int playcount;
 		unsigned int lastPlayed;
 		TexData texture;
 		volatile bool boxTexture;
 		volatile enum TexState state;
-		// 
-		CItem(dir_discHdr *itemHdr, const char *itemPic, const char *itemBoxPic, const char *itemBlankBoxPic, int playcount, unsigned int lastPlayed);
-	};
+	} ATTRIBUTE_PACKED;
 	struct CCover
 	{
 		u32 index;
@@ -235,7 +236,7 @@ private:
 	Vector3D m_targetCameraPos;
 	Vector3D m_targetCameraAim;
 	vector<CItem> m_items;
-	vector<CCover> m_covers;
+	CCover *m_covers;
 	int m_delay;
 	int m_minDelay;
 	int m_jump;
@@ -250,8 +251,12 @@ private:
 	volatile int m_hqCover;
 	bool m_selected;
 	int m_tickCount;
-	TexData m_loadingTexture;
-	TexData m_noCoverTexture;
+	TexData *m_loadingTexture;
+	TexData *m_noCoverTexture;
+	TexData m_flatLoadingTexture;
+	TexData m_flatNoCoverTexture;
+	TexData m_boxLoadingTexture;
+	TexData m_boxNoCoverTexture;
 	TexData m_dvdSkin;
 	TexData m_dvdSkin_Red;
 	TexData m_dvdSkin_Black;
@@ -271,6 +276,7 @@ private:
 	bool m_box;
 	bool m_useHQcover;
 	bool m_dvdskin_loaded;
+	bool m_defcovers_loaded;
 	u32 m_range;
 	u32 m_rows;
 	u32 m_columns;
@@ -315,7 +321,6 @@ private:
 	void _drawCover(int i, bool mirror, CCoverFlow::DrawMode dm);
 	void _drawCoverFlat(int i, bool mirror, CCoverFlow::DrawMode dm);
 	void _drawCoverBox(int i, bool mirror, CCoverFlow::DrawMode dm);
-	bool _checkCoverColor(char* gameID, const char* checkID[], int len);
 	void _updateTarget(int i, bool instant = false);
 	void _updateAllTargets(bool instant = false);
 	void _loadCover(int i, int item);
@@ -325,7 +330,7 @@ private:
 	Vector3D _cameraMoves(void);
 	Vector3D _coverMovesA(void);
 	Vector3D _coverMovesP(void);
-	TexData &_coverTexture(int i);
+	const TexData *_coverTexture(int i);
 	void _left(int repeatDelay, u32 step);
 	void _right(int repeatDelay, u32 step);
 	void _jump(void);
@@ -338,7 +343,7 @@ private:
 	CLRet _loadCoverTex(u32 i, bool box, bool hq, bool blankBoxCover);
 	bool _invisibleCover(u32 x, u32 y);
 	void _instantTarget(int i);
-	void _transposeCover(vector<CCover> &dst, u32 rows, u32 columns, int pos);
+	void _transposeCover(CCover* &dst, u32 rows, u32 columns, int pos);
 
 	void _stopSound(GuiSound * &snd);
 	void _playSound(GuiSound * &snd);

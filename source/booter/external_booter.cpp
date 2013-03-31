@@ -53,7 +53,8 @@ extern u32 gameconfsize;
 extern u32 *gameconf;
 
 the_CFG normalCFG;
-void WiiFlow_ExternalBooter(u8 vidMode, bool vipatch, bool countryString, u8 patchVidMode, int aspectRatio, u32 returnTo, u8 BootType)
+void WiiFlow_ExternalBooter(u8 vidMode, bool vipatch, bool countryString, u8 patchVidMode, 
+	int aspectRatio, u32 returnTo, u8 BootType, bool use_led)
 {
 	normalCFG.vidMode = vidMode;
 	normalCFG.vipatch = vipatch;
@@ -73,10 +74,11 @@ void WiiFlow_ExternalBooter(u8 vidMode, bool vipatch, bool countryString, u8 pat
 	normalCFG.gameconf = gameconf;
 	normalCFG.gameconfsize = gameconfsize;
 	normalCFG.BootType = BootType;
+	normalCFG.use_led = use_led;
 	normalCFG.wip_list = get_wip_list();
 	normalCFG.wip_count = get_wip_count();
 
-	ShutdownBeforeExit(BootType == TYPE_CHANNEL);
+	ShutdownBeforeExit();
 	/* Copy CFG into new memory region */
 	memcpy(BooterConfig, &normalCFG, sizeof(the_CFG));
 	DCFlushRange(BooterConfig, sizeof(the_CFG));
@@ -102,16 +104,17 @@ void ExternalBooter_WiiGameSetup(bool wbfs, bool dvd, const char *ID)
 	normalCFG.wbfsPart = wbfs_part_idx;
 }
 
-void ExternalBooter_ChannelSetup(u64 title)
+void ExternalBooter_ChannelSetup(u64 title, bool dol)
 {
 	memset(&normalCFG, 0, sizeof(the_CFG));
 	memcpy(&normalCFG.title, &title, sizeof(u64));
+	normalCFG.use_dol = dol;
 }
 
-void ShutdownBeforeExit(bool KeepPatches)
+void ShutdownBeforeExit(void)
 {
 	DeviceHandle.UnMountAll();
-	NandHandle.DeInit_ISFS(KeepPatches);
+	NandHandle.DeInit_ISFS();
 	WDVD_Close();
 	Close_Inputs();
 	/* Deinit network */

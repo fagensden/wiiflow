@@ -81,7 +81,8 @@ static bool show_emu = true;
 void CMenu::_showMain(void)
 {
 	_hideWaitMessage();
-#ifdef SHOWMEM	
+#ifdef SHOWMEM
+	m_btnMgr.show(m_mem1FreeSize);
 	m_btnMgr.show(m_mem2FreeSize);
 #endif
 	m_vid.set2DViewport(m_cfg.getInt("GENERAL", "tv_width", 640), m_cfg.getInt("GENERAL", "tv_height", 480),
@@ -111,6 +112,7 @@ void CMenu::_showMain(void)
 			else
 				m_btnMgr.show(m_mainBtnUsb);
 			break;
+		case COVERFLOW_MAX:
 		case COVERFLOW_HOMEBREW:
 			m_btnMgr.show(m_mainBtnUsb);
 			break;
@@ -192,10 +194,8 @@ void CMenu::LoadView(void)
 	const char *mode = (m_current_view == COVERFLOW_CHANNEL && m_cfg.getBool(CHANNEL_DOMAIN, "disable", true)) 
 		? CHANNEL_DOMAIN : DeviceName[currentPartition];
 
-	m_showtimer=60;
-	char gui_name[20];
-	snprintf(gui_name, sizeof(gui_name), "%s [%s]", _domainFromView(), upperCase(mode).c_str());
-	m_btnMgr.setText(m_mainLblNotice, (string)gui_name);
+	m_showtimer = 120;
+	m_btnMgr.setText(m_mainLblNotice, sfmt("%s (%u) [%s]", _domainFromView(), m_gameList.size(), upperCase(mode).c_str()));
 	m_btnMgr.show(m_mainLblNotice);
 }
 
@@ -212,6 +212,14 @@ void CMenu::exitHandler(int ExitTo)
 	}
 	if(ExitTo != WIIFLOW_DEF)
 		Sys_ExitTo(ExitTo);
+}
+
+bool CMenu::LastViewRequested(void)
+{
+	int view = m_cfg.getInt("GENERAL", "last_view", COVERFLOW_MAX);
+	if(view < COVERFLOW_USB || view >= COVERFLOW_MAX)
+		return false;
+	return true;
 }
 
 int CMenu::main(void)
@@ -241,9 +249,12 @@ int CMenu::main(void)
 		m_GameTDBLoaded = true;
 		m_gametdb.CloseFile();
 	}
-	if(m_Emulator_boot)
+	m_last_view = m_cfg.getInt("GENERAL", "last_view");
+	if(!(m_last_view < COVERFLOW_USB || m_last_view >= COVERFLOW_MAX))
+		m_current_view = m_last_view;
+	else if(m_Emulator_boot)
 		m_current_view = COVERFLOW_PLUGIN;
-
+	m_cfg.remove("GENERAL", "last_view");
 	if(m_cfg.getBool("GENERAL", "update_cache", false))
 	{
 		UpdateCache();
@@ -256,9 +267,11 @@ int CMenu::main(void)
 		if(!_Source())
 			LoadView();
 		else
+		{
 			_showMain();
-		if(BTN_B_HELD)
-			bUsed = true;
+			if(BTN_B_HELD)
+				bUsed = true;
+		}
 	}
 
 	while(!m_exit)
@@ -280,9 +293,11 @@ int CMenu::main(void)
 				if(!_Source()) //Different source selected
 					LoadView();
 				else
+				{
 					_showMain();
-				if(BTN_B_HELD)
-					bUsed = true;
+					if(BTN_B_HELD)
+						bUsed = true;
+				}
 				continue;
 			}
 		}
@@ -299,6 +314,28 @@ int CMenu::main(void)
 				m_current_view = COVERFLOW_CHANNEL;
 			if(lastView == m_current_view) 
 				m_current_view = COVERFLOW_HOMEBREW;
+			m_cfg.setBool(WII_DOMAIN, "source", false);
+			m_cfg.setBool(GC_DOMAIN, "source", false);
+			m_cfg.setBool(CHANNEL_DOMAIN, "source", false);
+			m_cfg.setBool(HOMEBREW_DOMAIN, "source", false);
+			m_cfg.setBool(PLUGIN_DOMAIN, "source", false);
+			switch(m_current_view)
+			{
+				case COVERFLOW_USB:
+					m_cfg.setBool(WII_DOMAIN, "source", true);
+					break;
+				case COVERFLOW_DML:
+					m_cfg.setBool(GC_DOMAIN, "source", true);
+					break;
+				case COVERFLOW_CHANNEL:
+					m_cfg.setBool(CHANNEL_DOMAIN, "source", true);
+					break;
+				case COVERFLOW_HOMEBREW:
+					m_cfg.setBool(HOMEBREW_DOMAIN, "source", true);
+					break;
+				default:
+					m_cfg.setBool(PLUGIN_DOMAIN, "source", true);
+			}
 			LoadView();
 			continue;
 		}
@@ -336,8 +373,30 @@ int CMenu::main(void)
 					m_current_view = (show_emu ? COVERFLOW_PLUGIN : (show_homebrew && (parental_homebrew || !m_locked)) ? COVERFLOW_HOMEBREW : COVERFLOW_USB);
 				else if(m_current_view == COVERFLOW_PLUGIN)
 					m_current_view = (show_homebrew && (parental_homebrew || !m_locked)) ? COVERFLOW_HOMEBREW : COVERFLOW_USB;
-				else if(m_current_view == COVERFLOW_HOMEBREW)
+				else if(m_current_view == COVERFLOW_HOMEBREW || m_current_view == COVERFLOW_MAX)
 					m_current_view = COVERFLOW_USB;
+				m_cfg.setBool(WII_DOMAIN, "source", false);
+				m_cfg.setBool(GC_DOMAIN, "source", false);
+				m_cfg.setBool(CHANNEL_DOMAIN, "source", false);
+				m_cfg.setBool(HOMEBREW_DOMAIN, "source", false);
+				m_cfg.setBool(PLUGIN_DOMAIN, "source", false);
+				switch(m_current_view)
+				{
+					case COVERFLOW_USB:
+						m_cfg.setBool(WII_DOMAIN, "source", true);
+						break;
+					case COVERFLOW_DML:
+						m_cfg.setBool(GC_DOMAIN, "source", true);
+						break;
+					case COVERFLOW_CHANNEL:
+						m_cfg.setBool(CHANNEL_DOMAIN, "source", true);
+						break;
+					case COVERFLOW_HOMEBREW:
+						m_cfg.setBool(HOMEBREW_DOMAIN, "source", true);
+						break;
+					default:
+						m_cfg.setBool(PLUGIN_DOMAIN, "source", true);
+				}
 				LoadView();
 			}
 			else if(m_btnMgr.selected(m_mainBtnInit))
@@ -474,7 +533,7 @@ int CMenu::main(void)
 				}
 				wchar_t c[2] = {0, 0};
 				m_btnMgr.selected(m_mainBtnPrev) ? CoverFlow.prevLetter(c) : CoverFlow.nextLetter(c);
-				m_showtimer = 60;
+				m_showtimer = 120;
 				curLetter.clear();
 				curLetter = wstringEx(c);
 
@@ -489,6 +548,19 @@ int CMenu::main(void)
 					m_btnMgr.setText(m_mainLblNotice, curLetter);
 					m_btnMgr.show(m_mainLblNotice);
 				}
+			}
+			else if(m_btnMgr.selected(m_mainBtnInfo) && !CoverFlow.empty())
+			{
+				/* WiiFlow should boot a random game */
+				_hideMain();
+				srand(time(NULL));
+				u16 place = (rand() + rand() + rand()) % CoverFlow.size();
+				gprintf("Lets boot the random game number %u\n", place);
+				const dir_discHdr *gameHdr = CoverFlow.getSpecificHdr(place);
+				if(gameHdr != NULL)
+					_launch(gameHdr);
+				/* Shouldnt happen */
+				_showMain();
 			}
 		}
 		else if(WROLL_LEFT)
@@ -558,7 +630,7 @@ int CMenu::main(void)
 				curLetter.clear();
 				curLetter = wstringEx(c);
 
-				m_showtimer = 60;
+				m_showtimer = 120;
 				if(sorting == SORT_ALPHA)
 				{
 					m_btnMgr.setText(m_mainLblLetter, curLetter);
@@ -611,7 +683,7 @@ int CMenu::main(void)
 					curSort = m_loc.getWString(m_curLanguage, "byplayers", L"By Players");
 				else if(sort == SORT_CONTROLLERS)
 					curSort = m_loc.getWString(m_curLanguage, "bycontrollers", L"By Controllers");
-				m_showtimer=60; 
+				m_showtimer = 120;
 				m_btnMgr.setText(m_mainLblNotice, curSort);
 				m_btnMgr.show(m_mainLblNotice);
 			}
@@ -630,10 +702,8 @@ int CMenu::main(void)
 				else
 					partition = "NAND";
 				//gprintf("Next item: %s\n", partition);
-				m_showtimer=60; 
-				char gui_name[20];
-				snprintf(gui_name, sizeof(gui_name), "%s [%s]", _domainFromView(), upperCase(partition).c_str());
-				m_btnMgr.setText(m_mainLblNotice, (string)gui_name);
+				m_showtimer = 120;
+				m_btnMgr.setText(m_mainLblNotice, sfmt("%s (%u) [%s]", _domainFromView(), m_gameList.size(), upperCase(partition).c_str()));
 				m_btnMgr.show(m_mainLblNotice);
 				if(!block)
 				{
@@ -726,6 +796,7 @@ int CMenu::main(void)
 						m_btnMgr.show(m_mainBtnUsb);
 					break;
 				case COVERFLOW_HOMEBREW:
+				case COVERFLOW_MAX:
 					m_btnMgr.show(m_mainBtnUsb);
 					break;
 				default:
@@ -784,9 +855,15 @@ int CMenu::main(void)
 	}
 	else if(Sys_GetExitTo() == EXIT_TO_SMNK2O || Sys_GetExitTo() == EXIT_TO_WFNK2O)
 	{
-		string emuPath;
-		_FindEmuPart(emuPath, false);
-		Sys_SetNeekPath(emuPath.size() > 1 ? emuPath.c_str() : NULL);
+		const char *ReturnPath = NULL;
+		if(!m_cfg.getBool(CHANNEL_DOMAIN, "neek_return_default", false))
+		{
+			string emuPath;
+			m_current_view = COVERFLOW_CHANNEL; /* So we get the path */
+			_FindEmuPart(emuPath, false);
+			ReturnPath = NandHandle.Get_NandPath();
+		}
+		Sys_SetNeekPath(ReturnPath);
 	}
 	//gprintf("Saving configuration files\n");
 	m_cfg.save();
@@ -878,8 +955,9 @@ void CMenu::_initMainMenu()
 	m_mainLblLetter = _addLabel("MAIN/LETTER", theme.titleFont, L"", 540, 40, 80, 80, theme.titleFontColor, FTGX_JUSTIFY_CENTER | FTGX_ALIGN_MIDDLE, emptyTex);
 	m_mainLblNotice = _addLabel("MAIN/NOTICE", theme.titleFont, L"", 340, 40, 280, 80, theme.titleFontColor, FTGX_JUSTIFY_RIGHT | FTGX_ALIGN_MIDDLE, emptyTex);
 	m_mainLblCurMusic = _addLabel("MAIN/MUSIC", theme.btnFont, L"", 0, 20, 640, 56, theme.btnFontColor, FTGX_JUSTIFY_CENTER | FTGX_ALIGN_MIDDLE, theme.btnTexC);
-#ifdef SHOWMEM	
-	m_mem2FreeSize = _addLabel("MEM2", theme.titleFont, L"", 40, 300, 480, 80, theme.titleFontColor, FTGX_JUSTIFY_CENTER | FTGX_ALIGN_MIDDLE, emptyTex);
+#ifdef SHOWMEM
+	m_mem1FreeSize = _addLabel("MEM1", theme.btnFont, L"", 0, 300, 480, 56, theme.btnFontColor, FTGX_JUSTIFY_LEFT, emptyTex);
+	m_mem2FreeSize = _addLabel("MEM2", theme.btnFont, L"", 0, 356, 480, 56, theme.btnFontColor, FTGX_JUSTIFY_LEFT, emptyTex);
 #endif
 	// 
 	m_mainPrevZone.x = m_theme.getInt("MAIN/ZONES", "prev_x", -32);
@@ -932,6 +1010,7 @@ void CMenu::_initMainMenu()
 	_setHideAnim(m_mainLblNotice, "MAIN/NOTICE", 0, 0, 0.f, 0.f);
 	_setHideAnim(m_mainLblCurMusic, "MAIN/MUSIC", 0, -100, 0.f, 0.f);
 #ifdef SHOWMEM
+	_setHideAnim(m_mem1FreeSize, "MEM1", 0, 0, 0.f, 0.f);
 	_setHideAnim(m_mem2FreeSize, "MEM2", 0, 0, 0.f, 0.f);
 #endif
 	_hideMain(true);

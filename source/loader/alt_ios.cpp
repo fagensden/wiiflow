@@ -24,37 +24,15 @@
 #include "dip_plugin_249.h"
 #include "mload_modules.h"
 
-u8 use_port1 = 0;
-
 static int load_ehc_module_ex(void)
 {
 	u8 *ehc_cfg = search_for_ehcmodule_cfg((u8 *)ehcmodule_5, size_ehcmodule_5);
 	if(ehc_cfg)
 	{
 		ehc_cfg += 12;
-		ehc_cfg[0] = use_port1;
+		ehc_cfg[0] = currentPort;
 		gprintf("EHC Port info = %i\n", ehc_cfg[0]);
 		DCFlushRange((void *) (((u32)ehc_cfg[0]) & ~31), 32);
-	}
-	if(use_port1)   // release port 0 and use port 1
-	{
-		u32 dat=0;
-		u32 addr;
-
-		// get EHCI base registers
-		mload_getw((void *) 0x0D040000, &addr);
-
-		addr&=0xff;
-		addr+=0x0D040000;
-
-		mload_getw((void *) (addr+0x44), &dat);
-		if((dat & 0x2001)==1) 
-			mload_setw((void *) (addr+0x44), 0x2000);
-
-		mload_getw((void *) (addr+0x48), &dat);
-
-		if((dat & 0x2000)==0x2000)
-			mload_setw((void *) (addr+0x48), 0x1001);
 	}
 	load_ehc_module();
 	return 0;
@@ -80,9 +58,9 @@ bool loadIOS(int ios, bool MountDevices)
 	if(ios != CurIOS && IOS_GetType(ios) != IOS_TYPE_STUB)
 	{
 		WDVD_Close();
-		NandHandle.Patch_AHB(); //No AHBPROT for the next IOS
 		gprintf("Reloading into IOS %i from %i...\n", ios, CurIOS);
 		ShutdownBeforeExit();
+		NandHandle.Patch_AHB(); //No AHBPROT for the next IOS
 		ret = IOS_ReloadIOS(ios) == 0;
 		gprintf("AHBPROT after IOS Reload: %u\n", AHBRPOT_Patched());
 		NandHandle.Init_ISFS();

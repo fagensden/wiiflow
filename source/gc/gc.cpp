@@ -43,7 +43,7 @@ DML_CFG DMLCfg;
 
 void DML_New_SetOptions(const char *GamePath, char *CheatPath, const char *NewCheatPath, 
 		const char *partition, bool cheats, bool debugger, u8 NMM, u8 nodisc, u8 DMLvideoMode, 
-		u8 videoSetting, bool widescreen, bool new_dm_cfg, bool activity_led)
+		u8 videoSetting, bool widescreen, bool new_dm_cfg, bool activity_led, bool screenshot)
 {
 	gprintf("DIOS-MIOS: Launch game '%s' through memory (new method)\n", GamePath);
 	memset(&DMLCfg, 0, sizeof(DML_CFG));
@@ -83,6 +83,8 @@ void DML_New_SetOptions(const char *GamePath, char *CheatPath, const char *NewCh
 		gprintf("DIOS-MIOS: Cheat Path %s\n", ptr);
 		DMLCfg.Config |= DML_CFG_CHEAT_PATH;
 	}
+	if(screenshot)
+		DMLCfg.Config |= DML_CFG_SCREENSHOT;
 	if(activity_led)
 		DMLCfg.Config |= DML_CFG_ACTIVITY_LED;
 	if(cheats)
@@ -197,7 +199,8 @@ void DEVO_GetLoader(const char *path)
 	}
 }
 
-void DEVO_SetOptions(const char *isopath, const char *gameID, bool memcard_emu)
+void DEVO_SetOptions(const char *isopath, const char *gameID, bool memcard_emu,
+					bool widescreen, bool activity_led, bool wifi)
 {
 	// re-mount device we need
 	DeviceHandle.MountDevolution();
@@ -216,18 +219,38 @@ void DEVO_SetOptions(const char *isopath, const char *gameID, bool memcard_emu)
 
 	// fill out the Devolution config struct
 	memset(DEVO_CONFIG, 0, sizeof(gconfig));
-	DEVO_CONFIG->signature = 0x3EF9DB23;
-	DEVO_CONFIG->version = 0x00000100;
+	DEVO_CONFIG->signature = DEVO_CONFIG_SIG;
+	DEVO_CONFIG->version = DEVO_CONFIG_VERSION;
 	DEVO_CONFIG->device_signature = st.st_dev;
 	DEVO_CONFIG->disc1_cluster = st.st_ino;
-	
+
+	// Pergame options
+	if(wifi)
+		DEVO_CONFIG->options |= DEVO_CONFIG_WIFILOG;
+	if(widescreen)
+		DEVO_CONFIG->options |= DEVO_CONFIG_WIDE;
+	if(!activity_led)
+		DEVO_CONFIG->options |= DEVO_CONFIG_NOLED;
+
 	// If 2nd iso file tell Devo about it
 	strncpy(iso2path, isopath, 255);
 	char *ptz = strstr(iso2path, "game.iso");
 	if(ptz != NULL)
+	{
 		strncpy(ptz, "gam1.iso", 8);
+		f = fopen(iso2path, "rb");
+		if(f == NULL)
+		{
+			strncpy(ptz, "gam2.iso", 8);
+			f = fopen(iso2path, "rb");
+			if(f == NULL)
+			{
+				strncpy(ptz, "disc2.iso", 9);
+				f = fopen(iso2path, "rb");
+			}
+		}
+	}
 
-	f = fopen(iso2path, "rb");
 	if(f != NULL)
 	{
 		gprintf("Devolution: 2nd ISO File for Multi DVD Game %s\n", iso2path);

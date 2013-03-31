@@ -111,7 +111,7 @@ int main()
 		ISFS_Initialize();
 		*Disc_ID = TITLE_LOWER(normalCFG.title);
 		vmode = Disc_SelectVMode(normalCFG.vidMode, &vmode_reg);
-		AppEntrypoint = LoadChannel(normalCFG.title, &GameIOS);
+		AppEntrypoint = LoadChannel(normalCFG.title, normalCFG.use_dol, &GameIOS);
 		PatchChannel(normalCFG.vidMode, vmode, normalCFG.vipatch, normalCFG.countryString, 
 					normalCFG.patchVidMode, normalCFG.aspectRatio);
 		ISFS_Deinitialize();
@@ -121,6 +121,8 @@ int main()
 
 	/* Setup Low Memory */
 	Disc_SetLowMem(GameIOS);
+	if(normalCFG.BootType == TYPE_CHANNEL && AppEntrypoint != 0x3400)
+		Disc_SetLowMemChan(); /* Real DOL without appldr */
 
 	/* Set time */
 	Disc_SetTime();
@@ -133,13 +135,16 @@ int main()
 	__IOS_ShutdownSubsystems();
 	__exception_closeall();
 
+	/* Enable front LED if requested */
+	if(normalCFG.use_led) *HW_GPIOB_OUT |= 0x20;
+
 	/* Originally from tueidj - taken from NeoGamma (thx) */
 	*(vu32*)0xCC003024 = 1;
 
- 	if(AppEntrypoint == 0x3400)
+	if(AppEntrypoint == 0x3400)
 	{
- 		if(hooktype)
- 		{
+		if(hooktype)
+		{
 			asm volatile (
 				"lis %r3, returnpoint@h\n"
 				"ori %r3, %r3, returnpoint@l\n"
@@ -160,24 +165,24 @@ int main()
 				"mtsrr0 %r4\n"
 				"rfi\n"
 			);
- 		}
- 		else
- 		{
- 			asm volatile (
- 				"isync\n"
+		}
+		else
+		{
+			asm volatile (
+				"isync\n"
 				"lis %r3, AppEntrypoint@h\n"
 				"ori %r3, %r3, AppEntrypoint@l\n"
- 				"lwz %r3, 0(%r3)\n"
- 				"mtsrr0 %r3\n"
- 				"mfmsr %r3\n"
- 				"li %r4, 0x30\n"
- 				"andc %r3, %r3, %r4\n"
- 				"mtsrr1 %r3\n"
- 				"rfi\n"
- 			);
- 		}
+				"lwz %r3, 0(%r3)\n"
+				"mtsrr0 %r3\n"
+				"mfmsr %r3\n"
+				"li %r4, 0x30\n"
+				"andc %r3, %r3, %r4\n"
+				"mtsrr1 %r3\n"
+				"rfi\n"
+			);
+		}
 	}
- 	else if(hooktype)
+	else if(hooktype)
 	{
 		asm volatile (
 			"lis %r3, AppEntrypoint@h\n"

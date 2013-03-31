@@ -23,6 +23,7 @@ bool reset = false;
 bool shutdown = false;
 volatile u8 ExitOption = 0;
 const char *NeekPath = NULL;
+char wii_games_dir[64];
 
 void __Wpad_PowerCallback()
 {
@@ -37,9 +38,7 @@ void Open_Inputs(void)
 
 	/* Set POWER button callback */
 	WPAD_SetPowerButtonCallback(__Wpad_PowerCallback);
-	
 	WPAD_SetDataFormat(WPAD_CHAN_ALL, WPAD_FMT_BTNS_ACC_IR);
-	
 	WPAD_SetIdleTimeout(60 * 2); // idle after 2 minutes
 }
 
@@ -195,3 +194,6 @@ bool Sys_DolphinMode(void)
 	ModeChecked = true;
 	return DolphinMode;
 }
+
+/* KILL IT */
+s32 __IOS_LoadStartupIOS() { return 0; }

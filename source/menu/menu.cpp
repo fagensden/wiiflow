@@ -61,52 +61,28 @@ extern const u8 pbarcenters_png[];
 extern const u8 pbarrights_png[];
 extern const u8 butauon_png[];
 extern const u8 butauons_png[];
-extern const u8 butauoff_png[];
-extern const u8 butauoffs_png[];
 extern const u8 butenon_png[];
 extern const u8 butenons_png[];
-extern const u8 butenoff_png[];
-extern const u8 butenoffs_png[];
 extern const u8 butjaon_png[];
 extern const u8 butjaons_png[];
-extern const u8 butjaoff_png[];
-extern const u8 butjaoffs_png[];
 extern const u8 butfron_png[];
 extern const u8 butfrons_png[];
-extern const u8 butfroff_png[];
-extern const u8 butfroffs_png[];
 extern const u8 butdeon_png[];
 extern const u8 butdeons_png[];
-extern const u8 butdeoff_png[];
-extern const u8 butdeoffs_png[];
 extern const u8 buteson_png[];
 extern const u8 butesons_png[];
-extern const u8 butesoff_png[];
-extern const u8 butesoffs_png[];
 extern const u8 butiton_png[];
 extern const u8 butitons_png[];
-extern const u8 butitoff_png[];
-extern const u8 butitoffs_png[];
 extern const u8 butnlon_png[];
 extern const u8 butnlons_png[];
-extern const u8 butnloff_png[];
-extern const u8 butnloffs_png[];
 extern const u8 butpton_png[];
 extern const u8 butptons_png[];
-extern const u8 butptoff_png[];
-extern const u8 butptoffs_png[];
 extern const u8 butruon_png[];
 extern const u8 butruons_png[];
-extern const u8 butruoff_png[];
-extern const u8 butruoffs_png[];
 extern const u8 butkoon_png[];
 extern const u8 butkoons_png[];
-extern const u8 butkooff_png[];
-extern const u8 butkooffs_png[];
 extern const u8 butzhcnon_png[];
 extern const u8 butzhcnons_png[];
-extern const u8 butzhcnoff_png[];
-extern const u8 butzhcnoffs_png[];
 extern const u8 checkbox_png[];
 extern const u8 checkboxs_png[];
 extern const u8 checkboxhid_png[];
@@ -228,6 +204,12 @@ void CMenu::init()
 	useMainIOS = m_cfg.getBool("GENERAL", "force_cios_load", false);
 	if(prevCios != mainIOS || prevForceCIOS != useMainIOS)
 		InternalSave.SaveIOS(mainIOS, useMainIOS);
+	/* Our Wii game dir */
+	memset(wii_games_dir, 0, 64);
+	strncpy(wii_games_dir, m_cfg.getString("GENERAL", "wii_games_dir", GAMES_DIR).c_str(), 64);
+	if(strncmp(wii_games_dir, "%s:/", 4) != 0)
+		strcpy(wii_games_dir, GAMES_DIR);
+	gprintf("Wii Games Directory: %s\n", wii_games_dir);
 	/* Do our USB HDD Checks */
 	bool onUSB = m_cfg.getBool("GENERAL", "data_on_usb", strncmp(drive, "usb", 3) == 0);
 	drive = check; //reset the drive variable for the check
@@ -437,11 +419,11 @@ void CMenu::init()
 		defaultMenuLanguage = 2; //Brazilian
 
 	m_curLanguage = CMenu::_translations[m_cfg.getInt("GENERAL", "language", defaultMenuLanguage)];
-	if (!m_loc.load(fmt("%s/%s.ini", m_languagesDir.c_str(), m_curLanguage.c_str())))
+	if (!m_loc.load(fmt("%s/%s.ini", m_languagesDir.c_str(), lowerCase(m_curLanguage).c_str())))
 	{
 		m_cfg.setInt("GENERAL", "language", 0);
 		m_curLanguage = CMenu::_translations[0];
-		m_loc.load(fmt("%s/%s.ini", m_languagesDir.c_str(), m_curLanguage.c_str()));
+		m_loc.load(fmt("%s/%s.ini", m_languagesDir.c_str(), lowerCase(m_curLanguage).c_str()));
 	}
 	m_tempView = false;
 
@@ -1018,114 +1000,116 @@ void CMenu::_buildMenus(void)
 	TexHandle.fromPNG(theme.btnTexCSH, buthscenter_png);
 	theme.btnTexCSH = _texture("GENERAL", "button_texture_hlcenter_selected", theme.btnTexCSH); 
 
+	/* Language Buttons */
 	TexHandle.fromPNG(theme.btnAUOn, butauon_png);
 	theme.btnAUOn = _texture("GENERAL", "button_au_on", theme.btnAUOn);
 	TexHandle.fromPNG(theme.btnAUOns, butauons_png);
 	theme.btnAUOns = _texture("GENERAL", "button_au_on_selected", theme.btnAUOns);
-	TexHandle.fromPNG(theme.btnAUOff, butauoff_png);
+	TexHandle.fromPNG(theme.btnAUOff, butauon_png, GX_TF_RGBA8, 0, 0, true);
 	theme.btnAUOff = _texture("GENERAL", "button_au_off", theme.btnAUOff);
-	TexHandle.fromPNG(theme.btnAUOffs, butauoffs_png);
+	TexHandle.fromPNG(theme.btnAUOffs, butauons_png, GX_TF_RGBA8, 0, 0, true);
 	theme.btnAUOffs = _texture("GENERAL", "button_au_off_selected", theme.btnAUOffs);
 
 	TexHandle.fromPNG(theme.btnENOn, butenon_png);
 	theme.btnENOn = _texture("GENERAL", "button_en_on", theme.btnENOn);
 	TexHandle.fromPNG(theme.btnENOns, butenons_png);
 	theme.btnENOns = _texture("GENERAL", "button_en_on_selected", theme.btnENOns);
-	TexHandle.fromPNG(theme.btnENOff, butenoff_png);
+	TexHandle.fromPNG(theme.btnENOff, butenon_png, GX_TF_RGBA8, 0, 0, true);
 	theme.btnENOff = _texture("GENERAL", "button_en_off", theme.btnENOff);
-	TexHandle.fromPNG(theme.btnENOffs, butenoffs_png);
+	TexHandle.fromPNG(theme.btnENOffs, butenons_png, GX_TF_RGBA8, 0, 0, true);
 	theme.btnENOffs = _texture("GENERAL", "button_en_off_selected", theme.btnENOffs);
 
 	TexHandle.fromPNG(theme.btnJAOn, butjaon_png);
 	theme.btnJAOn = _texture("GENERAL", "button_ja_on", theme.btnJAOn);
 	TexHandle.fromPNG(theme.btnJAOns, butjaons_png);
 	theme.btnJAOns = _texture("GENERAL", "button_ja_on_selected", theme.btnJAOns);
-	TexHandle.fromPNG(theme.btnJAOff, butjaoff_png);
+	TexHandle.fromPNG(theme.btnJAOff, butjaon_png, GX_TF_RGBA8, 0, 0, true);
 	theme.btnJAOff = _texture("GENERAL", "button_ja_off", theme.btnJAOff);
-	TexHandle.fromPNG(theme.btnJAOffs, butjaoffs_png);
+	TexHandle.fromPNG(theme.btnJAOffs, butjaons_png, GX_TF_RGBA8, 0, 0, true);
 	theme.btnJAOffs = _texture("GENERAL", "button_ja_off_selected", theme.btnJAOffs);
 
 	TexHandle.fromPNG(theme.btnFROn, butfron_png);
 	theme.btnFROn = _texture("GENERAL", "button_fr_on", theme.btnFROn);
 	TexHandle.fromPNG(theme.btnFROns, butfrons_png);
 	theme.btnFROns = _texture("GENERAL", "button_fr_on_selected", theme.btnFROns);
-	TexHandle.fromPNG(theme.btnFROff, butfroff_png);
+	TexHandle.fromPNG(theme.btnFROff, butfron_png, GX_TF_RGBA8, 0, 0, true);
 	theme.btnFROff = _texture("GENERAL", "button_fr_off", theme.btnFROff);
-	TexHandle.fromPNG(theme.btnFROffs, butfroffs_png);
+	TexHandle.fromPNG(theme.btnFROffs, butfrons_png, GX_TF_RGBA8, 0, 0, true);
 	theme.btnFROffs = _texture("GENERAL", "button_fr_off_selected", theme.btnFROffs);
 
 	TexHandle.fromPNG(theme.btnDEOn, butdeon_png);
 	theme.btnDEOn = _texture("GENERAL", "button_de_on", theme.btnDEOn);
 	TexHandle.fromPNG(theme.btnDEOns, butdeons_png);
 	theme.btnDEOns = _texture("GENERAL", "button_de_on_selected", theme.btnDEOns);
-	TexHandle.fromPNG(theme.btnDEOff, butdeoff_png);
+	TexHandle.fromPNG(theme.btnDEOff, butdeon_png, GX_TF_RGBA8, 0, 0, true);
 	theme.btnDEOff = _texture("GENERAL", "button_de_off", theme.btnDEOff);
-	TexHandle.fromPNG(theme.btnDEOffs, butdeoffs_png);
+	TexHandle.fromPNG(theme.btnDEOffs, butdeons_png, GX_TF_RGBA8, 0, 0, true);
 	theme.btnDEOffs = _texture("GENERAL", "button_de_off_selected", theme.btnDEOffs);
 
 	TexHandle.fromPNG(theme.btnESOn, buteson_png);
 	theme.btnESOn = _texture("GENERAL", "button_es_on", theme.btnESOn);
 	TexHandle.fromPNG(theme.btnESOns, butesons_png);
 	theme.btnESOns = _texture("GENERAL", "button_es_on_selected", theme.btnESOns);
-	TexHandle.fromPNG(theme.btnESOff, butesoff_png);
+	TexHandle.fromPNG(theme.btnESOff, buteson_png, GX_TF_RGBA8, 0, 0, true);
 	theme.btnESOff = _texture("GENERAL", "button_es_off", theme.btnESOff);
-	TexHandle.fromPNG(theme.btnESOffs, butesoffs_png);
+	TexHandle.fromPNG(theme.btnESOffs, butesons_png, GX_TF_RGBA8, 0, 0, true);
 	theme.btnESOffs = _texture("GENERAL", "button_es_off_selected", theme.btnESOffs);
 
 	TexHandle.fromPNG(theme.btnITOn, butiton_png);
 	theme.btnITOn = _texture("GENERAL", "button_it_on", theme.btnITOn);
 	TexHandle.fromPNG(theme.btnITOns, butitons_png);
 	theme.btnITOns = _texture("GENERAL", "button_it_on_selected", theme.btnITOns);
-	TexHandle.fromPNG(theme.btnITOff, butitoff_png);
+	TexHandle.fromPNG(theme.btnITOff, butiton_png, GX_TF_RGBA8, 0, 0, true);
 	theme.btnITOff = _texture("GENERAL", "button_it_off", theme.btnITOff);
-	TexHandle.fromPNG(theme.btnITOffs, butitoffs_png);
+	TexHandle.fromPNG(theme.btnITOffs, butitons_png, GX_TF_RGBA8, 0, 0, true);
 	theme.btnITOffs = _texture("GENERAL", "button_it_off_selected", theme.btnITOffs);
 
 	TexHandle.fromPNG(theme.btnNLOn, butnlon_png);
 	theme.btnNLOn = _texture("GENERAL", "button_nl_on", theme.btnNLOn);
 	TexHandle.fromPNG(theme.btnNLOns, butnlons_png);
 	theme.btnNLOns = _texture("GENERAL", "button_nl_on_selected", theme.btnNLOns);
-	TexHandle.fromPNG(theme.btnNLOff, butnloff_png);
+	TexHandle.fromPNG(theme.btnNLOff, butnlon_png, GX_TF_RGBA8, 0, 0, true);
 	theme.btnNLOff = _texture("GENERAL", "button_nl_off", theme.btnNLOff);
-	TexHandle.fromPNG(theme.btnNLOffs, butnloffs_png);
+	TexHandle.fromPNG(theme.btnNLOffs, butnlons_png, GX_TF_RGBA8, 0, 0, true);
 	theme.btnNLOffs = _texture("GENERAL", "button_nl_off_selected", theme.btnNLOffs);
 
 	TexHandle.fromPNG(theme.btnPTOn, butpton_png);
 	theme.btnPTOn = _texture("GENERAL", "button_pt_on", theme.btnPTOn);
 	TexHandle.fromPNG(theme.btnPTOns, butptons_png);
 	theme.btnPTOns = _texture("GENERAL", "button_pt_on_selected", theme.btnPTOns);
-	TexHandle.fromPNG(theme.btnPTOff, butptoff_png);
+	TexHandle.fromPNG(theme.btnPTOff, butpton_png, GX_TF_RGBA8, 0, 0, true);
 	theme.btnPTOff = _texture("GENERAL", "button_pt_off", theme.btnPTOff);
-	TexHandle.fromPNG(theme.btnPTOffs, butptoffs_png);
+	TexHandle.fromPNG(theme.btnPTOffs, butptons_png, GX_TF_RGBA8, 0, 0, true);
 	theme.btnPTOffs = _texture("GENERAL", "button_pt_off_selected", theme.btnPTOffs);
 
 	TexHandle.fromPNG(theme.btnRUOn, butruon_png);
 	theme.btnRUOn = _texture("GENERAL", "button_ru_on", theme.btnRUOn);
 	TexHandle.fromPNG(theme.btnRUOns, butruons_png);
 	theme.btnRUOns = _texture("GENERAL", "button_ru_on_selected", theme.btnRUOns);
-	TexHandle.fromPNG(theme.btnRUOff, butruoff_png);
+	TexHandle.fromPNG(theme.btnRUOff, butruon_png, GX_TF_RGBA8, 0, 0, true);
 	theme.btnRUOff = _texture("GENERAL", "button_ru_off", theme.btnRUOff);
-	TexHandle.fromPNG(theme.btnRUOffs, butruoffs_png);
+	TexHandle.fromPNG(theme.btnRUOffs, butruons_png, GX_TF_RGBA8, 0, 0, true);
 	theme.btnRUOffs = _texture("GENERAL", "button_ru_off_selected", theme.btnRUOffs);
 
 	TexHandle.fromPNG(theme.btnKOOn, butkoon_png);
 	theme.btnKOOn = _texture("GENERAL", "button_ko_on", theme.btnKOOn);
 	TexHandle.fromPNG(theme.btnKOOns, butkoons_png);
 	theme.btnKOOns = _texture("GENERAL", "button_ko_on_selected", theme.btnKOOns);
-	TexHandle.fromPNG(theme.btnKOOff, butkooff_png);
+	TexHandle.fromPNG(theme.btnKOOff, butkoon_png, GX_TF_RGBA8, 0, 0, true);
 	theme.btnKOOff = _texture("GENERAL", "button_ko_off", theme.btnKOOff);
-	TexHandle.fromPNG(theme.btnKOOffs, butkooffs_png);
+	TexHandle.fromPNG(theme.btnKOOffs, butkoons_png, GX_TF_RGBA8, 0, 0, true);
 	theme.btnKOOffs = _texture("GENERAL", "button_ko_off_selected", theme.btnKOOffs);
 
 	TexHandle.fromPNG(theme.btnZHCNOn, butzhcnon_png);
 	theme.btnZHCNOn = _texture("GENERAL", "button_zhcn_on", theme.btnZHCNOn);
 	TexHandle.fromPNG(theme.btnZHCNOns, butzhcnons_png);
 	theme.btnZHCNOns = _texture("GENERAL", "button_zhcn_on_selected", theme.btnZHCNOns);
-	TexHandle.fromPNG(theme.btnZHCNOff, butzhcnoff_png);
+	TexHandle.fromPNG(theme.btnZHCNOff, butzhcnon_png, GX_TF_RGBA8, 0, 0, true);
 	theme.btnZHCNOff = _texture("GENERAL", "button_zhcn_off", theme.btnZHCNOff);
-	TexHandle.fromPNG(theme.btnZHCNOffs, butzhcnoffs_png);
+	TexHandle.fromPNG(theme.btnZHCNOffs, butzhcnons_png, GX_TF_RGBA8, 0, 0, true);
 	theme.btnZHCNOffs = _texture("GENERAL", "button_zhcn_off_selected", theme.btnZHCNOffs);
 
+	/* Default textures */
 	TexHandle.fromPNG(theme.checkboxoff, checkbox_png);
 	theme.checkboxoff = _texture("GENERAL", "checkbox_off", theme.checkboxoff);
 	TexHandle.fromPNG(theme.checkboxoffs, checkbox_png);
@@ -1619,7 +1603,7 @@ void CMenu::_checkForSinglePlugin(void)
 	enabledPluginPos = 0;
 	enabledPluginsCount = 0;
 	const vector<bool> &EnabledPlugins = m_plugin.GetEnabledPlugins(m_cfg);
-	if(m_current_view == COVERFLOW_PLUGIN && EnabledPlugins.size() != 0)
+	if(m_cfg.getBool(PLUGIN_DOMAIN, "source", true) && EnabledPlugins.size() != 0)
 	{
 		for(u8 i = 0; i < EnabledPlugins.size(); i++)
 		{
@@ -1638,22 +1622,22 @@ void CMenu::_initCF(void)
 	Config dump, gameAgeList;
 	GameTDB gametdb;
 	const char *domain = _domainFromView();
-	
+
 	CoverFlow.clear();
 	CoverFlow.reserve(m_gameList.size());
 
- 	bool dumpGameLst = m_cfg.getBool(domain, "dump_list", true);
+	bool dumpGameLst = m_cfg.getBool(domain, "dump_list", true);
 	if(dumpGameLst) dump.load(fmt("%s/" TITLES_DUMP_FILENAME, m_settingsDir.c_str()));
 
 	m_gcfg1.load(fmt("%s/" GAME_SETTINGS1_FILENAME, m_settingsDir.c_str()));
-	
+
 	int ageLock = m_cfg.getInt("GENERAL", "age_lock");
 	if (ageLock < 2 || ageLock > 19)
 		ageLock = 19;
 	if (ageLock < 19)
 	{
 		gameAgeList.load(fmt("%s/" AGE_LOCK_FILENAME, m_settingsDir.c_str()));
-		if (m_current_view == COVERFLOW_USB || m_current_view == COVERFLOW_CHANNEL)
+		if(!gametdb.IsLoaded())
 		{
 			gametdb.OpenFile(fmt("%s/wiitdb.xml", m_settingsDir.c_str()));
 			gametdb.SetLanguageCode(m_loc.getString(m_curLanguage, "gametdb_code", "EN").c_str());
@@ -1661,56 +1645,55 @@ void CMenu::_initCF(void)
 	}
 	_checkForSinglePlugin();
 	const vector<bool> &EnabledPlugins = m_plugin.GetEnabledPlugins(m_cfg);
-	
+
 	for(vector<dir_discHdr>::iterator element = m_gameList.begin(); element != m_gameList.end(); ++element)
 	{
 		string id;
-		string tempname = element->path;
+		char tmp_id[256];
 		u64 chantitle = TITLE_ID(element->settings[0],element->settings[1]);
 		if(element->type == TYPE_HOMEBREW)
-		{
-			tempname.assign(&tempname[tempname.find_last_of('/') + 1]);
-			id = tempname;
-		}
+			id = strrchr(element->path, '/') + 1;
 		else if(element->type == TYPE_PLUGIN)
 		{
-			if(tempname.find(':') != string::npos)
+			if(strchr(element->path, ':') != NULL)
 			{
-				if(tempname.empty() || tempname.find_first_of('/') == string::npos)
+				if(strchr(element->path, '/') == NULL)
 					continue;
-				tempname.erase(0, tempname.find_first_of('/')+1);
-				string dirName = tempname.substr(0, tempname.find_first_of('/')+1);
-				if (tempname.find_first_of('/') == string::npos)
-				{
+				memset(tmp_id, 0, 256);
+				strncpy(tmp_id, strchr(element->path, '/') + 1, 255);
+				if(strchr(tmp_id, '/') == NULL)
 					continue;
-				}
-				tempname.assign(&tempname[tempname.find_last_of('/') + 1]);
-				if(tempname.find_last_of('.') == string::npos)
-				{
+				/* first subpath */
+				*(strchr(tmp_id, '/') + 1) = '\0';
+				id.append(tmp_id);
+				/* filename */
+				strncpy(tmp_id, strrchr(element->path, '/') + 1, 255);
+				if(strchr(tmp_id, '.') == NULL)
 					continue;
-				}
-				tempname.erase(tempname.find_last_of('.'), tempname.size() - tempname.find_last_of('.'));
-				id = dirName+tempname;
+				*strchr(tmp_id, '.') = '\0';
+				id.append(tmp_id);
 			}
 			else
-				id = tempname;
+				id = element->path;
 		}
 		else
 		{
 			if(element->type == TYPE_CHANNEL && chantitle == HBC_108)
 				strncpy(element->id, "JODI", 6);
 			id = element->id;
+			if(element->type == TYPE_GC_GAME && element->settings[0] == 1) /* disc 2 */
+				id.append("_2");
 		}
 		bool ageLocked = false;
-		if (ageLock < 19)
+		if(ageLock < 19)
 		{
 			int ageRated = min(max(gameAgeList.getInt(domain, id), 0), 19);
-			if(ageRated == 0 && gametdb.IsLoaded() && (element->type == TYPE_WII_GAME || element->type == TYPE_CHANNEL))
+			if(ageRated == 0 && gametdb.IsLoaded() && (element->type == TYPE_WII_GAME || element->type == TYPE_GC_GAME || element->type == TYPE_CHANNEL))
 			{
 				const char *RatingValue = NULL;
-				if(gametdb.GetRatingValue(id.c_str(), RatingValue))
+				if(gametdb.GetRatingValue(element->id, RatingValue))
 				{
-					switch(gametdb.GetRating(id.c_str()))
+					switch(gametdb.GetRating(element->id))
 					{
 						case GAMETDB_RATING_TYPE_CERO:
 							if(RatingValue[0] == 'A')
@@ -1780,29 +1763,23 @@ void CMenu::_initCF(void)
 			switch(element->type)
 			{
 				case TYPE_CHANNEL:
-					catDomain = CHANNEL_DOMAIN;
+					catDomain = "NAND";
 					break;
 				case TYPE_HOMEBREW:
-					catDomain = HOMEBREW_DOMAIN;
+					catDomain = "HOMEBREW";
 					break;
 				case TYPE_GC_GAME:
-					catDomain = GC_DOMAIN;
+					catDomain = "DML";
 					break;
-				case TYPE_PLUGIN:
-					catDomain = PLUGIN_DOMAIN;
+				case TYPE_WII_GAME:
+					catDomain = "GAMES";
 					break;
 				default:
-					catDomain = WII_DOMAIN;
-			}
-			if(enabledPluginsCount == 1)
-			{
-				catDomain = (m_plugin.GetPluginName(enabledPluginPos)).toUTF8();
-				if(element->settings[0] != m_plugin.getPluginMagic(enabledPluginPos))
-					continue;
-			}
-			const char *requiredCats = m_cat.getString(fmt("%s/GENERAL", catDomain.c_str()), "required_categories").c_str();
-			const char *selectedCats = m_cat.getString(fmt("%s/GENERAL", catDomain.c_str()), "selected_categories").c_str();
-			const char *hiddenCats = m_cat.getString(fmt("%s/GENERAL", catDomain.c_str()), "hidden_categories").c_str();
+					catDomain = (m_plugin.GetPluginName(m_plugin.GetPluginPosition(element->settings[0]))).toUTF8();
+			}		
+			const char *requiredCats = m_cat.getString("GENERAL", "required_categories").c_str();
+			const char *selectedCats = m_cat.getString("GENERAL", "selected_categories").c_str();
+			const char *hiddenCats = m_cat.getString("GENERAL", "hidden_categories").c_str();
 			u8 numReqCats = strlen(requiredCats);
 			u8 numSelCats = strlen(selectedCats);
 			u8 numHidCats = strlen(hiddenCats);
@@ -1868,7 +1845,7 @@ void CMenu::_initCF(void)
 					if(numHidCats == 0)
 						continue;
 					else if(numSelCats > 0)
-							continue;
+						continue;
 				}
 			}
 			int playcount = m_gcfg1.getInt("PLAYCOUNT", id, 0);
@@ -1877,64 +1854,25 @@ void CMenu::_initCF(void)
 			if(dumpGameLst)
 				dump.setWString(domain, id, element->title);
 
-			const char *blankCoverKey = NULL;
-			switch(element->type)
+			if(element->type == TYPE_PLUGIN && EnabledPlugins.size() > 0)
 			{
-				case TYPE_CHANNEL:
-					blankCoverKey = "channels";
-					break;
-				case TYPE_HOMEBREW:
-					blankCoverKey = "homebrew";
-					break;
-				case TYPE_GC_GAME:
-					blankCoverKey = "gamecube";
-					break;
-				case TYPE_PLUGIN:
-					char PluginMagicWord[9];
-					memset(PluginMagicWord, 0, sizeof(PluginMagicWord));
-					strncpy(PluginMagicWord, fmt("%08x", element->settings[0]), 8);
-					blankCoverKey = PluginMagicWord;
-					break;
-				default:
-					blankCoverKey = "wii";
-			}
-			const string &blankCoverName = m_theme.getString("BLANK_COVERS", blankCoverKey, fmt("%s.jpg", blankCoverKey));
-			if(element->type == TYPE_PLUGIN)
-			{
-				string tempname(element->path);
-				if(tempname.find_last_of("/") != string::npos)
-					tempname.assign(&tempname[tempname.find_last_of("/") + 1]);
-				string coverFolder(m_plugin.GetCoverFolderName(element->settings[0]));
-				if(EnabledPlugins.size() == 0) //all plugins
+				for(u8 j = 0; j < EnabledPlugins.size(); j++)
 				{
-					if(coverFolder.size() > 0)
-						CoverFlow.addItem(&(*element), fmt("%s/%s/%s.png", m_picDir.c_str(), coverFolder.c_str(), tempname.c_str()), fmt("%s/%s/%s.png", m_boxPicDir.c_str(), coverFolder.c_str(), tempname.c_str()), fmt("%s/%s", m_boxPicDir.c_str(), blankCoverName.c_str()), playcount, lastPlayed);
-					else
-						CoverFlow.addItem(&(*element), fmt("%s/%s.png", m_picDir.c_str(), tempname.c_str()), fmt("%s/%s.png", m_boxPicDir.c_str(), tempname.c_str()), fmt("%s/%s", m_boxPicDir.c_str(), blankCoverName.c_str()), playcount, lastPlayed);
-				}
-				else
-				{
-					for(u8 j = 0; j < EnabledPlugins.size(); j++)
+					if(EnabledPlugins.at(j) == true && element->settings[0] == m_plugin.getPluginMagic(j))
 					{
-						if(EnabledPlugins.at(j) == true && element->settings[0] == m_plugin.getPluginMagic(j))
-						{
-							if(coverFolder.size() > 0)
-								CoverFlow.addItem(&(*element), fmt("%s/%s/%s.png", m_picDir.c_str(), coverFolder.c_str(), tempname.c_str()), fmt("%s/%s/%s.png", m_boxPicDir.c_str(), coverFolder.c_str(), tempname.c_str()), fmt("%s/%s", m_boxPicDir.c_str(), blankCoverName.c_str()), playcount, lastPlayed);
-							else
-								CoverFlow.addItem(&(*element), fmt("%s/%s.png", m_picDir.c_str(), tempname.c_str()), fmt("%s/%s.png", m_boxPicDir.c_str(), tempname.c_str()), fmt("%s/%s", m_boxPicDir.c_str(), blankCoverName.c_str()), playcount, lastPlayed);
-							break;
-						}
+						CoverFlow.addItem(&(*element), playcount, lastPlayed);
+						break;
 					}
 				}
 			}
-			else if(element->type == TYPE_HOMEBREW)
-				CoverFlow.addItem(&(*element), fmt("%s/icon.png", element->path), fmt("%s/%s.png", m_boxPicDir.c_str(), id.c_str()), fmt("%s/%s", m_boxPicDir.c_str(), blankCoverName.c_str()), playcount, lastPlayed);
 			else
-				CoverFlow.addItem(&(*element), fmt("%s/%s.png", m_picDir.c_str(), id.c_str()), fmt("%s/%s.png", m_boxPicDir.c_str(), id.c_str()), fmt("%s/%s", m_boxPicDir.c_str(), blankCoverName.c_str()), playcount, lastPlayed);
+				CoverFlow.addItem(&(*element), playcount, lastPlayed);
 		}
 	}
+	if(gametdb.IsLoaded())
+		gametdb.CloseFile();
 	m_gcfg1.unload();
- 	if (dumpGameLst)
+	if (dumpGameLst)
 	{
 		dump.save(true);
 		m_cfg.setBool(domain, "dump_list", false);
@@ -1948,9 +1886,13 @@ void CMenu::_initCF(void)
 	CoverFlow.start();
 	if(!CoverFlow.empty())
 	{
+		u8 view = m_current_view;
+		if(m_current_view == COVERFLOW_MAX) // target the last launched game type view
+			m_current_view = m_last_view;
 		bool path = (m_current_view == COVERFLOW_PLUGIN || m_current_view == COVERFLOW_HOMEBREW);
-		if(!CoverFlow.findId(m_cfg.getString(domain, "current_item").c_str(), true, path))
+		if(!CoverFlow.findId(m_cfg.getString(_domainFromView(), "current_item").c_str(), true, path))
 			CoverFlow.defaultLoad();
+		m_current_view = view;
 		CoverFlow.startCoverLoader();
 	}
 }
@@ -2040,10 +1982,11 @@ void CMenu::_mainLoopCommon(bool withCF, bool adjusting)
 	{
 		MusicPlayer.DisplayTime = 0;
 		m_btnMgr.hide(m_mainLblCurMusic);
+		if(MusicPlayer.OneSong) m_music_info = false;
 	}
 
 	//Take Screenshot
-	if(gc_btnsPressed & PAD_TRIGGER_Z)
+	if(WBTN_Z_PRESSED || GBTN_Z_PRESSED)
 	{
 		time_t rawtime;
 		struct tm *timeinfo;
@@ -2059,7 +2002,10 @@ void CMenu::_mainLoopCommon(bool withCF, bool adjusting)
 	}
 
 #ifdef SHOWMEM
-	m_btnMgr.setText(m_mem2FreeSize, wfmt(L"Mem2 Free:%u, Mem1 Free:%u", MEM2_freesize(), MEM1_freesize()), true);
+	m_btnMgr.setText(m_mem1FreeSize, wfmt(L"Mem1 lo Free:%u, Mem1 Free:%u", 
+				MEM1_lo_freesize(), MEM1_freesize()), true);
+	m_btnMgr.setText(m_mem2FreeSize, wfmt(L"Mem2 lo Free:%u, Mem2 Free:%u", 
+				MEM2_lo_freesize(), MEM2_freesize()), true);
 #endif
 
 #ifdef SHOWMEMGECKO
@@ -2240,50 +2186,66 @@ bool CMenu::_loadChannelList(void)
 			emuPartition = _FindEmuPart(emuPath, true);
 		if(emuPartition < 0)
 			return false;
-
 		currentPartition = emuPartition;
-		NandHandle.SetNANDEmu(currentPartition); /* Init NAND Emu */
-		NandHandle.SetPaths(emuPath.c_str(), DeviceName[currentPartition]);
 		NandHandle.PreNandCfg(m_cfg.getBool(CHANNEL_DOMAIN, "real_nand_miis", false), 
 							m_cfg.getBool(CHANNEL_DOMAIN, "real_nand_config", false));
 		cacheDir = fmt("%s/%s_channels.db", m_listCacheDir.c_str(), DeviceName[currentPartition]);
 	}
-	bool updateCache = m_cfg.getBool(_domainFromView(), "update_cache");
+	bool updateCache = m_cfg.getBool(CHANNEL_DOMAIN, "update_cache");
 	vector<string> NullVector;
-	m_gameList.CreateList(m_current_view, currentPartition, std::string(), 
+	m_gameList.CreateList(COVERFLOW_CHANNEL, currentPartition, std::string(), 
 				NullVector, cacheDir, updateCache);
-	return m_gameList.size() > 0 ? true : false;
+	m_cfg.remove(CHANNEL_DOMAIN, "update_cache");
+	return true;
 }
 
 bool CMenu::_loadList(void)
 {
 	CoverFlow.clear();
+	m_gameList.clear();
 	NANDemuView = false;
-	gprintf("Switching View to %s\n", _domainFromView());
+	u8 sources = 0;
+	gprintf("Creating Gamelist\n");
 
-	bool retval;
-	switch(m_current_view)
+	if(m_cfg.getBool(PLUGIN_DOMAIN, "source",false))
 	{
-		case COVERFLOW_CHANNEL:
-			retval = _loadChannelList();
-			break;
-		case COVERFLOW_HOMEBREW:
-			retval = _loadHomebrewList();
-			break;
-		case COVERFLOW_DML:
-			retval = _loadDmlList();
-			break;
-		case COVERFLOW_PLUGIN:
-			retval = _loadEmuList();
-			break;
-		default:
-			retval = _loadGameList();
-			break;
+		_loadEmuList();
+		m_current_view = COVERFLOW_PLUGIN;
+		sources++;
 	}
-	gprintf("Games found: %i\n", m_gameList.size());
-	m_cfg.remove(_domainFromView(), "update_cache");
+	
+	if(m_cfg.getBool(WII_DOMAIN, "source",false))
+	{
+		_loadGameList();
+		m_current_view = COVERFLOW_USB;
+		sources++;
+	}
+	
+	if(m_cfg.getBool(CHANNEL_DOMAIN, "source",false))
+	{
+		m_current_view = COVERFLOW_CHANNEL;
+		_loadChannelList();
+		sources++;
+	}
 
-	return retval;
+	if(m_cfg.getBool(GC_DOMAIN, "source",false))
+	{
+		_loadDmlList();
+		m_current_view = COVERFLOW_DML;
+		sources++;
+	}
+
+	if(m_cfg.getBool(HOMEBREW_DOMAIN, "source",false))
+	{
+		_loadHomebrewList();
+		m_current_view = COVERFLOW_HOMEBREW;
+		sources++;
+	}
+	if(sources > 1)
+		m_current_view = COVERFLOW_MAX;
+
+	gprintf("Games found: %i\n", m_gameList.size());
+	return m_gameList.size() > 0 ? true : false;
 }
 
 bool CMenu::_loadGameList(void)
@@ -2292,15 +2254,14 @@ bool CMenu::_loadGameList(void)
 	if(!DeviceHandle.IsInserted(currentPartition))
 		return false;
 
-	m_gameList.clear();
 	DeviceHandle.OpenWBFS(currentPartition);
 	string gameDir(fmt(GAMES_DIR, DeviceName[currentPartition]));
 	string cacheDir(fmt("%s/%s_wii.db", m_listCacheDir.c_str(), DeviceName[currentPartition]));
 	bool updateCache = m_cfg.getBool(WII_DOMAIN, "update_cache");
-	m_gameList.CreateList(m_current_view, currentPartition, gameDir, stringToVector(".wbfs|.iso", '|'), cacheDir, updateCache);
+	m_gameList.CreateList(COVERFLOW_USB, currentPartition, gameDir, stringToVector(".wbfs|.iso", '|'), cacheDir, updateCache);
 	WBFS_Close();
-
-	return m_gameList.size() > 0 ? true : false;
+	m_cfg.remove(WII_DOMAIN, "update_cache");
+	return true;
 }
 
 bool CMenu::_loadHomebrewList()
@@ -2309,13 +2270,12 @@ bool CMenu::_loadHomebrewList()
 	if(!DeviceHandle.IsInserted(currentPartition))
 		return false;
 
-	m_gameList.clear();
 	string gameDir(fmt(HOMEBREW_DIR, DeviceName[currentPartition]));
 	string cacheDir(fmt("%s/%s_homebrew.db", m_listCacheDir.c_str(), DeviceName[currentPartition]));
 	bool updateCache = m_cfg.getBool(HOMEBREW_DOMAIN, "update_cache");
-	m_gameList.CreateList(m_current_view, currentPartition, gameDir, stringToVector(".dol|.elf", '|'), cacheDir, updateCache);
-
-	return m_gameList.size() > 0 ? true : false;
+	m_gameList.CreateList(COVERFLOW_HOMEBREW, currentPartition, gameDir, stringToVector(".dol|.elf", '|'), cacheDir, updateCache);
+	m_cfg.remove(HOMEBREW_DOMAIN, "update_cache");
+	return true;
 }
 
 bool CMenu::_loadDmlList()
@@ -2324,14 +2284,13 @@ bool CMenu::_loadDmlList()
 	if(!DeviceHandle.IsInserted(currentPartition))
 		return false;
 
-	m_gameList.clear();
 	string gameDir(fmt(currentPartition == SD ? DML_DIR : m_DMLgameDir.c_str(), DeviceName[currentPartition]));
 	string cacheDir(fmt("%s/%s_gamecube.db", m_listCacheDir.c_str(), DeviceName[currentPartition]));
 	bool updateCache = m_cfg.getBool(GC_DOMAIN, "update_cache");
-	m_gameList.CreateList(m_current_view, currentPartition, gameDir,
+	m_gameList.CreateList(COVERFLOW_DML, currentPartition, gameDir,
 			stringToVector(".iso|root", '|'),cacheDir, updateCache);
-
-	return m_gameList.size() > 0 ? true : false;
+	m_cfg.remove(GC_DOMAIN, "update_cache");
+	return true;
 }
 
 static vector<string> INI_List;
@@ -2346,16 +2305,16 @@ bool CMenu::_loadEmuList()
 	currentPartition = m_cfg.getInt(PLUGIN_DOMAIN, "partition", SD);
 	if(!DeviceHandle.IsInserted(currentPartition))
 		return false;
+		
 	bool updateCache = m_cfg.getBool(PLUGIN_DOMAIN, "update_cache");
-
 	vector<dir_discHdr> emuList;
 	Config m_plugin_cfg;
 
 	INI_List.clear();
-	m_gameList.clear();
 	GetFiles(m_pluginsDir.c_str(), stringToVector(".ini", '|'), GrabINIFiles, false, 1);
 	for(vector<string>::const_iterator Name = INI_List.begin(); Name != INI_List.end(); ++Name)
 	{
+		m_gameList.clear();
 		if(Name->find("scummvm.ini") != string::npos)
 			continue;
 		m_plugin_cfg.load(Name->c_str());
@@ -2373,7 +2332,7 @@ bool CMenu::_loadEmuList()
 				vector<string> FileTypes = stringToVector(m_plugin_cfg.getString(PLUGIN_INI_DEF,"fileTypes"), '|');
 				m_gameList.Color = strtoul(m_plugin_cfg.getString(PLUGIN_INI_DEF,"coverColor").c_str(), NULL, 16);
 				m_gameList.Magic = MagicWord;
-				m_gameList.CreateList(m_current_view, currentPartition, gameDir, FileTypes, cacheDir, updateCache);
+				m_gameList.CreateList(COVERFLOW_PLUGIN, currentPartition, gameDir, FileTypes, cacheDir, updateCache);
 				for(vector<dir_discHdr>::iterator tmp_itr = m_gameList.begin(); tmp_itr != m_gameList.end(); tmp_itr++)
 					emuList.push_back(*tmp_itr);
 			}
@@ -2398,8 +2357,8 @@ bool CMenu::_loadEmuList()
 	emuList.clear();
 	//If we return to the coverflow before wiiflow quit we dont need to reload plugins
 	m_plugin.EndAdd();
-
-	return m_gameList.size() > 0 ? true : false;
+	m_cfg.remove(PLUGIN_DOMAIN, "update_cache");
+	return true;
 }
 
 void CMenu::_stopSounds(void)
@@ -2488,7 +2447,7 @@ typedef struct map_entry
 {
 	char filename[8];
 	u8 sha1[20];
-} __attribute((packed)) map_entry_t;
+} ATTRIBUTE_PACKED map_entry_t;
 
 void CMenu::loadDefaultFont(void)
 {
@@ -2574,7 +2533,7 @@ char tmp[256];
 const char *CMenu::_getId()
 {
 	const char *id = NULL;
-	dir_discHdr *hdr = CoverFlow.getHdr();
+	const dir_discHdr *hdr = CoverFlow.getHdr();
 	if(hdr->type == TYPE_HOMEBREW)
 		id = strrchr(hdr->path, '/') + 1;
 	else if(hdr->type == TYPE_PLUGIN)
@@ -2589,7 +2548,15 @@ const char *CMenu::_getId()
 		id = tmp;
 	}
 	else
-		id = CoverFlow.getId();
+	{
+		id = hdr->id;
+		if(hdr->type == TYPE_GC_GAME && hdr->settings[0] == 1) /* disc 2 */
+		{
+			tmp[0] = '\0';
+			strcat(tmp, fmt("%.6s_2", hdr->id));
+			id = tmp;
+		}
+	}
 	return id;
 }
 
@@ -2622,27 +2589,7 @@ void CMenu::UpdateCache(u32 view)
 		UpdateCache(COVERFLOW_CHANNEL);
 		return;
 	}
-
-	const char *domain;
-	switch(view)
-	{
-		case COVERFLOW_CHANNEL:
-			domain = CHANNEL_DOMAIN;
-			break;
-		case COVERFLOW_HOMEBREW:
-			domain = HOMEBREW_DOMAIN;
-			break;
-		case COVERFLOW_DML:
-			domain = GC_DOMAIN;
-			break;
-		case COVERFLOW_PLUGIN:
-			domain = PLUGIN_DOMAIN;
-			break;
-		default:
-			domain = WII_DOMAIN;
-	}
-
-	m_cfg.setBool(domain, "update_cache", true);
+	m_cfg.setBool(_domainFromView(), "update_cache", true);
 }
 
 int CMenu::MIOSisDML()
@@ -2710,4 +2657,66 @@ void CMenu::TempLoadIOS(int IOS)
 			WPAD_SetVRes(chan, m_vid.width() + m_cursor[chan].width(), m_vid.height() + m_cursor[chan].height());
 		_netInit();
 	}
+}
+
+const char *CMenu::getBlankCoverPath(const dir_discHdr *element)
+{
+	const char *blankCoverKey = NULL;
+	switch(element->type)
+	{
+		case TYPE_CHANNEL:
+			blankCoverKey = "channels";
+			break;
+		case TYPE_HOMEBREW:
+			blankCoverKey = "homebrew";
+			break;
+		case TYPE_GC_GAME:
+			blankCoverKey = "gamecube";
+			break;
+		case TYPE_PLUGIN:
+			char PluginMagicWord[9];
+			memset(PluginMagicWord, 0, sizeof(PluginMagicWord));
+			strncpy(PluginMagicWord, fmt("%08x", element->settings[0]), 8);
+			blankCoverKey = PluginMagicWord;
+			break;
+		default:
+			blankCoverKey = "wii";
+	}
+	return m_theme.getString("BLANK_COVERS", blankCoverKey, fmt("%s.jpg", blankCoverKey)).c_str();
+}
+
+const char *CMenu::getBoxPath(const dir_discHdr *element)
+{
+	if(element->type == TYPE_PLUGIN)
+	{
+		const char *tempname = element->path;
+		if(strchr(element->path, '/') != NULL)
+			tempname = strrchr(element->path, '/') + 1;
+		const char *coverFolder = m_plugin.GetCoverFolderName(element->settings[0]);
+		if(strlen(coverFolder) > 0)
+			return fmt("%s/%s/%s.png", m_boxPicDir.c_str(), coverFolder, tempname);
+		else
+			return fmt("%s/%s.png", m_boxPicDir.c_str(), tempname);
+	}
+	else if(element->type == TYPE_HOMEBREW)
+		return fmt("%s/%s.png", m_boxPicDir.c_str(), strrchr(element->path, '/') + 1);
+	return fmt("%s/%s.png", m_boxPicDir.c_str(), element->id);
+}
+
+const char *CMenu::getFrontPath(const dir_discHdr *element)
+{
+	if(element->type == TYPE_PLUGIN)
+	{
+		const char *tempname = element->path;
+		if(strchr(element->path, '/') != NULL)
+			tempname = strrchr(element->path, '/') + 1;
+		const char *coverFolder = m_plugin.GetCoverFolderName(element->settings[0]);
+		if(strlen(coverFolder) > 0)
+			return fmt("%s/%s/%s.png", m_picDir.c_str(), coverFolder, tempname);
+		else
+			return fmt("%s/%s.png", m_picDir.c_str(), tempname);
+	}
+	else if(element->type == TYPE_HOMEBREW)
+		return fmt("%s/icon.png", element->path);
+	return fmt("%s/%s.png", m_picDir.c_str(), element->id);
 }
