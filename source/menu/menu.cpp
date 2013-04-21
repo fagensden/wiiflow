@@ -125,6 +125,7 @@ CMenu::CMenu()
 	m_use_sd_logging = false;
 	m_use_wifi_gecko = false;
 	init_network = false;
+	m_use_source = true;
 }
 
 void CMenu::init()
@@ -192,18 +193,6 @@ void CMenu::init()
 	/* Init Network if wanted */
 	init_network = (m_cfg.getBool("GENERAL", "async_network") || has_enabled_providers() || m_use_wifi_gecko);
 	_netInit();
-	/* Check if we want a cIOS loaded */
-	u8 prevCios = mainIOS;
-	bool prevForceCIOS = useMainIOS;
-	u8 ForceIOS = min(m_cfg.getInt("GENERAL", "force_cios_rev", 0), 254);
-	if(ForceIOS > 0 && mainIOS != ForceIOS)
-	{
-		gprintf("Using IOS%i instead of IOS%i as main cIOS.\n", ForceIOS, mainIOS);
-		mainIOS = ForceIOS;
-	}
-	useMainIOS = m_cfg.getBool("GENERAL", "force_cios_load", false);
-	if(prevCios != mainIOS || prevForceCIOS != useMainIOS)
-		InternalSave.SaveIOS(mainIOS, useMainIOS);
 	/* Our Wii game dir */
 	memset(wii_games_dir, 0, 64);
 	strncpy(wii_games_dir, m_cfg.getString("GENERAL", "wii_games_dir", GAMES_DIR).c_str(), 64);
@@ -657,7 +646,8 @@ void CMenu::_loadCFCfg()
 	const char *domain = "_COVERFLOW";
 
 	//gprintf("Preparing to load sounds from %s\n", m_themeDataDir.c_str());
-	CoverFlow.setCachePath(m_cacheDir.c_str(), !m_cfg.getBool("GENERAL", "keep_png", true), m_cfg.getBool("GENERAL", "compress_cache", false));
+	CoverFlow.setCachePath(m_cacheDir.c_str(), !m_cfg.getBool("GENERAL", "keep_png", true),
+		m_cfg.getBool("GENERAL", "compress_cache", false), m_cfg.getBool(PLUGIN_DOMAIN, "subfolder_cache", true));
 	CoverFlow.setBufferSize(m_cfg.getInt("GENERAL", "cover_buffer", 20));
 	// Coverflow Sounds
 	CoverFlow.setSounds(
@@ -2207,38 +2197,39 @@ bool CMenu::_loadList(void)
 	u8 sources = 0;
 	gprintf("Creating Gamelist\n");
 
-	if(m_cfg.getBool(PLUGIN_DOMAIN, "source",false))
+	if((m_current_view == COVERFLOW_USB && !m_cfg.has(WII_DOMAIN, "source")) || 
+			m_cfg.getBool(WII_DOMAIN, "source"))
 	{
-		_loadEmuList();
-		m_current_view = COVERFLOW_PLUGIN;
-		sources++;
-	}
-	
-	if(m_cfg.getBool(WII_DOMAIN, "source",false))
-	{
-		_loadGameList();
 		m_current_view = COVERFLOW_USB;
+		_loadGameList();
 		sources++;
 	}
-	
-	if(m_cfg.getBool(CHANNEL_DOMAIN, "source",false))
+	if((m_current_view == COVERFLOW_PLUGIN && !m_cfg.has(PLUGIN_DOMAIN, "source")) || 
+		m_cfg.getBool(PLUGIN_DOMAIN, "source"))
+	{
+		m_current_view = COVERFLOW_PLUGIN;
+		_loadEmuList();
+		sources++;
+	}
+	if((m_current_view == COVERFLOW_CHANNEL && !m_cfg.has(CHANNEL_DOMAIN, "source")) || 
+			m_cfg.getBool(CHANNEL_DOMAIN, "source"))
 	{
 		m_current_view = COVERFLOW_CHANNEL;
 		_loadChannelList();
 		sources++;
 	}
-
-	if(m_cfg.getBool(GC_DOMAIN, "source",false))
+	if((m_current_view == COVERFLOW_DML && !m_cfg.has(GC_DOMAIN, "source")) || 
+			m_cfg.getBool(GC_DOMAIN, "source"))
 	{
-		_loadDmlList();
 		m_current_view = COVERFLOW_DML;
+		_loadDmlList();
 		sources++;
 	}
-
-	if(m_cfg.getBool(HOMEBREW_DOMAIN, "source",false))
+	if((m_current_view == COVERFLOW_HOMEBREW && !m_cfg.has(HOMEBREW_DOMAIN, "source")) || 
+			m_cfg.getBool(HOMEBREW_DOMAIN, "source"))
 	{
-		_loadHomebrewList();
 		m_current_view = COVERFLOW_HOMEBREW;
+		_loadHomebrewList();
 		sources++;
 	}
 	if(sources > 1)
@@ -2682,7 +2673,7 @@ const char *CMenu::getBlankCoverPath(const dir_discHdr *element)
 		default:
 			blankCoverKey = "wii";
 	}
-	return m_theme.getString("BLANK_COVERS", blankCoverKey, fmt("%s.jpg", blankCoverKey)).c_str();
+	return fmt("%s/%s", m_boxPicDir.c_str(), m_theme.getString("BLANK_COVERS", blankCoverKey, fmt("%s.jpg", blankCoverKey)).c_str());
 }
 
 const char *CMenu::getBoxPath(const dir_discHdr *element)

@@ -143,6 +143,17 @@ void Musicplayer::LoadCurrentFile()
 
 void Musicplayer::LoadFile(const char *name, bool display_change)
 {
+	if(FileNames.empty())
+	{
+		FileNames.push_back(PLUGIN_DOMAIN);
+		CurrentFileName = FileNames.begin();
+	}
+	else if(FileNames.size() == 1 && strcmp(name, PLUGIN_DOMAIN) == 0)
+	{
+		MusicFile.FreeMemory();
+		MusicStopped = true;
+		return;
+	}
 	MusicFile.Load(name);
 	SetVolume(CurrentVolume);
 	MusicFile.Play();
