@@ -21,6 +21,7 @@
 #include <malloc.h>
 #include <algorithm>
 #include "plugin.hpp"
+#include "fileOps/fileOps.h"
 #include "gui/text.hpp"
 #include "gecko/gecko.hpp"
 #include "devicemounter/PartitionHandle.h"
@@ -77,17 +78,9 @@ bool Plugin::AddPlugin(Config &plugin)
 	NewPlugin.consoleCoverID = plugin.getString(PLUGIN_INI_DEF,"consoleCoverID");
 
 	const char *bannerfilepath = fmt("%s/%s", pluginsDir.c_str(), plugin.getString(PLUGIN_INI_DEF,"bannerSound").c_str());
-	FILE *fp = fopen(bannerfilepath, "rb");
-	if(fp != NULL)
-	{
-		fseek(fp, 0, SEEK_END);
+	fsop_GetFileSizeBytes(bannerfilepath, &NewPlugin.BannerSoundSize);
+	if(NewPlugin.BannerSoundSize > 0)
 		NewPlugin.BannerSound = string(bannerfilepath);
-		NewPlugin.BannerSoundSize = ftell(fp);
-		rewind(fp);
-		fclose(fp);
-	}
-	else
-		NewPlugin.BannerSoundSize = 0;
 	Plugins.push_back(NewPlugin);
 	return false;
 }
@@ -106,15 +99,8 @@ u8* Plugin::GetBannerSound(u32 magic)
 {
 	if((Plugin_Pos = GetPluginPosition(magic)) >= 0)
 	{
-		u8 *FileReadBuffer = NULL;
-		FILE *fp = fopen(Plugins[Plugin_Pos].BannerSound.c_str(), "rb");
-		if(fp)
-		{
-			FileReadBuffer = (u8*)MEM2_alloc(Plugins[Plugin_Pos].BannerSoundSize);
-			fread(FileReadBuffer, 1, Plugins[Plugin_Pos].BannerSoundSize, fp);
-			fclose(fp);
-		}
-		return FileReadBuffer;
+		u32 size = 0;
+		return fsop_ReadFile(Plugins[Plugin_Pos].BannerSound.c_str(), &size);
 	}
 	return NULL;
 }
@@ -167,7 +153,17 @@ void Plugin::SetEnablePlugin(Config &cfg, u8 pos, u8 ForceMode)
 	}
 }
 
-const vector<bool> &Plugin::GetEnabledPlugins(Config &cfg)
+bool Plugin::GetEnableStatus(Config &cfg, u32 magic)
+{
+	if((Plugin_Pos = GetPluginPosition(magic)) >= 0)
+	{
+		strncpy(PluginMagicWord, fmt("%08x", magic), 8);
+		return cfg.getBool(PLUGIN_INI_DEF, PluginMagicWord, true);
+	}
+	return false;
+}
+
+const vector<bool> &Plugin::GetEnabledPlugins(Config &cfg, u8 *num)
 {
 	enabledPlugins.clear();
 	u8 enabledPluginsNumber = 0;
@@ -184,6 +180,8 @@ const vector<bool> &Plugin::GetEnabledPlugins(Config &cfg)
 	}
 	if(enabledPluginsNumber == Plugins.size())
 		enabledPlugins.clear();
+	if(num != NULL)
+		*num = enabledPluginsNumber;
 	return enabledPlugins;
 }
 

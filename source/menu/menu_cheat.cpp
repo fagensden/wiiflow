@@ -59,18 +59,11 @@ u32 CMenu::_downloadCheatFileAsync(void *obj)
 
 	if (cheatfile.data != NULL && cheatfile.size > 65 && cheatfile.data[0] != '<')
 	{
-		FILE *file = fopen(fmt("%s/%s.txt", m->m_txtCheatDir.c_str(), id), "wb");
-
-		if (file != NULL)
-		{
-			fwrite(cheatfile.data, 1, cheatfile.size, file);
-			fclose(file);
-			free(buffer);
-			m->m_thrdWorking = false;
-			return 0;
-		}
+		fsop_WriteFile(fmt("%s/%s.txt", m->m_txtCheatDir.c_str(), id), cheatfile.data, cheatfile.size);
+		free(buffer);
+		m->m_thrdWorking = false;
+		return 0;
 	}
-
 	free(buffer);
 	m->m_thrdWorking = false;
 	return -3;
@@ -124,8 +117,8 @@ void CMenu::_CheatSettings()
 		}
 		else if ((WBTN_2_HELD && WBTN_1_PRESSED) || (WBTN_1_HELD && WBTN_2_PRESSED))
 		{
-			remove(fmt("%s/%s.gct", m_cheatDir.c_str(), id));
-			remove(fmt("%s/%s.txt", m_txtCheatDir.c_str(), id));
+			fsop_deleteFile(fmt("%s/%s.gct", m_cheatDir.c_str(), id));
+			fsop_deleteFile(fmt("%s/%s.txt", m_txtCheatDir.c_str(), id));
 			m_gcfg2.remove(id, "cheat");
 			m_gcfg2.remove(id, "hooktype");
 			break;
@@ -163,7 +156,7 @@ void CMenu::_CheatSettings()
 				}
 				else
 				{
-					remove(fmt("%s/%s.gct", m_cheatDir.c_str(), id));
+					fsop_deleteFile(fmt("%s/%s.gct", m_cheatDir.c_str(), id));
 					m_gcfg2.remove(id, "cheat");
 					m_gcfg2.remove(id, "hooktype");
 				}
@@ -336,7 +329,7 @@ void CMenu::_initCheatSettingsMenu()
 {
 	_addUserLabels(m_cheatLblUser, ARRAY_SIZE(m_cheatLblUser), "CHEAT");
 	m_cheatBg = _texture("CHEAT/BG", "texture", theme.bg, false);
-	m_cheatLblTitle = _addLabel("CHEAT/TITLE", theme.titleFont, L"Cheats", 20, 30, 600, 60, theme.titleFontColor, FTGX_JUSTIFY_CENTER | FTGX_ALIGN_MIDDLE);
+	m_cheatLblTitle = _addTitle("CHEAT/TITLE", theme.titleFont, L"Cheats", 20, 30, 600, 60, theme.titleFontColor, FTGX_JUSTIFY_CENTER | FTGX_ALIGN_MIDDLE);
 	m_cheatBtnBack = _addButton("CHEAT/BACK_BTN", theme.btnFont, L"", 460, 400, 150, 56, theme.btnFontColor);
 	m_cheatBtnApply = _addButton("CHEAT/APPLY_BTN", theme.btnFont, L"", 240, 400, 150, 56, theme.btnFontColor);
 	m_cheatBtnDownload = _addButton("CHEAT/DOWNLOAD_BTN", theme.btnFont, L"", 240, 400, 200, 56, theme.btnFontColor);

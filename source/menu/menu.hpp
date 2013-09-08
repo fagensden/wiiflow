@@ -12,6 +12,7 @@
 #include "channel/channels.h"
 #include "cheats/gct.h"
 #include "devicemounter/DeviceHandler.hpp"
+#include "fileOps/fileOps.h"
 #include "gecko/gecko.hpp"
 #include "gecko/wifi_gecko.hpp"
 #include "gui/coverflow.hpp"
@@ -48,10 +49,11 @@ public:
 	const char *getBlankCoverPath(const dir_discHdr *element);
 
 	u8 m_current_view;
-	int m_last_view;
-	u8 enabledPluginPos;
+	u8 m_last_view;
+	bool m_combined_view;
 	u8 enabledPluginsCount;
-	char PluginMagicWord[9];
+	u8 m_catStartPage;
+	bool m_clearCats;
 private:
 	struct SZone
 	{
@@ -66,6 +68,7 @@ private:
 	Config m_cfg;
 	Config m_loc;
 	Config m_cat;
+	Config m_source;
 	Config m_gcfg1;
 	Config m_gcfg2;
 	Config m_theme;
@@ -76,6 +79,8 @@ private:
 	u32 m_base_font_size;
 	u8 *m_wbf1_font;
 	u8 *m_wbf2_font;
+	u8 *m_file;
+	u8 *m_buffer;
 	u8 m_aa;
 	bool m_bnr_settings;
 	bool m_directLaunch;
@@ -83,11 +88,14 @@ private:
 	bool m_favorites;
 	bool m_music_info;
 	bool m_use_source;
+	bool m_multisource;
+	bool m_load_view;
 	s16 m_showtimer;
 	string m_curLanguage;
 
 	u8 m_numCFVersions;
 
+	string m_miosDir;
 	string m_themeDataDir;
 	string m_appDir;
 	string m_dataDir;
@@ -111,7 +119,11 @@ private:
 	string m_languagesDir;
 	string m_DMLgameDir;
 	string m_helpDir;
-	
+
+	/* Explorer stuff */
+	bool m_txt_view;
+	const char *m_txt_path;
+
 	/* Updates */
 	char m_app_update_drive[6];
 	const char* m_app_update_url;
@@ -178,7 +190,9 @@ private:
 	s16 m_mainBtnInit2;
 	s16 m_mainLblInit;
 	s16 m_mainLblUser[6];
-	u8 m_show_dml;
+	u8 m_mios_ver;
+	bool m_show_dml;
+	bool m_sd_dm;
 	bool m_devo_installed;
 	bool m_new_dml;
 	bool m_new_dm_cfg;
@@ -206,9 +220,7 @@ private:
 	s16 m_configAdvBtnCurThemeM;
 	s16 m_configAdvBtnCurThemeP;
 	s16 m_configAdvLblLanguage;
-	s16 m_configAdvLblCurLanguage;
-	s16 m_configAdvBtnCurLanguageM;
-	s16 m_configAdvBtnCurLanguageP;
+	s16 m_configAdvBtnManageLanguage;
 	s16 m_configAdvLblCFTheme;
 	s16 m_configAdvBtnCFTheme;
 	s16 m_configAdvLblBootChange;
@@ -231,11 +243,13 @@ private:
 	s16 m_config3LblDMLVideo;
 	s16 m_config3BtnDMLVideoP;
 	s16 m_config3BtnDMLVideoM;
-
+	s16 m_config3LblDMLGameLoader;
+	s16 m_config3LblDMLLoader;
+	s16 m_config3BtnDMLLoaderP;
+	s16 m_config3BtnDMLLoaderM;
+	
 	s16 m_config3LblOcarina;
 	s16 m_config3BtnOcarina;
-	s16 m_config3LblAsyncNet;
-	s16 m_config3BtnAsyncNet;
 	s16 m_config3LblUser[4];
 	s16 m_config4LblReturnTo;
 	s16 m_config4LblReturnToVal;
@@ -245,8 +259,8 @@ private:
 	s16 m_config4BtnHome;
 	s16 m_config4LblSaveFavMode;
 	s16 m_config4BtnSaveFavMode;
-	s16 m_config4LblCategoryOnBoot;
-	s16 m_config4BtnCategoryOnBoot;
+	s16 m_config4LblPathManager;
+	s16 m_config4BtnPathManager;
 	s16 m_config4LblUser[4];
 	s16 m_configSndLblBnrVol;
 	s16 m_configSndLblBnrVolVal;
@@ -487,8 +501,8 @@ private:
 	s16 m_gameSettingsBtnVipatch;
 	s16 m_gameSettingsLblCountryPatch;
 	s16 m_gameSettingsBtnCountryPatch;
-	s16 m_gameSettingsLblCover;
-	s16 m_gameSettingsBtnCover;
+	s16 m_gameSettingsLblManage;
+	s16 m_gameSettingsBtnManage;
 	s16 m_gameSettingsLblPatchVidModes;
 	s16 m_gameSettingsLblPatchVidModesVal;
 	s16 m_gameSettingsBtnPatchVidModesM;
@@ -616,7 +630,6 @@ private:
 	bool  enable_wmote_roll;
 
 	bool m_cfNeedsUpdate;
-	bool LastViewRequested(void);
 
 	void SetupInput(bool reset_pos = false);
 	void ScanInput(void);
@@ -687,14 +700,12 @@ private:
 		WO_FORMAT,
 		WO_COPY_GAME,
 	};
-	typedef pair<string, u32> FontDesc;
-	typedef map<FontDesc, SFont> FontSet;
 	typedef map<string, TexData> TexSet;
 	typedef map<string, GuiSound*> SoundSet;
 	struct SThemeData
 	{
 		TexSet texSet;
-		FontSet fontSet;
+		vector<SFont> fontSet;
 		SoundSet soundSet;
 		SFont btnFont;
 		SFont lblFont;
@@ -713,12 +724,6 @@ private:
 		TexData btnTexLS;
 		TexData btnTexRS;
 		TexData btnTexCS;
-		TexData btnTexLH;
-		TexData btnTexRH;
-		TexData btnTexCH;
-		TexData btnTexLSH;
-		TexData btnTexRSH;
-		TexData btnTexCSH;
 		TexData btnAUOn;
 		TexData btnAUOns;
 		TexData btnAUOff;
@@ -833,6 +838,7 @@ private:
 	void _initConfig4Menu();
 	void _initConfigSndMenu();
 	void _initConfigScreenMenu();
+	void _initLangSettingsMenu();
 	void _initGameMenu();
 	void _initDownloadMenu();
 	void _initCodeMenu();
@@ -849,6 +855,11 @@ private:
 	void _initGameInfoMenu();
 	void _initNandEmuMenu();
 	void _initHomeAndExitToMenu();
+	void _initCoverBanner();
+	void _initExplorer();
+	void _initWad();
+	void _initPathsMenu();
+	void _initFTP();
 	//
 	void _textSource(void);
 	void _textPluginSettings(void);
@@ -857,13 +868,13 @@ private:
 	void _textSystem(void);
 	void _textMain(void);
 	void _textError(void);
-	void _textYesNo(void);
 	void _textConfig(void);
 	void _textConfig3(void);
 	void _textConfigScreen(void);
 	void _textConfig4(void);
 	void _textConfigAdv(void);
 	void _textConfigSnd(void);
+	void _textLangSettings(void);
 	void _textGame(void);
 	void _textDownload(void);
 	void _textCode(void);
@@ -875,8 +886,15 @@ private:
 	void _textHome(void);
 	void _textExitTo(void);
 	void _textBoot(void);
+	void _textCoverBanner(void);
+	void _textExplorer(void);
+	void _textWad(void);
+	void _textPaths(void);
+	void _textFTP(void);
 	//
 	void _refreshBoot();
+	void _refreshExplorer(s8 direction = 0);
+	void _refreshLangSettings();
 	//
 	void _hideCheatSettings(bool instant = false);
 	void _hideError(bool instant = false);
@@ -888,6 +906,7 @@ private:
 	void _hideConfig4(bool instant = false);
 	void _hideConfigAdv(bool instant = false);
 	void _hideConfigSnd(bool instant = false);
+	void _hideLangSettings(bool instant = false);
 	void _hideGame(bool instant = false);
 	void _hideDownload(bool instant = false);
 	void _hideSettings(bool instant = false);
@@ -905,6 +924,11 @@ private:
 	void _hideNandEmu(bool instant = false);
 	void _hideHome(bool instant = false);
 	void _hideExitTo(bool instant = false);
+	void _hideCoverBanner(bool instant = false);
+	void _hideExplorer(bool instant = false);
+	void _hideWad(bool instant = false);
+	void _hidePaths(bool instant = false);
+	void _hideFTP(bool instant = false);
 	//
 	void _showError(void);
 	void _showMain(void);
@@ -916,6 +940,7 @@ private:
 	void _showConfigAdv(void);
 	void _showConfigSnd(void);
 	void _setPartition(s8 direction = 0);
+	void _showLangSettings(void);
 	void _showGame(void);
 	void _showDownload(void);
 	void _showSettings();
@@ -934,11 +959,18 @@ private:
 	void _showCheatDownload(void);
 	void _showHome(void);
 	void _showExitTo(void);
+	void _showCoverBanner(void);
+	void _showExplorer(void);
+	void _showWad(void);
+	void _showPaths(void);
+	void _showFTP(void);
+
+	void _clearSources(void);
 	void _updateSourceBtns(void);
 	void _updatePluginText(void);
 	void _updatePluginCheckboxes(void);
 	void _updateCheckboxes(void);
-	void _checkForSinglePlugin(void);
+	void _updateFTP(void);
 	void _getIDCats(void);
 	void _setIDCats(void);
 	void _setBg(const TexData &tex, const TexData &lqTex);
@@ -968,7 +1000,10 @@ private:
 	};
 	void _cfNeedsUpdate(void);
 	void _game(bool launch = false);
+	void _downloadUrl(const char *url, u8 **dl_file, u32 *dl_size);
 	void _download(string gameId = string());
+	void _downloadBnr(const char *gameID);
+	bool _LangSettings(void);
 	void _code(void);
 	void _about(bool help = false);
 	bool _wbfsOp(WBFS_OP op);
@@ -976,13 +1011,20 @@ private:
 	void _system(void);
 	void _gameinfo(void);
 	void _gameSettings(void);
+	void _CoverBanner(void);
+	void _Explorer(void);
+	const char *_FolderExplorer(const char *startPath);
+	void _Wad(const char *wad_path = NULL, bool autoInstall = false);
 	void _CheatSettings();
 	bool _Source();
 	void _PluginSettings();
 	void _CategorySettings(bool fromGameSet = false);
 	bool _Home();
+	void _FTP();
+	bool _FTP_Loop();
 	bool _ExitTo();
 	bool _Boot();
+	void _Paths();
 	void _mainLoopCommon(bool withCF = false, bool adjusting = false);
 public:
 	void directlaunch(const char *GameID);
@@ -990,6 +1032,8 @@ private:
 	bool m_use_wifi_gecko;
 	bool m_use_sd_logging;
 	bool init_network;
+	bool m_init_ftp;
+	bool m_ftp_inited;
 	void _netInit();
 	bool _loadFile(u8 * &buffer, u32 &size, const char *path, const char *file);
 	int _loadIOS(u8 ios, int userIOS, string id, bool RealNAND_Channels = false);
@@ -1013,21 +1057,34 @@ private:
 	const char *_domainFromView(void);
 	const char *_cfDomain(bool selected = false);
 	void UpdateCache(u32 view = COVERFLOW_MAX);
-	int MIOSisDML();
+	void MIOSisDML();
 	void RemoveCover(const char *id);
-	SFont _font(CMenu::FontSet &fontSet, const char *domain, const char *key, u32 fontSize, u32 lineSpacing, u32 weight, u32 index, const char *genKey);
+	SFont _font(const char *domain, const char *key, u32 fontSize, u32 lineSpacing, u32 weight, u32 index, const char *genKey);
 	TexData _texture(const char *domain, const char *key, TexData &def, bool freeDef = true);
 	vector<TexData> _textures(const char *domain, const char *key);
 	void _showWaitMessage();
 public:
 	void _hideWaitMessage();
 	bool m_Emulator_boot;
+	void GC_Messenger(int message, int info, char *cinfo);
+
+	/* general thread updating stuff */
+	u64 m_thrdTotal;
+	void update_pThread(u64 added);
 private:
+	static int _pThread(void *obj);
+	void _start_pThread(void);
+	void _stop_pThread(void);
+	lwp_t m_thrdPtr;
+	volatile bool m_thrdInstalling;
+	volatile bool m_thrdUpdated;
+	volatile bool m_thrdDone;
+	vu64 m_thrdWritten;
+
 	GuiSound *_sound(CMenu::SoundSet &soundSet, const char *domain, const char *key, const u8 * snd, u32 len, const char *name, bool isAllocated);
 	GuiSound *_sound(CMenu::SoundSet &soundSet, const char *domain, const char *key, const char *name);
 	u16 _textStyle(const char *domain, const char *key, u16 def);
 	s16 _addButton(const char *domain, SFont font, const wstringEx &text, int x, int y, u32 width, u32 height, const CColor &color);
-	s16 _addSelButton(const char *domain, SFont font, const wstringEx &text, int x, int y, u32 width, u32 height, const CColor &color);
 	s16 _addPicButton(const char *domain, TexData &texNormal, TexData &texSelected, int x, int y, u32 width, u32 height);
 	s16 _addTitle(const char *domain, SFont font, const wstringEx &text, int x, int y, u32 width, u32 height, const CColor &color, s16 style);
 	s16 _addText(const char *domain, SFont font, const wstringEx &text, int x, int y, u32 width, u32 height, const CColor &color, s16 style);
@@ -1058,11 +1115,10 @@ private:
 	void LoadView(void);
 	void _getGrabStatus(void);
 	static void _addDiscProgress(int status, int total, void *user_data);
-	static void _Messenger(int message, int info, char *cinfo, void *user_data);
 	static void _ShowProgress(int dumpstat, int dumpprog, int filestat, int fileprog, int files, int folders, const char *tmess, void *user_data);
-	static int _gameInstaller(void *obj);	
-	static int _GCgameInstaller(void *obj);
+	static int _gameInstaller(void *obj);
 	static int _GCcopyGame(void *obj);
+	int _GCgameInstaller();
 	float m_progress;
 	float m_fprogress;
 	int m_fileprog;
@@ -1077,9 +1133,11 @@ private:
 	static int _NandFlasher(void *obj);
 	int _FindEmuPart(string &emuPath, bool searchvalid);
 	bool _checkSave(string id, bool nand);
-	bool _TestEmuNand(int epart, const char *path, bool indept);	
+	bool _TestEmuNand(int epart, const char *path, bool indept);
 
 	static u32 _downloadCheatFileAsync(void *obj);
+	static u32 _downloadBannerAsync(void *obj);
+	static u32 _downloadUrlAsync(void *obj);
 
 	void _playGameSound(void);
 	void CheckGameSoundThread(void);
@@ -1088,7 +1146,6 @@ private:
 	static void _load_installed_cioses();
 
 	struct SOption { const char id[10]; const wchar_t text[16]; };
-	static const string _translations[23];
 	static const SOption _languages[11];
 
 	static const SOption _GlobalVideoModes[6];
@@ -1105,6 +1162,7 @@ private:
 	static const SOption _AspectRatio[3];
 	static const SOption _NMM[4];
 	static const SOption _NoDVD[3];
+	static const SOption _GlobalGCLoaders[2];
 	static const SOption _GCLoader[3];
 	static const SOption _vidModePatch[4];
 	static const SOption _debugger[3];

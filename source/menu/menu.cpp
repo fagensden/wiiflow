@@ -13,7 +13,6 @@
 #include "banner/BannerWindow.hpp"
 #include "channel/nand.hpp"
 #include "channel/nand_save.hpp"
-#include "fileOps/fileOps.h"
 #include "gc/gc.hpp"
 #include "gui/Gekko.h"
 #include "gui/GameTDB.hpp"
@@ -24,6 +23,8 @@
 #include "loader/playlog.h"
 #include "loader/wbfs.h"
 #include "music/SoundHandler.hpp"
+#include "network/FTP_Dir.hpp"
+#include "network/ftp.h"
 #include "network/gcard.h"
 #include "unzip/U8Archive.h"
 
@@ -126,6 +127,32 @@ CMenu::CMenu()
 	m_use_wifi_gecko = false;
 	init_network = false;
 	m_use_source = true;
+	m_multisource = false;
+	m_clearCats = true;
+	m_catStartPage = 1;
+	m_combined_view = false;
+	/* Explorer stuff */
+	m_txt_view = false;
+	m_txt_path = NULL;
+	/* download stuff */
+	m_file = NULL;
+	m_buffer = NULL;
+	m_filesize = 0;
+	/* thread stuff */
+	m_thrdPtr = LWP_THREAD_NULL;
+	m_thrdInstalling = false;
+	m_thrdUpdated = false;
+	m_thrdDone = false;
+	m_thrdWritten = 0;
+	m_thrdTotal = 0;
+	/* mios stuff */
+	m_mios_ver = 0;
+	m_sd_dm = false;
+	m_new_dml = false;
+	m_new_dm_cfg = false;
+	/* ftp stuff */
+	m_ftp_inited = false;
+	m_init_ftp = false;
 }
 
 void CMenu::init()
@@ -190,12 +217,17 @@ void CMenu::init()
 	/* Check if we want SD Gecko */
 	m_use_sd_logging = m_cfg.getBool("DEBUG", "sd_write_log", false);
 	LogToSD_SetBuffer(m_use_sd_logging);
+	/* Check if we want FTP */
+	m_init_ftp = m_cfg.getBool(FTP_DOMAIN, "auto_start", false);
+	ftp_allow_active = m_cfg.getBool(FTP_DOMAIN, "allow_active_mode", false);
+	ftp_server_port = min(65535u, m_cfg.getUInt(FTP_DOMAIN, "server_port", 21));
+	set_ftp_password(m_cfg.getString(FTP_DOMAIN, "password", "").c_str());
 	/* Init Network if wanted */
-	init_network = (m_cfg.getBool("GENERAL", "async_network") || has_enabled_providers() || m_use_wifi_gecko);
+	init_network = (m_cfg.getBool("GENERAL", "async_network") || has_enabled_providers() || m_use_wifi_gecko || m_init_ftp);
 	_netInit();
 	/* Our Wii game dir */
 	memset(wii_games_dir, 0, 64);
-	strncpy(wii_games_dir, m_cfg.getString("GENERAL", "wii_games_dir", GAMES_DIR).c_str(), 64);
+	strncpy(wii_games_dir, m_cfg.getString(WII_DOMAIN, "wii_games_dir", GAMES_DIR).c_str(), 64);
 	if(strncmp(wii_games_dir, "%s:/", 4) != 0)
 		strcpy(wii_games_dir, GAMES_DIR);
 	gprintf("Wii Games Directory: %s\n", wii_games_dir);
@@ -253,16 +285,16 @@ void CMenu::init()
 			return;
 		}
 	}
+	m_multisource = m_cfg.getBool("GENERAL", "multisource", false);
 	/* DIOS_MIOS stuff */
 	if(m_cfg.getBool(GC_DOMAIN, "always_show_button", false))
 	{
 		gprintf("Force enabling DML view\n");
 		m_show_dml = true;
 	}
-	else
-		m_show_dml = MIOSisDML();
-	m_new_dml = m_cfg.getBool(GC_DOMAIN, "dml_r52+", true);
-	m_new_dm_cfg = m_cfg.getBool(GC_DOMAIN, "dm_r2.1+", true);
+	MIOSisDML();
+	if(m_show_dml == false)
+		m_show_dml = (m_mios_ver > 0);
 	m_DMLgameDir = fmt("%%s:/%s", m_cfg.getString(GC_DOMAIN, "dir_usb_games", "games").c_str());
 	/* Emu NAND */
 	m_cfg.getString(CHANNEL_DOMAIN, "path", "");
@@ -284,6 +316,7 @@ void CMenu::init()
 	m_app_update_zip = fmt("%s/update.zip", m_appDir.c_str());
 	m_data_update_zip = fmt("%s/update.zip", m_dataDir.c_str());
 
+	m_miosDir = m_cfg.getString("GENERAL", "dir_mios", fmt("%s/mios", m_dataDir.c_str()));
 	m_customBnrDir = m_cfg.getString("GENERAL", "dir_custom_banners", fmt("%s/custom_banners", m_dataDir.c_str()));
 	m_pluginsDir = m_cfg.getString("GENERAL", "dir_plugins", fmt("%s/plugins", m_dataDir.c_str()));
 
@@ -343,6 +376,7 @@ void CMenu::init()
 	/* Create our Folder Structure */
 	fsop_MakeFolder(m_dataDir.c_str()); //D'OH!
 
+	fsop_MakeFolder(m_miosDir.c_str());
 	fsop_MakeFolder(m_customBnrDir.c_str());
 	fsop_MakeFolder(m_pluginsDir.c_str());
 
@@ -373,46 +407,46 @@ void CMenu::init()
 	m_plugin.init(m_pluginsDir);
 
 	m_devo_installed = DEVO_Installed(m_dataDir.c_str());
-	u8 defaultMenuLanguage = 7; //English
+	const char *defLang = "Default";
 	switch (CONF_GetLanguage())
 	{
 		case CONF_LANG_JAPANESE:
-			defaultMenuLanguage = 14; //Japanese
+			defLang = "japanese";
 			break;
 		case CONF_LANG_GERMAN:
-			defaultMenuLanguage = 11; //German
+			defLang = "german";
 			break;
 		case CONF_LANG_FRENCH:
-			defaultMenuLanguage = 9; //French
+			defLang = "french";
 			break;
 		case CONF_LANG_SPANISH:
-			defaultMenuLanguage = 19; //Spanish
+			defLang = "spanish";
 			break;
 		case CONF_LANG_ITALIAN:
-			defaultMenuLanguage = 13; //Italian
+			defLang = "italian";
 			break;
 		case CONF_LANG_DUTCH:
-			defaultMenuLanguage = 6; //Dutch
+			defLang = "dutch";
 			break;
 		case CONF_LANG_SIMP_CHINESE:
-			defaultMenuLanguage = 3; //Chinese_S
+			defLang = "chinese_s";
 			break;
 		case CONF_LANG_TRAD_CHINESE:
-			defaultMenuLanguage = 4; //Chinese_T
+			defLang = "chinese_t";
 			break;
 		case CONF_LANG_KOREAN:
-			defaultMenuLanguage = 7; // No Korean translation has been done for wiiflow, so the menu will use english in this case.
+			defLang = "korean";
 			break;
 	}
 	if (CONF_GetArea() == CONF_AREA_BRA)
-		defaultMenuLanguage = 2; //Brazilian
+		defLang = "brazilian";
 
-	m_curLanguage = CMenu::_translations[m_cfg.getInt("GENERAL", "language", defaultMenuLanguage)];
-	if (!m_loc.load(fmt("%s/%s.ini", m_languagesDir.c_str(), lowerCase(m_curLanguage).c_str())))
+	m_curLanguage = m_cfg.getString("GENERAL", "language", defLang);
+	if(!m_loc.load(fmt("%s/%s.ini", m_languagesDir.c_str(), m_curLanguage.c_str())))
 	{
-		m_cfg.setInt("GENERAL", "language", 0);
-		m_curLanguage = CMenu::_translations[0];
-		m_loc.load(fmt("%s/%s.ini", m_languagesDir.c_str(), lowerCase(m_curLanguage).c_str()));
+		m_curLanguage = "Default";
+		m_cfg.setString("GENERAL", "language", m_curLanguage.c_str());
+		m_loc.unload();
 	}
 	m_tempView = false;
 
@@ -526,12 +560,6 @@ void CMenu::_Theme_Cleanup(void)
 	TexHandle.Cleanup(theme.btnTexLS);
 	TexHandle.Cleanup(theme.btnTexRS);
 	TexHandle.Cleanup(theme.btnTexCS);
-	TexHandle.Cleanup(theme.btnTexLH);
-	TexHandle.Cleanup(theme.btnTexRH);
-	TexHandle.Cleanup(theme.btnTexCH);
-	TexHandle.Cleanup(theme.btnTexLSH);
-	TexHandle.Cleanup(theme.btnTexRSH);
-	TexHandle.Cleanup(theme.btnTexCSH);
 	TexHandle.Cleanup(theme.btnAUOn);
 	TexHandle.Cleanup(theme.btnAUOns);
 	TexHandle.Cleanup(theme.btnAUOff);
@@ -603,8 +631,8 @@ void CMenu::_Theme_Cleanup(void)
 	/* Other Theme Stuff */
 	for(TexSet::iterator texture = theme.texSet.begin(); texture != theme.texSet.end(); ++texture)
 		TexHandle.Cleanup(texture->second);
-	for(FontSet::iterator font = theme.fontSet.begin(); font != theme.fontSet.end(); ++font)
-		font->second.ClearData();
+	for(vector<SFont>::iterator font = theme.fontSet.begin(); font != theme.fontSet.end(); ++font)
+		font->ClearData();
 	for(SoundSet::iterator sound = theme.soundSet.begin(); sound != theme.soundSet.end(); ++sound)
 		sound->second->FreeMemory();
 	theme.texSet.clear();
@@ -619,6 +647,8 @@ void CMenu::_netInit(void)
 	_initAsyncNetwork();
 	while(net_get_status() == -EBUSY)
 		usleep(100);
+	if(m_init_ftp)
+		m_ftp_inited = ftp_startThread();
 }
 
 void CMenu::_setAA(int aa)
@@ -663,7 +693,7 @@ void CMenu::_loadCFCfg()
 	string texNoCoverFlat = fmt("%s/%s", m_themeDataDir.c_str(), m_theme.getString(domain, "missing_cover_flat").c_str());
 	CoverFlow.setTextures(texLoading, texLoadingFlat, texNoCover, texNoCoverFlat);
 	// Font
-	CoverFlow.setFont(_font(theme.fontSet, domain, "font", TITLEFONT), m_theme.getColor(domain, "font_color", CColor(0xFFFFFFFF)));
+	CoverFlow.setFont(_font(domain, "font", TITLEFONT), m_theme.getColor(domain, "font_color", CColor(0xFFFFFFFF)));
 	// Coverflow Count
 	m_numCFVersions = min(max(2, m_theme.getInt("_COVERFLOW", "number_of_modes", 2)), 15);
 }
@@ -943,20 +973,17 @@ void CMenu::_loadCFLayout(int version, bool forceAA, bool otherScrnFmt)
 void CMenu::_buildMenus(void)
 {
 	// Default fonts
-	theme.btnFont = _font(theme.fontSet, "GENERAL", "button_font", BUTTONFONT);
+	theme.btnFont = _font("GENERAL", "button_font", BUTTONFONT);
 	theme.btnFontColor = m_theme.getColor("GENERAL", "button_font_color", 0xD0BFDFFF);
 
-	theme.lblFont = _font(theme.fontSet, "GENERAL", "label_font", LABELFONT);
+	theme.lblFont = _font("GENERAL", "label_font", LABELFONT);
 	theme.lblFontColor = m_theme.getColor("GENERAL", "label_font_color", 0xD0BFDFFF);
 
-	theme.titleFont = _font(theme.fontSet, "GENERAL", "title_font", TITLEFONT);
+	theme.titleFont = _font("GENERAL", "title_font", TITLEFONT);
 	theme.titleFontColor = m_theme.getColor("GENERAL", "title_font_color", 0xFFFFFFFF);
 
-	theme.txtFont = _font(theme.fontSet, "GENERAL", "text_font", TEXTFONT);
+	theme.txtFont = _font("GENERAL", "text_font", TEXTFONT);
 	theme.txtFontColor = m_theme.getColor("GENERAL", "text_font_color", 0xFFFFFFFF);
-
-	theme.selsbtnFontColor = m_theme.getColor("GENERAL", "selsbtn_font_color", 0xFA5882FF);
-	theme.selubtnFontColor = m_theme.getColor("GENERAL", "selubtn_font_color", 0xD0BFDFFF);
 
 	// Default Sounds
 	theme.clickSound	= _sound(theme.soundSet, "GENERAL", "click_sound", click_wav, click_wav_size, "default_btn_click", false);
@@ -976,19 +1003,6 @@ void CMenu::_buildMenus(void)
 	theme.btnTexRS = _texture("GENERAL", "button_texture_right_selected", theme.btnTexRS); 
 	TexHandle.fromPNG(theme.btnTexCS, butscenter_png);
 	theme.btnTexCS = _texture("GENERAL", "button_texture_center_selected", theme.btnTexCS); 
-
-	TexHandle.fromPNG(theme.btnTexLH, buthleft_png);
-	theme.btnTexLH = _texture("GENERAL", "button_texture_hlleft", theme.btnTexLH); 
-	TexHandle.fromPNG(theme.btnTexRH, buthright_png);
-	theme.btnTexRH = _texture("GENERAL", "button_texture_hlright", theme.btnTexRH); 
-	TexHandle.fromPNG(theme.btnTexCH, buthcenter_png);
-	theme.btnTexCH = _texture("GENERAL", "button_texture_hlcenter", theme.btnTexCH); 
-	TexHandle.fromPNG(theme.btnTexLSH, buthsleft_png);
-	theme.btnTexLSH = _texture("GENERAL", "button_texture_hlleft_selected", theme.btnTexLSH); 
-	TexHandle.fromPNG(theme.btnTexRSH, buthsright_png);
-	theme.btnTexRSH = _texture("GENERAL", "button_texture_hlright_selected", theme.btnTexRSH); 
-	TexHandle.fromPNG(theme.btnTexCSH, buthscenter_png);
-	theme.btnTexCSH = _texture("GENERAL", "button_texture_hlcenter_selected", theme.btnTexCSH); 
 
 	/* Language Buttons */
 	TexHandle.fromPNG(theme.btnAUOn, butauon_png);
@@ -1146,6 +1160,9 @@ void CMenu::_buildMenus(void)
 	// Build menus
 	_initMainMenu();
 	_initErrorMenu();
+	_initWad();
+	_initFTP();
+	_initWBFSMenu();
 	_initConfigAdvMenu();
 	_initConfigSndMenu();
 	_initConfig4Menu();
@@ -1156,10 +1173,10 @@ void CMenu::_buildMenus(void)
 	_initDownloadMenu();
 	_initCodeMenu();
 	_initAboutMenu();
-	_initWBFSMenu();
 	_initCFThemeMenu();
 	_initGameSettingsMenu();
 	_initCheatSettingsMenu(); 
+	_initLangSettingsMenu();
 	_initSourceMenu();
 	_initPluginSettingsMenu();
 	_initCategorySettingsMenu();
@@ -1167,7 +1184,10 @@ void CMenu::_buildMenus(void)
 	_initGameInfoMenu();
 	_initNandEmuMenu();
 	_initHomeAndExitToMenu();
+	_initCoverBanner();
+	_initExplorer();
 	_initBoot();
+	_initPathsMenu();
 
 	_loadCFCfg();
 }
@@ -1181,9 +1201,9 @@ typedef struct
 	u32 res;
 } FontHolder;
 
-SFont CMenu::_font(CMenu::FontSet &fontSet, const char *domain, const char *key, u32 fontSize, u32 lineSpacing, u32 weight, u32 index, const char *genKey)
+SFont CMenu::_font(const char *domain, const char *key, u32 fontSize, u32 lineSpacing, u32 weight, u32 index, const char *genKey)
 {
-	string filename = "";
+	string filename;
 	bool general = strncmp(domain, "GENERAL", 7) == 0;
 	FontHolder fonts[3] = {{ "_size", 6u, 300u, fontSize, 0 }, { "_line_height", 6u, 300u, lineSpacing, 0 }, { "_weight", 1u, 32u, weight, 0 }};
 
@@ -1205,26 +1225,32 @@ SFont CMenu::_font(CMenu::FontSet &fontSet, const char *domain, const char *key,
 		if(fonts[i].res <= 0)
 			fonts[i].res = (u32)m_theme.getInt("GENERAL", defValue);
 
-		fonts[i].res = min(max(fonts[i].min, fonts[i].res <= 0 ? fonts[i].def : fonts[i].res), fonts[i].max);		
+		fonts[i].res = min(max(fonts[i].min, fonts[i].res <= 0 ? fonts[i].def : fonts[i].res), fonts[i].max);
 	}
 
-	// Try to find the same font with the same size
-	CMenu::FontSet::iterator i = fontSet.find(CMenu::FontDesc(upperCase(filename.c_str()), fonts[0].res));
-	if (i != fontSet.end()) return i->second;
+	/* ONLY return the font if spacing and weight are the same */
+	std::vector<SFont>::iterator font_itr;
+	for(font_itr = theme.fontSet.begin(); font_itr != theme.fontSet.end(); ++font_itr)
+	{
+		if(strncmp(filename.c_str(), font_itr->name, 127) == 0 && font_itr->fSize == fonts[0].res &&
+				font_itr->lineSpacing == fonts[1].res && font_itr->weight && fonts[2].res)
+			break;
+	}
+	if (font_itr != theme.fontSet.end()) return *font_itr;
 
 	// TTF not found in memory, load it to create a new font
 	SFont retFont;
- 	if (!useDefault && retFont.fromFile(fmt("%s/%s", m_themeDataDir.c_str(), filename.c_str()), fonts[0].res, fonts[1].res, fonts[2].res, index))
+	if(!useDefault && retFont.fromFile(fmt("%s/%s", m_themeDataDir.c_str(), filename.c_str()), fonts[0].res, fonts[1].res, fonts[2].res, index, filename.c_str()))
 	{
 		// Theme Font
-		fontSet[CMenu::FontDesc(upperCase(filename.c_str()), fonts[0].res)] = retFont;
+		theme.fontSet.push_back(retFont);
 		return retFont;
 	}
 	/* Fallback to default font */
-	if(retFont.fromBuffer(m_base_font, m_base_font_size, fonts[0].res, fonts[1].res, fonts[2].res, index))
+	if(retFont.fromBuffer(m_base_font, m_base_font_size, fonts[0].res, fonts[1].res, fonts[2].res, index, filename.c_str()))
 	{
 		// Default font
-		fontSet[CMenu::FontDesc(upperCase(filename.c_str()), fonts[0].res)] = retFont;
+		theme.fontSet.push_back(retFont);
 		return retFont;
 	}
 	return retFont;
@@ -1299,8 +1325,12 @@ GuiSound *CMenu::_sound(CMenu::SoundSet &soundSet, const char *domain, const cha
 	CMenu::SoundSet::iterator i = soundSet.find(upperCase(name));
 	if(i == soundSet.end())
 	{
-		if(filename != name)
-			soundSet[upperCase(filename)] = new GuiSound(fmt("%s/%s", m_themeDataDir.c_str(), filename));
+		if(filename != name && fsop_FileExist(fmt("%s/%s", m_themeDataDir.c_str(), filename)))
+		{
+			u32 size = 0;
+			u8 *mem = fsop_ReadFile(fmt("%s/%s", m_themeDataDir.c_str(), filename), &size);
+			soundSet[upperCase(filename)] = new GuiSound(mem, size, filename, true);
+		}
 		else
 			soundSet[upperCase(filename)] = new GuiSound(snd, len, filename, isAllocated);
 		return soundSet[upperCase(filename)];
@@ -1322,7 +1352,14 @@ GuiSound *CMenu::_sound(CMenu::SoundSet &soundSet, const char *domain, const cha
 	SoundSet::iterator i = soundSet.find(upperCase(filename));
 	if(i == soundSet.end())
 	{
-		soundSet[upperCase(filename)] = new GuiSound(fmt("%s/%s", m_themeDataDir.c_str(), filename));
+		if(fsop_FileExist(fmt("%s/%s", m_themeDataDir.c_str(), filename)))
+		{
+			u32 size = 0;
+			u8 *mem = fsop_ReadFile(fmt("%s/%s", m_themeDataDir.c_str(), filename), &size);
+			soundSet[upperCase(filename)] = new GuiSound(mem, size, filename, true);
+		}
+		else
+			soundSet[upperCase(filename)] = new GuiSound();
 		return soundSet[upperCase(filename)];
 	}
 	return i->second;
@@ -1365,49 +1402,9 @@ s16 CMenu::_addButton(const char *domain, SFont font, const wstringEx &text, int
 	btnTexSet.leftSel = _texture(domain, "texture_left_selected", theme.btnTexLS, false);
 	btnTexSet.rightSel = _texture(domain, "texture_right_selected", theme.btnTexRS, false);
 	btnTexSet.centerSel = _texture(domain, "texture_center_selected", theme.btnTexCS, false);
-
-	font = _font(theme.fontSet, domain, "font", BUTTONFONT);
-
+	font = _font(domain, "font", BUTTONFONT);
 	GuiSound *clickSound = _sound(theme.soundSet, domain, "click_sound", theme.clickSound->GetName());
 	GuiSound *hoverSound = _sound(theme.soundSet, domain, "hover_sound", theme.hoverSound->GetName());
-
-	u16 btnPos = _textStyle(domain, "elmstyle", FTGX_JUSTIFY_LEFT | FTGX_ALIGN_TOP);
-	if (btnPos & FTGX_JUSTIFY_RIGHT)
-		x = m_vid.width() - x - width;
-	if (btnPos & FTGX_ALIGN_BOTTOM)
-		y = m_vid.height() - y - height;
-
-	return m_btnMgr.addButton(font, text, x, y, width, height, c, btnTexSet, clickSound, hoverSound);
-}
-
-s16 CMenu::_addSelButton(const char *domain, SFont font, const wstringEx &text, int x, int y, u32 width, u32 height, const CColor &color)
-{
-	SButtonTextureSet btnTexSet;
-	CColor c(color);
-
-	c = m_theme.getColor(domain, "color", c);
-	x = m_theme.getInt(domain, "x", x);
-	y = m_theme.getInt(domain, "y", y);
-	width = m_theme.getInt(domain, "width", width);
-	height = m_theme.getInt(domain, "height", height);
-	btnTexSet.left = _texture(domain, "texture_left", theme.btnTexLH, false);
-	btnTexSet.right = _texture(domain, "texture_right", theme.btnTexRH, false);
-	btnTexSet.center = _texture(domain, "texture_center", theme.btnTexCH, false);
-	btnTexSet.leftSel = _texture(domain, "texture_left_selected", theme.btnTexLSH, false);
-	btnTexSet.rightSel = _texture(domain, "texture_right_selected", theme.btnTexRSH, false);
-	btnTexSet.centerSel = _texture(domain, "texture_center_selected", theme.btnTexCSH, false);
-
-	font = _font(theme.fontSet, domain, "font", BUTTONFONT);
-
-	GuiSound *clickSound = _sound(theme.soundSet, domain, "click_sound", theme.clickSound->GetName());
-	GuiSound *hoverSound = _sound(theme.soundSet, domain, "hover_sound", theme.hoverSound->GetName());
-
-	u16 btnPos = _textStyle(domain, "elmstyle", FTGX_JUSTIFY_LEFT | FTGX_ALIGN_TOP);
-	if (btnPos & FTGX_JUSTIFY_RIGHT)
-		x = m_vid.width() - x - width;
-	if (btnPos & FTGX_ALIGN_BOTTOM)
-		y = m_vid.height() - y - height;
-
 	return m_btnMgr.addButton(font, text, x, y, width, height, c, btnTexSet, clickSound, hoverSound);
 }
 
@@ -1421,13 +1418,6 @@ s16 CMenu::_addPicButton(const char *domain, TexData &texNormal, TexData &texSel
 	TexData tex2 = _texture(domain, "texture_selected", texSelected, false);
 	GuiSound *clickSound = _sound(theme.soundSet, domain, "click_sound", theme.clickSound->GetName());
 	GuiSound *hoverSound = _sound(theme.soundSet, domain, "hover_sound", theme.hoverSound->GetName());
-
-	u16 btnPos = _textStyle(domain, "elmstyle", FTGX_JUSTIFY_LEFT | FTGX_ALIGN_TOP);
-	if (btnPos & FTGX_JUSTIFY_RIGHT)
-		x = m_vid.width() - x - width;
-	if (btnPos & FTGX_ALIGN_BOTTOM)
-		y = m_vid.height() - y - height;
-
 	return m_btnMgr.addPicButton(tex1, tex2, x, y, width, height, clickSound, hoverSound);
 }
 
@@ -1440,15 +1430,8 @@ s16 CMenu::_addTitle(const char *domain, SFont font, const wstringEx &text, int 
 	y = m_theme.getInt(domain, "y", y);
 	width = m_theme.getInt(domain, "width", width);
 	height = m_theme.getInt(domain, "height", height);
-	font = _font(theme.fontSet, domain, "font", TITLEFONT);
+	font = _font(domain, "font", TITLEFONT);
 	style = _textStyle(domain, "style", style);
-
-	u16 btnPos = _textStyle(domain, "elmstyle", FTGX_JUSTIFY_LEFT | FTGX_ALIGN_TOP);
-	if (btnPos & FTGX_JUSTIFY_RIGHT)
-		x = m_vid.width() - x - width;
-	if (btnPos & FTGX_ALIGN_BOTTOM)
-		y = m_vid.height() - y - height;
-
 	return m_btnMgr.addLabel(font, text, x, y, width, height, c, style);
 }
 
@@ -1461,15 +1444,8 @@ s16 CMenu::_addText(const char *domain, SFont font, const wstringEx &text, int x
 	y = m_theme.getInt(domain, "y", y);
 	width = m_theme.getInt(domain, "width", width);
 	height = m_theme.getInt(domain, "height", height);
-	font = _font(theme.fontSet, domain, "font", TEXTFONT);
+	font = _font(domain, "font", TEXTFONT);
 	style = _textStyle(domain, "style", style);
-
-	u16 btnPos = _textStyle(domain, "elmstyle", FTGX_JUSTIFY_LEFT | FTGX_ALIGN_TOP);
-	if (btnPos & FTGX_JUSTIFY_RIGHT)
-		x = m_vid.width() - x - width;
-	if (btnPos & FTGX_ALIGN_BOTTOM)
-		y = m_vid.height() - y - height;
-
 	return m_btnMgr.addLabel(font, text, x, y, width, height, c, style);
 }
 
@@ -1482,15 +1458,8 @@ s16 CMenu::_addLabel(const char *domain, SFont font, const wstringEx &text, int 
 	y = m_theme.getInt(domain, "y", y);
 	width = m_theme.getInt(domain, "width", width);
 	height = m_theme.getInt(domain, "height", height);
-	font = _font(theme.fontSet, domain, "font", LABELFONT);
+	font = _font(domain, "font", LABELFONT);
 	style = _textStyle(domain, "style", style);
-
-	u16 btnPos = _textStyle(domain, "elmstyle", FTGX_JUSTIFY_LEFT | FTGX_ALIGN_TOP);
-	if (btnPos & FTGX_JUSTIFY_RIGHT)
-		x = m_vid.width() - x - width;
-	if (btnPos & FTGX_ALIGN_BOTTOM)
-		y = m_vid.height() - y - height;
-
 	return m_btnMgr.addLabel(font, text, x, y, width, height, c, style);
 }
 
@@ -1503,16 +1472,9 @@ s16 CMenu::_addLabel(const char *domain, SFont font, const wstringEx &text, int 
 	y = m_theme.getInt(domain, "y", y);
 	width = m_theme.getInt(domain, "width", width);
 	height = m_theme.getInt(domain, "height", height);
-	font = _font(theme.fontSet, domain, "font", BUTTONFONT);
+	font = _font(domain, "font", BUTTONFONT);
 	TexData texBg = _texture(domain, "background_texture", bg, false);
 	style = _textStyle(domain, "style", style);
-
-	u16 btnPos = _textStyle(domain, "elmstyle", FTGX_JUSTIFY_LEFT | FTGX_ALIGN_TOP);
-	if (btnPos & FTGX_JUSTIFY_RIGHT)
-		x = m_vid.width() - x - width;
-	if (btnPos & FTGX_ALIGN_BOTTOM)
-		y = m_vid.height() - y - height;
-
 	return m_btnMgr.addLabel(font, text, x, y, width, height, c, style, texBg);
 }
 
@@ -1530,13 +1492,6 @@ s16 CMenu::_addProgressBar(const char *domain, int x, int y, u32 width, u32 heig
 	btnTexSet.leftSel = _texture(domain, "texture_left_selected", theme.pbarTexLS, false);
 	btnTexSet.rightSel = _texture(domain, "texture_right_selected", theme.pbarTexRS, false);
 	btnTexSet.centerSel = _texture(domain, "texture_center_selected", theme.pbarTexCS, false);
-
-	u16 btnPos = _textStyle(domain, "elmstyle", FTGX_JUSTIFY_LEFT | FTGX_ALIGN_TOP);
-	if (btnPos & FTGX_JUSTIFY_RIGHT)
-		x = m_vid.width() - x - width;
-	if (btnPos & FTGX_ALIGN_BOTTOM)
-		y = m_vid.height() - y - height;
-
 	return m_btnMgr.addProgressBar(x, y, width, height, btnTexSet);
 }
 
@@ -1546,23 +1501,6 @@ void CMenu::_setHideAnim(s16 id, const char *domain, int dx, int dy, float scale
 	dy = m_theme.getInt(domain, "effect_y", dy);
 	scaleX = m_theme.getFloat(domain, "effect_scale_x", scaleX);
 	scaleY = m_theme.getFloat(domain, "effect_scale_y", scaleY);
-
-	int x, y;
-	u32 width, height;
-	m_btnMgr.getDimensions(id, x, y, width, height);
-
-	u16 btnPos = _textStyle(domain, "elmstyle", FTGX_JUSTIFY_LEFT | FTGX_ALIGN_TOP);
-	if (btnPos & FTGX_JUSTIFY_RIGHT)
-	{
-		dx = m_vid.width() - dx - width;
-		scaleX = m_vid.width() - scaleX - width;
-	}
-	if (btnPos & FTGX_ALIGN_BOTTOM)
-	{
-		dy = m_vid.height() - dy - height;
-		scaleY = m_vid.height() - scaleY - height;
-	}
-
 	m_btnMgr.hide(id, dx, dy, scaleX, scaleY, true);
 }
 
@@ -1585,25 +1523,6 @@ void CMenu::_addUserLabels(s16 *ids, u32 start, u32 size, const char *domain)
 		}
 		else
 			ids[i] = -1;
-	}
-}
-
-void CMenu::_checkForSinglePlugin(void)
-{
-	enabledPluginPos = 0;
-	enabledPluginsCount = 0;
-	const vector<bool> &EnabledPlugins = m_plugin.GetEnabledPlugins(m_cfg);
-	if(m_cfg.getBool(PLUGIN_DOMAIN, "source", true) && EnabledPlugins.size() != 0)
-	{
-		for(u8 i = 0; i < EnabledPlugins.size(); i++)
-		{
-			if(EnabledPlugins.at(i))
-			{
-				enabledPluginPos = i;
-				enabledPluginsCount++;
-			}
-		}
-		snprintf(PluginMagicWord, sizeof(PluginMagicWord), "%08x", m_plugin.getPluginMagic(enabledPluginPos));
 	}
 }
 
@@ -1633,8 +1552,7 @@ void CMenu::_initCF(void)
 			gametdb.SetLanguageCode(m_loc.getString(m_curLanguage, "gametdb_code", "EN").c_str());
 		}
 	}
-	_checkForSinglePlugin();
-	const vector<bool> &EnabledPlugins = m_plugin.GetEnabledPlugins(m_cfg);
+	const vector<bool> &EnabledPlugins = m_plugin.GetEnabledPlugins(m_cfg, &enabledPluginsCount);
 
 	for(vector<dir_discHdr>::iterator element = m_gameList.begin(); element != m_gameList.end(); ++element)
 	{
@@ -1992,10 +1910,8 @@ void CMenu::_mainLoopCommon(bool withCF, bool adjusting)
 	}
 
 #ifdef SHOWMEM
-	m_btnMgr.setText(m_mem1FreeSize, wfmt(L"Mem1 lo Free:%u, Mem1 Free:%u", 
-				MEM1_lo_freesize(), MEM1_freesize()), true);
-	m_btnMgr.setText(m_mem2FreeSize, wfmt(L"Mem2 lo Free:%u, Mem2 Free:%u", 
-				MEM2_lo_freesize(), MEM2_freesize()), true);
+	m_btnMgr.setText(m_mem1FreeSize, wfmt(L"Mem1 lo Free:%u, Mem1 Free:%u, Mem2 Free:%u",
+				MEM1_lo_freesize(), MEM1_freesize(), MEM2_freesize()), true);
 #endif
 
 #ifdef SHOWMEMGECKO
@@ -2139,21 +2055,32 @@ void CMenu::_drawBg(void)
 
 void CMenu::_updateText(void)
 {
+	_textSource();
+	_textPluginSettings();
+	_textCategorySettings();
+	_textCheatSettings();
+	_textSystem();
 	_textMain();
-	_textError();
 	_textConfig();
 	_textConfig3();
 	_textConfigScreen();
 	_textConfig4();
-	_textConfigSnd();
 	_textConfigAdv();
-	_textDownload();
+	_textConfigSnd();
 	_textGame();
+	_textDownload();
 	_textCode();
 	_textWBFS();
 	_textGameSettings();
-	_textCategorySettings();
-	_textSystem();
+	_textLangSettings();
+	_textNandEmu();
+	_textHome();
+	_textExitTo();
+	_textBoot();
+	_textCoverBanner();
+	_textExplorer();
+	_textWad();
+	_textFTP();
 }
 
 const wstringEx CMenu::_fmt(const char *key, const wchar_t *def)
@@ -2165,6 +2092,7 @@ const wstringEx CMenu::_fmt(const char *key, const wchar_t *def)
 
 bool CMenu::_loadChannelList(void)
 {
+	m_gameList.clear();
 	string emuPath;
 	string cacheDir;
 	int emuPartition = -1;
@@ -2193,47 +2121,63 @@ bool CMenu::_loadList(void)
 {
 	CoverFlow.clear();
 	m_gameList.clear();
+	vector<dir_discHdr> combinedList;
 	NANDemuView = false;
-	u8 sources = 0;
 	gprintf("Creating Gamelist\n");
 
-	if((m_current_view == COVERFLOW_USB && !m_cfg.has(WII_DOMAIN, "source")) || 
-			m_cfg.getBool(WII_DOMAIN, "source"))
-	{
-		m_current_view = COVERFLOW_USB;
-		_loadGameList();
-		sources++;
-	}
 	if((m_current_view == COVERFLOW_PLUGIN && !m_cfg.has(PLUGIN_DOMAIN, "source")) || 
 		m_cfg.getBool(PLUGIN_DOMAIN, "source"))
 	{
 		m_current_view = COVERFLOW_PLUGIN;
 		_loadEmuList();
-		sources++;
+		if(m_combined_view)
+			for(vector<dir_discHdr>::iterator tmp_itr = m_gameList.begin(); tmp_itr != m_gameList.end(); tmp_itr++)
+				combinedList.push_back(*tmp_itr);
+	}
+	if((m_current_view == COVERFLOW_USB && !m_cfg.has(WII_DOMAIN, "source")) || 
+			m_cfg.getBool(WII_DOMAIN, "source"))
+	{
+		m_current_view = COVERFLOW_USB;
+		_loadGameList();
+		if(m_combined_view)
+			for(vector<dir_discHdr>::iterator tmp_itr = m_gameList.begin(); tmp_itr != m_gameList.end(); tmp_itr++)
+				combinedList.push_back(*tmp_itr);
 	}
 	if((m_current_view == COVERFLOW_CHANNEL && !m_cfg.has(CHANNEL_DOMAIN, "source")) || 
 			m_cfg.getBool(CHANNEL_DOMAIN, "source"))
 	{
 		m_current_view = COVERFLOW_CHANNEL;
 		_loadChannelList();
-		sources++;
+		if(m_combined_view)
+			for(vector<dir_discHdr>::iterator tmp_itr = m_gameList.begin(); tmp_itr != m_gameList.end(); tmp_itr++)
+				combinedList.push_back(*tmp_itr);
 	}
 	if((m_current_view == COVERFLOW_DML && !m_cfg.has(GC_DOMAIN, "source")) || 
 			m_cfg.getBool(GC_DOMAIN, "source"))
 	{
 		m_current_view = COVERFLOW_DML;
 		_loadDmlList();
-		sources++;
+		if(m_combined_view)
+			for(vector<dir_discHdr>::iterator tmp_itr = m_gameList.begin(); tmp_itr != m_gameList.end(); tmp_itr++)
+				combinedList.push_back(*tmp_itr);
 	}
 	if((m_current_view == COVERFLOW_HOMEBREW && !m_cfg.has(HOMEBREW_DOMAIN, "source")) || 
 			m_cfg.getBool(HOMEBREW_DOMAIN, "source"))
 	{
 		m_current_view = COVERFLOW_HOMEBREW;
 		_loadHomebrewList();
-		sources++;
+		if(m_combined_view)
+			for(vector<dir_discHdr>::iterator tmp_itr = m_gameList.begin(); tmp_itr != m_gameList.end(); tmp_itr++)
+				combinedList.push_back(*tmp_itr);
 	}
-	if(sources > 1)
+	if(m_combined_view)
+	{
 		m_current_view = COVERFLOW_MAX;
+		m_gameList.clear();
+		for(vector<dir_discHdr>::iterator tmp_itr = combinedList.begin(); tmp_itr != combinedList.end(); tmp_itr++)
+			m_gameList.push_back(*tmp_itr);
+		combinedList.clear();
+	}
 
 	gprintf("Games found: %i\n", m_gameList.size());
 	return m_gameList.size() > 0 ? true : false;
@@ -2245,8 +2189,9 @@ bool CMenu::_loadGameList(void)
 	if(!DeviceHandle.IsInserted(currentPartition))
 		return false;
 
+	m_gameList.clear();
 	DeviceHandle.OpenWBFS(currentPartition);
-	string gameDir(fmt(GAMES_DIR, DeviceName[currentPartition]));
+	string gameDir(fmt(wii_games_dir, DeviceName[currentPartition]));
 	string cacheDir(fmt("%s/%s_wii.db", m_listCacheDir.c_str(), DeviceName[currentPartition]));
 	bool updateCache = m_cfg.getBool(WII_DOMAIN, "update_cache");
 	m_gameList.CreateList(COVERFLOW_USB, currentPartition, gameDir, stringToVector(".wbfs|.iso", '|'), cacheDir, updateCache);
@@ -2261,6 +2206,7 @@ bool CMenu::_loadHomebrewList()
 	if(!DeviceHandle.IsInserted(currentPartition))
 		return false;
 
+	m_gameList.clear();
 	string gameDir(fmt(HOMEBREW_DIR, DeviceName[currentPartition]));
 	string cacheDir(fmt("%s/%s_homebrew.db", m_listCacheDir.c_str(), DeviceName[currentPartition]));
 	bool updateCache = m_cfg.getBool(HOMEBREW_DOMAIN, "update_cache");
@@ -2275,6 +2221,7 @@ bool CMenu::_loadDmlList()
 	if(!DeviceHandle.IsInserted(currentPartition))
 		return false;
 
+	m_gameList.clear();
 	string gameDir(fmt(currentPartition == SD ? DML_DIR : m_DMLgameDir.c_str(), DeviceName[currentPartition]));
 	string cacheDir(fmt("%s/%s_gamecube.db", m_listCacheDir.c_str(), DeviceName[currentPartition]));
 	bool updateCache = m_cfg.getBool(GC_DOMAIN, "update_cache");
@@ -2374,31 +2321,14 @@ void CMenu::_stopSounds(void)
 
 bool CMenu::_loadFile(u8 * &buffer, u32 &size, const char *path, const char *file)
 {
-	size = 0;
-	FILE *fp = fopen(file == NULL ? path : fmt("%s/%s", path, file), "rb");
-	if (fp == NULL)
+	u32 fileSize = 0;
+	u8 *fileBuf = fsop_ReadFile(file == NULL ? path : fmt("%s/%s", path, file), &fileSize);
+	if(fileBuf == NULL)
 		return false;
-
-	fseek(fp, 0, SEEK_END);
-	u32 fileSize = ftell(fp);
-	fseek(fp, 0, SEEK_SET);
-	u8 *fileBuf = (u8*)MEM2_alloc(fileSize);
-	if (fileBuf == NULL)
-	{
-		fclose(fp);
-		return false;
-	}
-	if (fread(fileBuf, 1, fileSize, fp) != fileSize)
-	{
-		fclose(fp);
-		return false;
-	}
-	fclose(fp);
 
 	if(buffer != NULL)
 		free(buffer);
 	buffer = fileBuf;
-
 	size = fileSize;
 	return true;
 }
@@ -2580,11 +2510,37 @@ void CMenu::UpdateCache(u32 view)
 		UpdateCache(COVERFLOW_CHANNEL);
 		return;
 	}
-	m_cfg.setBool(_domainFromView(), "update_cache", true);
+	switch(view)
+	{
+		case COVERFLOW_CHANNEL:
+			m_cfg.setBool(CHANNEL_DOMAIN, "update_cache", true);
+			break;
+		case COVERFLOW_HOMEBREW:
+			m_cfg.setBool(HOMEBREW_DOMAIN, "update_cache", true);
+			break;
+		case COVERFLOW_DML:
+			m_cfg.setBool(GC_DOMAIN, "update_cache", true);
+			break;
+		case COVERFLOW_PLUGIN:
+			m_cfg.setBool(PLUGIN_DOMAIN, "update_cache", true);
+			break;
+		default:
+			m_cfg.setBool(WII_DOMAIN, "update_cache", true);
+	}
 }
 
-int CMenu::MIOSisDML()
+void CMenu::MIOSisDML()
 {
+	/*
+	0=mios
+	1=dm
+	2=qf
+	*/
+	m_mios_ver = 0;
+	m_sd_dm = false;
+	m_new_dml = false;
+	m_new_dm_cfg = false;
+
 	u32 size = 0;
 	char ISFS_Filename[ISFS_MAXPATH] ATTRIBUTE_ALIGN(32);
 	strcpy(ISFS_Filename, "/title/00000001/00000101/content/0000000c.app");
@@ -2592,27 +2548,48 @@ int CMenu::MIOSisDML()
 	if(appfile)
 	{
 		for(u32 i = 0; i < size; ++i) 
-		{	/* GCLoader check */
-			if(*(vu32*)(appfile+i) == 0x47434C6F && *(vu32*)(appfile+i+4) == 0x61646572)
+		{
+			/* check for some odd looking elf signs */
+			if(m_mios_ver == 0 && *(vu32*)(appfile+i) == 0x7F454C46 && *(vu32*)(appfile+i+4) != 0x01020161)
 			{
-				for(u32 j = 0; j < size; ++j)
-				{	/* Lite or Quad (QuadForce name string only exist in QuadForce SD) */
-					if(*(vu32*)(appfile+j) == 0x4C697465 || *(vu32*)(appfile+j) == 0x51756164)
-					{
-						gprintf("DIOS-MIOS Lite/QuadForce SD is installed as MIOS\n");
-						free(appfile);
-						return 2;
-					}
-				}
-				gprintf("DIOS-MIOS/QuadForce USB is installed as MIOS\n");
-				free(appfile);
-				return 1;
+				m_mios_ver = 1;
+				m_new_dml = true; /* assume cfg dm */
 			}
+			/* seaching for an old debug print in boot.bin only dml revs */
+			if(*(vu32*)(appfile+i) == 0x5573696E && *(vu32*)(appfile+i+4) == 0x6720656E)
+			{
+				m_mios_ver = 1;
+				m_new_dml = false; /* boot.bin dm */
+			}
+			/* pic checks */
+			if(*(vu32*)(appfile+i) == 0xF282F280 && *(vu32*)(appfile+i+4) == 0xF281F27F) /* pic at 0x35000 */
+			{
+				m_mios_ver = 1;
+				m_new_dm_cfg = true; /* newer dm cfg */
+			}
+			if(*(vu32*)(appfile+i) == 0x5A9B5A77 && *(vu32*)(appfile+i+4) == 0x5C9A5B78) /* pic at 0x35000 */
+			{
+				m_mios_ver = 1;
+				m_new_dm_cfg = true; /* current dm cfg */
+			}
+			if(*(vu32*)(appfile+i) == 0x68846791 && *(vu32*)(appfile+i+4) == 0x63836390) /* pic at 0x6b000 */
+			{
+				m_mios_ver = 1;
+				m_new_dm_cfg = false; /* older dm cfg */
+			}
+			if(*(vu32*)(appfile+i) == 0x1D981F78 && *(vu32*)(appfile+i+4) == 0x1E991E79) /* pic at 0x95000 */
+			{
+				m_mios_ver = 2;
+				m_new_dm_cfg = true; /* qf */
+			}
+			/* Lite or Quad string for SD versions */
+			if(*(vu32*)(appfile+i) == 0x4C697465 || *(vu32*)(appfile+i) == 0x51756164)
+				m_sd_dm = true;
 		}
 		free(appfile);
 	}
-	gprintf("DIOS-MIOS (Lite) not found\n");
-	return 0;
+	gprintf("m_mios_ver = %u; m_sd_dm = %d; m_new_dml = %d; m_new_dm_cfg = %d\n", 
+									m_mios_ver, m_sd_dm, m_new_dml, m_new_dm_cfg);
 }
 
 void CMenu::RemoveCover(const char *id)

@@ -4,7 +4,6 @@
 #include "lockMutex.hpp"
 #include "channel/nand.hpp"
 #include "gc/gc.hpp"
-#include "fileOps/fileOps.h"
 #include "loader/wbfs.h"
 #include "loader/wdvd.h"
 #include "loader/gc_disc_dump.hpp"
@@ -88,33 +87,31 @@ static inline bool _searchGamesByID(const char *gameId)
 	return false;
 }
 
-void CMenu::_Messenger(int message, int info, char *cinfo, void *user_data)
+void CMenu::GC_Messenger(int message, int info, char *cinfo)
 {
-	CMenu &m = *(CMenu *)user_data;
-	LWP_MutexLock(m.m_mutex);
 	if(message == 1)
-		m._setThrdMsg(wfmt(m._fmt("wbfsop23", L"Calculating space needed for %s...\n Please insert disc %d to continue"), cinfo, info), m.m_progress);
-	if(message == 2)
-		m._setThrdMsg(wfmt(m._fmt("wbfsop15", L"Calculating space needed for %s"), cinfo), m.m_progress);
-	if(message == 3)
-		m._setThrdMsg(wfmt(m._fmt("wbfsop16", L"Installing %s"), cinfo), m.m_progress);
-	if(message == 4)
-		m._setThrdMsg(wfmt(m._fmt("wbfsop17", L"Installing %s disc %d/2"), cinfo, info), m.m_progress);
-	if(message == 5)
-		m._setThrdMsg(m._t("wbfsop18", L"Don't try to trick me with a Wii disc!!"), m.m_progress);
-	if(message == 6)	
-		m._setThrdMsg(m._t("wbfsop19", L"This is not a GC disc!!"), m.m_progress);
-	if(message == 7)
-		m._setThrdMsg(wfmt(m._fmt("wbfsop20", L"You inserted disc %d again!!"), info), m.m_progress);
-	if(message == 8)
-		m._setThrdMsg(m._t("wbfsop21", L"This is a disc of another game!!"), m.m_progress);
-	if(message == 9)
-		m._setThrdMsg(wfmt(m._fmt("wbfsop22", L"Installing %s...\n Please insert disc 2 to continue"), cinfo), m.m_progress);
-	if(message == 10)	
-		m._setThrdMsg(m._t("wbfsop25", L"Disc read error!! Please clean the disc"), m.m_progress);
-	if(message == 11)	
-		m._setThrdMsg(m._t("wbfsop26", L"Disc ejected!! Please insert disc again"), m.m_progress);
-	LWP_MutexUnlock(m.m_mutex);
+		m_thrdMessage = wfmt(_fmt("wbfsop23", L"Calculating space needed for %s...\n Please insert disc %d to continue"), cinfo, info);
+	else if(message == 2)
+		m_thrdMessage = wfmt(_fmt("wbfsop15", L"Calculating space needed for %s"), cinfo);
+	else if(message == 3)
+		m_thrdMessage = wfmt(_fmt("wbfsop16", L"Installing %s"), cinfo);
+	else if(message == 4)
+		m_thrdMessage = wfmt(_fmt("wbfsop17", L"Installing %s disc %d/2"), cinfo, info);
+	else if(message == 5)
+		m_thrdMessage = _t("wbfsop18", L"Don't try to trick me with a Wii disc!!");
+	else if(message == 6)
+		m_thrdMessage = _t("wbfsop19", L"This is not a GC disc!!");
+	else if(message == 7)
+		m_thrdMessage = wfmt(_fmt("wbfsop20", L"You inserted disc %d again!!"), info);
+	else if(message == 8)
+		m_thrdMessage = _t("wbfsop21", L"This is a disc of another game!!");
+	else if(message == 9)
+		m_thrdMessage = wfmt(_fmt("wbfsop22", L"Installing %s...\n Please insert disc 2 to continue"), cinfo);
+	else if(message == 10)
+		m_thrdMessage = _t("wbfsop25", L"Disc read error!! Please clean the disc");
+	else if(message == 11)
+		m_thrdMessage = _t("wbfsop26", L"Disc ejected!! Please insert disc again");
+	m_thrdMessageAdded = true;
 }
 
 int CMenu::_gameInstaller(void *obj)
@@ -159,29 +156,28 @@ int CMenu::_gameInstaller(void *obj)
 	return ret;
 }
 
-int CMenu::_GCgameInstaller(void *obj)
+int CMenu::_GCgameInstaller()
 {
-	CMenu &m = *(CMenu *)obj;
 	GCDump m_gcdump;
 
-	bool skip = m.m_cfg.getBool(GC_DOMAIN, "skip_on_error", false);
-	bool comp = m.m_cfg.getBool(GC_DOMAIN, "compressed_dump", false);
-	bool wexf = m.m_cfg.getBool(GC_DOMAIN, "write_ex_files", true);
-	bool alig = m.m_cfg.getBool(GC_DOMAIN, "force_32k_align_files", false);
-	u32 nretry = m.m_cfg.getUInt(GC_DOMAIN, "num_retries", 5);
+	bool skip = m_cfg.getBool(GC_DOMAIN, "skip_on_error", false);
+	bool comp = m_cfg.getBool(GC_DOMAIN, "compressed_dump", false);
+	bool wexf = m_cfg.getBool(GC_DOMAIN, "write_ex_files", true);
+	bool alig = m_cfg.getBool(GC_DOMAIN, "force_32k_align_files", false);
+	u32 nretry = m_cfg.getUInt(GC_DOMAIN, "num_retries", 5);
 	u32 rsize = 1048576; //1MB
 
 	if(skip)
 		rsize = 8192; // Use small chunks when skip on error is enabled
 
-	m_gcdump.Init(skip, comp, wexf, alig, nretry, rsize,DeviceName[currentPartition],m.m_DMLgameDir.c_str(), _addDiscProgress, _Messenger, obj);
+	m_gcdump.Init(skip, comp, wexf, alig, nretry, rsize, DeviceName[currentPartition], m_DMLgameDir.c_str());
 	
-	int ret;	
-	m.m_progress = 0.f;
+	int ret;
+	m_progress = 0.f;
 
 	if(!DeviceHandle.IsInserted(currentPartition))
 	{
-		m.m_thrdWorking = false;
+		m_thrdWorking = false;
 		return -1;
 	}
 
@@ -193,40 +189,34 @@ int CMenu::_GCgameInstaller(void *obj)
 	ret = m_gcdump.CheckSpace(&needed, comp);
 	if(ret != 0)
 	{
-		m._setThrdMsg(m._t("wbfsop9", L"An error has occurred"), 1.f);
-		m.m_thrdWorking = false;
+		_setThrdMsg(_t("wbfsop9", L"An error has occurred"), 1.f);
+		m_thrdWorking = false;
 		return ret;
 	}
 
 	if(m_gcdump.GetFreeSpace(partition, BL) <= needed)
 	{
 		gprintf("Free space available: %d Mb (%d blocks)\n", m_gcdump.GetFreeSpace(partition, MB), m_gcdump.GetFreeSpace(partition, BL));
-		LWP_MutexLock(m.m_mutex);
-		m._setThrdMsg(wfmt(m._fmt("wbfsop24", L"Not enough space: %d blocks needed, %d available"), needed, m_gcdump.GetFreeSpace(partition, BL)), 0.f);
-		LWP_MutexUnlock(m.m_mutex);
+		_setThrdMsg(wfmt(_fmt("wbfsop24", L"Not enough space: %d blocks needed, %d available"), needed, m_gcdump.GetFreeSpace(partition, BL)), 0.f);
 		ret = -1;
 	}
 	else
 	{
 		gprintf("Free space available: %d Mb (%d blocks)\n", m_gcdump.GetFreeSpace(partition, MB), m_gcdump.GetFreeSpace(partition, BL));
-		LWP_MutexLock(m.m_mutex);
-		m._setThrdMsg(L"", 0);
-		LWP_MutexUnlock(m.m_mutex);
+		_setThrdMsg(L"", 0);
 
 		ret = m_gcdump.DumpGame();
-		LWP_MutexLock(m.m_mutex);
 		if(ret == 0)
-			m._setThrdMsg(m._t("wbfsop8", L"Game installed"), 1.f);
+			_setThrdMsg(_t("wbfsop8", L"Game installed"), 1.f);
 		else if( ret >= 0x30200)
-			m._setThrdMsg(wfmt(m._fmt("wbfsop12", L"DVDError(%d)"), ret), 1.f);
+			_setThrdMsg(wfmt(_fmt("wbfsop12", L"DVDError(%d)"), ret), 1.f);
 		else if( ret > 0)
-			m._setThrdMsg(wfmt(m._fmt("wbfsop13", L"Game installed, but disc contains errors (%d)"), ret), 1.f);
+			_setThrdMsg(wfmt(_fmt("wbfsop13", L"Game installed, but disc contains errors (%d)"), ret), 1.f);
 		else
-			m._setThrdMsg(m._t("wbfsop9", L"An error has occurred"), 1.f);
-		LWP_MutexUnlock(m.m_mutex);
+			_setThrdMsg(_t("wbfsop9", L"An error has occurred"), 1.f);
 		slotLight(true);
 	}
-	m.m_thrdWorking = false;
+	m_thrdWorking = false;
 	return ret;
 }
 
@@ -256,8 +246,7 @@ int CMenu::_GCcopyGame(void *obj)
 	m._setThrdMsg(L"", 0);
 	gprintf("Copying from:\n%s\nto:\n%s\n", source, target);
 	LWP_MutexUnlock(m.m_mutex);
-	if (!fsop_DirExist(folder))
-		fsop_MakeFolder(folder);
+	fsop_MakeFolder(folder);
 	fsop_CopyFolder(source, target, _addDiscProgress, obj);
 	LWP_MutexLock(m.m_mutex);
 	m._setThrdMsg(m._t("wbfsop14", L"Game copied, press Back to boot the game."), 1.f);
@@ -279,6 +268,7 @@ bool CMenu::_wbfsOp(CMenu::WBFS_OP op)
 	bool upd_usb = false;
 	bool upd_dml = false;
 	bool upd_emu = false;
+	bool upd_chan = false;
 	bool out = false;
 	const dir_discHdr *CF_Hdr = CoverFlow.getHdr();
 	char cfPos[7];
@@ -321,14 +311,14 @@ bool CMenu::_wbfsOp(CMenu::WBFS_OP op)
 					case WO_ADD_GAME:
 						MusicPlayer.Stop();
 						TempLoadIOS();
-						m_btnMgr.hide(m_configLblPartitionName);
-						m_btnMgr.hide(m_configLblPartition);
-						m_btnMgr.hide(m_configBtnPartitionP);
-						m_btnMgr.hide(m_configBtnPartitionM);
-						m_btnMgr.show(m_wbfsPBar);
-						m_btnMgr.setProgress(m_wbfsPBar, 0.f);
-						m_btnMgr.hide(m_wbfsBtnGo);
-						m_btnMgr.show(m_wbfsLblMessage);
+						m_btnMgr.hide(m_configLblPartitionName, true);
+						m_btnMgr.hide(m_configLblPartition, true);
+						m_btnMgr.hide(m_configBtnPartitionP, true);
+						m_btnMgr.hide(m_configBtnPartitionM, true);
+						m_btnMgr.show(m_wbfsPBar, true);
+						m_btnMgr.setProgress(m_wbfsPBar, 0.f, true);
+						m_btnMgr.hide(m_wbfsBtnGo, true);
+						m_btnMgr.show(m_wbfsLblMessage, true);
 						m_btnMgr.setText(m_wbfsLblMessage, L"");
 						if (Disc_Wait() < 0)
 						{
@@ -372,13 +362,16 @@ bool CMenu::_wbfsOp(CMenu::WBFS_OP op)
 								break;
 							}
 							strncpy(cfPos, GameID, 6);
-							m_btnMgr.setText(m_wbfsLblDialog, wfmt(_fmt("wbfsop6", L"Installing [%s] %s..."), GameID, gc_hdr.title));
 							done = true;
 							upd_dml = true;
 							m_thrdWorking = true;
 							m_thrdProgress = 0.f;
-							m_thrdMessageAdded = false;
-							LWP_CreateThread(&thread, (void *(*)(void *))_GCgameInstaller, (void *)this, 0, 8 * 1024, 64);
+							//LWP_CreateThread(&thread, (void *(*)(void *))_GCgameInstaller, (void *)this, 0, 8 * 1024, 64);
+							_start_pThread();
+							m_thrdMessage = wfmt(_fmt("wbfsop6", L"Installing [%s] %s..."), GameID, gc_hdr.title);
+							m_thrdMessageAdded = true;
+							_GCgameInstaller();
+							_stop_pThread();
 						}
 						else
 						{
@@ -422,6 +415,26 @@ bool CMenu::_wbfsOp(CMenu::WBFS_OP op)
 							WBFS_Close();
 							upd_usb = true;
 						}
+						else if(CF_Hdr->type == TYPE_CHANNEL && !m_cfg.getBool(CHANNEL_DOMAIN, "disable", true))
+						{
+							if(CF_Hdr->settings[0] != 0x00010001)
+							{
+								error(_t("wbfsoperr5", L"Deleting this Channel is not allowed!"));
+								done = true;
+								out = true;
+								break;
+							}
+							const char *nand_base = NandHandle.GetPath();
+							fsop_deleteFolder(fmt("%s/title/%08x/%08x", nand_base, CF_Hdr->settings[0], CF_Hdr->settings[1]));
+							fsop_deleteFile(fmt("%s/ticket/%08x/%08x.tik", nand_base, CF_Hdr->settings[0], CF_Hdr->settings[1]));
+							upd_chan = true;
+						}
+						else /*who knows how but just block it*/
+						{
+							done = true;
+							out = true;
+							break;
+						}
 						if(m_cfg.getBool("GENERAL", "delete_cover_and_game", false))
 							RemoveCover(CF_Hdr->id);
 						m_btnMgr.show(m_wbfsPBar);
@@ -447,10 +460,10 @@ bool CMenu::_wbfsOp(CMenu::WBFS_OP op)
 							_setThrdMsg(wfmt(_fmt("wbfsop24", L"Not enough space: %d blocks needed, %d available"), fsop_GetFolderKb(GC_Path.c_str()), fsop_GetFreeSpaceKb("sd:/")), 0.f);
 							break;
 						}
-						m_btnMgr.show(m_wbfsPBar);
-						m_btnMgr.setProgress(m_wbfsPBar, 0.f);
-						m_btnMgr.hide(m_wbfsBtnGo);
-						m_btnMgr.show(m_wbfsLblMessage);
+						m_btnMgr.show(m_wbfsPBar, true);
+						m_btnMgr.setProgress(m_wbfsPBar, 0.f, true);
+						m_btnMgr.hide(m_wbfsBtnGo, true);
+						m_btnMgr.show(m_wbfsLblMessage, true);
 						m_btnMgr.setText(m_wbfsLblMessage, L"");
 						strncpy(cfPos, CF_Hdr->id, 6);
 						m_btnMgr.setText(m_wbfsLblDialog, wfmt(_fmt("wbfsop10", L"Copying [%s] %s..."), CF_Hdr->id, CoverFlow.getTitle().toUTF8().c_str()));
@@ -501,6 +514,8 @@ bool CMenu::_wbfsOp(CMenu::WBFS_OP op)
 			UpdateCache(COVERFLOW_USB);
 		if(upd_emu)
 			UpdateCache(COVERFLOW_PLUGIN);
+		if(upd_chan)
+			UpdateCache(COVERFLOW_CHANNEL);
 		_loadList();
 		_initCF();
 		CoverFlow.findId(cfPos, true);

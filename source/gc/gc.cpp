@@ -112,9 +112,7 @@ void DML_New_SetOptions(const char *GamePath, char *CheatPath, const char *NewCh
 void DML_Old_SetOptions(const char *GamePath)
 {
 	gprintf("DIOS-MIOS: Launch game '%s' through boot.bin (old method)\n", GamePath);
-	FILE *f = fopen("sd:/games/boot.bin", "wb");
-	fwrite(GamePath, 1, strlen(GamePath) + 1, f);
-	fclose(f);
+	fsop_WriteFile(DML_BOOT_PATH, GamePath, strlen(GamePath)+1);
 
 	//Tell DML to boot the game from sd card
 	*(vu32*)0x80001800 = 0xB002D105;
@@ -160,43 +158,23 @@ static gconfig *DEVO_CONFIG = (gconfig*)0x80000020;
 
 bool DEVO_Installed(const char *path)
 {
+	loader_size = 0;
 	bool devo = false;
-	const char *loader_path = fmt("%s/loader.bin", path);
-	FILE *f = fopen(loader_path, "rb");
-	if(f != NULL)
+	fsop_GetFileSizeBytes(fmt(DEVO_LOADER_PATH, path), &loader_size);
+	if(loader_size > 0x80) //Size should be more than 128b
 	{
-		fseek(f, 0, SEEK_END);
-		if(ftell(f) > 0x80) //Size should be more than 128b
-		{
-			gprintf("Devolution: Found %s\n", loader_path);
-			devo = true;
-		}
-		rewind(f);
-		fclose(f);
+		gprintf("Devolution found\n");
+		devo = true;
 	}
 	return devo;
 }
 
 void DEVO_GetLoader(const char *path)
 {
-	//Read in loader.bin
-	const char *loader_path = fmt("%s/loader.bin", path);
-	FILE *f = fopen(loader_path, "rb");
-	if(f != NULL)
-	{
-		gprintf("Devolution: Reading %s\n", loader_path);
-		fseek(f, 0, SEEK_END);
-		loader_size = ftell(f);
-		rewind(f);
-		tmp_buffer = (u8*)MEM2_alloc(loader_size);
-		fread(tmp_buffer, 1, loader_size, f);
-		fclose(f);
-	}
-	else
-	{
+	loader_size = 0;
+	tmp_buffer = fsop_ReadFile(fmt(DEVO_LOADER_PATH, path), &loader_size);
+	if(tmp_buffer == NULL)
 		gprintf("Devolution: Loader not found!\n");
-		return;
-	}
 }
 
 void DEVO_SetOptions(const char *isopath, const char *gameID, bool memcard_emu,
@@ -214,8 +192,9 @@ void DEVO_SetOptions(const char *isopath, const char *gameID, bool memcard_emu,
 	stat(isopath, &st);
 	FILE *f = fopen(isopath, "rb");
 	gprintf("Devolution: ISO Header %s\n", isopath);
-	fread((u8*)0x80000000, 1, 32, f);
+	fread((u8*)Disc_ID, 1, 32, f);
 	fclose(f);
+	f = NULL;
 
 	// fill out the Devolution config struct
 	memset(DEVO_CONFIG, 0, sizeof(gconfig));
@@ -249,14 +228,13 @@ void DEVO_SetOptions(const char *isopath, const char *gameID, bool memcard_emu,
 				f = fopen(iso2path, "rb");
 			}
 		}
-	}
-
-	if(f != NULL)
-	{
-		gprintf("Devolution: 2nd ISO File for Multi DVD Game %s\n", iso2path);
-		stat(iso2path, &st);
-		DEVO_CONFIG->disc2_cluster = st.st_ino;
-		fclose(f);
+		if(f != NULL)
+		{
+			gprintf("Devolution: 2nd ISO File for Multi DVD Game %s\n", iso2path);
+			stat(iso2path, &st);
+			DEVO_CONFIG->disc2_cluster = st.st_ino;
+			fclose(f);
+		}
 	}
 
 	// make sure these directories exist, they are required for Devolution to function correctly
@@ -307,7 +285,7 @@ void DEVO_SetOptions(const char *isopath, const char *gameID, bool memcard_emu,
 	DEVO_CONFIG->memcard_cluster = st.st_ino;
 
 	// flush disc ID and Devolution config out to memory
-	DCFlushRange((void*)0x80000000, 64);
+	DCFlushRange((void*)Disc_ID, 64);
 
 	DeviceHandle.UnMountDevolution();
 }

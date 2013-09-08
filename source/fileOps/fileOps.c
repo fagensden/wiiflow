@@ -13,8 +13,6 @@ en exposed s_fsop fsop structure can be used by callback to update operation sta
 #include <ogcsys.h>
 #include <ogc/lwp_watchdog.h>
 #include <malloc.h>
-#include <dirent.h>
-#include <unistd.h>
 #include <sys/statvfs.h>
 
 #include "fileOps/fileOps.h"
@@ -77,7 +75,7 @@ u64 fsop_GetFolderBytes(const char *source)
 			continue;
 		snprintf(newSource, sizeof(newSource), "%s/%s", source, pent->d_name);
 		// If it is a folder... recurse...
-		if(fsop_DirExist(newSource))
+		if(fsop_FolderExist(newSource))
 			bytes += fsop_GetFolderBytes(newSource);
 		else	// It is a file !
 		{
@@ -109,41 +107,6 @@ u32 fsop_GetFreeSpaceKb(const char *path) // Return free kb on the device passed
 	return ret ;
 }
 
-bool fsop_FileExist(const char *fn)
-{
-	FILE * f;
-	f = fopen(fn, "rb");
-	if(f)
-	{
-		fclose(f);
-		return true;
-	}
-	return false;
-}
-
-bool fsop_DirExist(const char *path)
-{
-	DIR *dir;
-
-	dir = opendir(path);
-	if(dir)
-	{
-		closedir(dir);
-		return true;
-	}
-
-	return false;
-}
-
-
-void fsop_MakeFolder(const char *path)
-{
-	if(fsop_DirExist(path))
-		return;
-	gprintf("Folder path to create: %s\n", path);
-	mkdir(path, S_IREAD | S_IWRITE);
-}
-
 static void *thread_CopyFileReader()
 {
 	u32 rb;
@@ -168,7 +131,7 @@ static void *thread_CopyFileReader()
 
 bool fsop_CopyFile(const char *source, const char *target, progress_callback_t spinner, void *spinner_data)
 {
-	gprintf("Creating file: %s\n", target);
+	//gprintf("Creating file: %s\n", target);
 	int err = 0;
 
 	u32 size;
@@ -301,7 +264,7 @@ static bool doCopyFolder(const char *source, const char *target, progress_callba
 		snprintf(newTarget, sizeof(newTarget), "%s/%s", target, pent->d_name);
 
 		// If it is a folder... recurse...
-		if(fsop_DirExist(newSource))
+		if(fsop_FolderExist(newSource))
 			ret = doCopyFolder(newSource, newTarget, spinner, spinner_data);
 		else	// It is a file !
 			ret = fsop_CopyFile(newSource, newTarget, spinner, spinner_data);
@@ -321,11 +284,6 @@ bool fsop_CopyFolder(const char *source, const char *target, progress_callback_t
 	return doCopyFolder(source, target, spinner, spinner_data);
 }
 
-static inline void fsop_silentDelete(const char *source)
-{
-	remove(source);
-}
-
 void fsop_deleteFolder(const char *source)
 {
 	DIR *pdir;
@@ -341,7 +299,7 @@ void fsop_deleteFolder(const char *source)
 			continue;
 		snprintf(newSource, sizeof(newSource), "%s/%s", source, pent->d_name);
 		// If it is a folder... recurse...
-		if(fsop_DirExist(newSource))
+		if(fsop_FolderExist(newSource))
 		{
 			closedir(pdir);
 			fsop_deleteFolder(newSource);
@@ -350,19 +308,11 @@ void fsop_deleteFolder(const char *source)
 		else // It is a file !
 		{
 			closedir(pdir);
-			fsop_silentDelete(newSource);
+			fsop_deleteFile(newSource);
 			pdir = opendir(source);
 		}
 	}
 	closedir(pdir);
 	gprintf("Deleting directory: %s\n", source);
 	unlink(source);
-}
-
-void fsop_deleteFile(const char *source)
-{
-	if(!fsop_FileExist(source))
-		return;
-	gprintf("Deleting file: %s\n", source);
-	fsop_silentDelete(source);
 }

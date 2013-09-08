@@ -15,15 +15,17 @@ using namespace std;
 class SFont
 {
 public:
-	SFont(void) : font(NULL), lineSpacing(0), weight(0), index(0), data(NULL), dataSize(0) { }
+	SFont(void) : font(NULL), fSize(0), lineSpacing(0), weight(0), index(0), data(NULL), dataSize(0) { memset(name, 0, 128); };
 	~SFont(void) { };
 	void ClearData(void);
-	bool fromBuffer(const u8 *buffer, const u32 bufferSize, u32 size, u32 lspacing, u32 w = 0, u32 idx = 0, const char *genKey = NULL);
-	bool fromFile(const char *filename, u32 size, u32 lspacing, u32 w = 0, u32 idx = 0);
+	bool fromBuffer(const u8 *buffer, const u32 bufferSize, u32 size, u32 lspacing, u32 w = 0, u32 idx = 0, const char *fontname = "");
+	bool fromFile(const char *path, u32 size, u32 lspacing, u32 w = 0, u32 idx = 0, const char *fontname = "");
 	FreeTypeGX *font;
+	u32 fSize;
 	u32 lineSpacing;
 	u32 weight;
 	u32 index;
+	char name[128];
 private:
 	u8 *data;
 	size_t dataSize;
@@ -69,5 +71,6 @@ std::string lowerCase(std::string text);
 std::string ltrim(std::string s);
 std::string rtrim(std::string s);
 bool wchar_cmp(const wchar_t *first, const wchar_t *second, u32 first_len, u32 second_len);
+bool char_cmp(const char *first, const char *second, u32 first_len, u32 second_len);
 
 #endif // !defined(__TEXT_HPP)

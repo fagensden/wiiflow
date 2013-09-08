@@ -81,7 +81,8 @@ void CMenu::_showAbout(void)
 {
 	_setBg(m_aboutBg, m_aboutBg);
 	m_btnMgr.show(m_aboutLblTitle);
-	m_btnMgr.show(m_aboutLblIOS);
+	if(m_txt_view == false)
+		m_btnMgr.show(m_aboutLblIOS);
 	m_btnMgr.show(m_aboutLblInfo,false);
 	for(u8 i = 0; i < ARRAY_SIZE(m_aboutLblUser); ++i)
 	{
@@ -107,26 +108,42 @@ void CMenu::_initAboutMenu()
 
 void CMenu::_textAbout(void)
 {
-	if(showHelp)
+	if(m_txt_view)
+	{
+		wstringEx txt_file_name;
+		txt_file_name.fromUTF8(strrchr(m_txt_path, '/') + 1);
+		m_btnMgr.setText(m_aboutLblTitle, txt_file_name);
+		wstringEx txt_file_content;
+		u32 txt_size = 0;
+		char *txt_mem = (char*)fsop_ReadFile(m_txt_path, &txt_size);
+		if(txt_mem != NULL)
+		{
+			if(*(txt_mem+txt_size) != '\0')
+				*(txt_mem+txt_size) = '\0';
+			txt_file_content.fromUTF8(txt_mem);
+			m_btnMgr.setText(m_aboutLblInfo, txt_file_content);
+			free(txt_mem);
+		}
+		txt_mem = NULL;
+		return; /* no need for ios checks */
+	}
+	else if(showHelp)
 	{
 		m_btnMgr.setText(m_aboutLblTitle, _t("about10", L"Help Guide"));
 		wstringEx help_text;
-		FILE *f = fopen(fmt("%s/%s.txt", m_helpDir.c_str(), lowerCase(m_curLanguage).c_str()), "r");
-		if(f)
+		u32 txt_size = 0;
+		char *txt_mem = (char*)fsop_ReadFile(fmt("%s/%s.txt", m_helpDir.c_str(), lowerCase(m_curLanguage).c_str()), &txt_size);
+		if(txt_mem != NULL)
 		{
-			fseek(f, 0, SEEK_END);
-			u32 fsize = ftell(f);
-			char *help = (char*)MEM2_alloc(fsize+1); //+1 for null character
-			fseek(f, 0, SEEK_SET);
-			fread(help, 1, fsize, f);
-			help[fsize] = '\0';
-			help_text.fromUTF8(help);
-			MEM2_free(help);
-			fclose(f);
+			if(*(txt_mem+txt_size) != '\0')
+				*(txt_mem+txt_size) = '\0';
+			help_text.fromUTF8(txt_mem);
 			m_btnMgr.setText(m_aboutLblInfo, help_text);
+			free(txt_mem);
 		}
 		else
 			m_btnMgr.setText(m_aboutLblInfo, ENGLISH_TXT_W);
+		txt_mem = NULL;
 	}
 	else
 	{

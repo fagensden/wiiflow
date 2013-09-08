@@ -1,6 +1,7 @@
 #include <algorithm>
 #include "text.hpp"
 #include "memory/mem2.hpp"
+#include "fileOps/fileOps.h"
 
 static char general_buffer[MAX_MSG_SIZE * 2];
 string sfmt(const char *format, ...)
@@ -163,11 +164,11 @@ void SFont::ClearData(void)
 	dataSize = 0;
 }
 
-bool SFont::fromBuffer(const u8 *buffer, const u32 bufferSize, u32 size, u32 lspacing, u32 w, u32 idx, const char *)
+bool SFont::fromBuffer(const u8 *buffer, const u32 bufferSize, u32 size, u32 lspacing, u32 w, u32 idx, const char *fontname)
 {
 	if(buffer == NULL)
 		return false;
-	size = min(max(6u, size), 1000u);
+	fSize = min(max(6u, size), 1000u);
 	lineSpacing = min(max(6u, lspacing), 1000u);
 	weight = min(w, 32u);
 	index = idx;
@@ -181,41 +182,31 @@ bool SFont::fromBuffer(const u8 *buffer, const u32 bufferSize, u32 size, u32 lsp
 	memcpy(data, buffer, bufferSize);
 	DCFlushRange(data, dataSize);
 
+	memcpy(name, fontname, 127);
 	font = new FreeTypeGX();
-	font->loadFont(data, dataSize, size, weight, index, false);
+	font->loadFont(data, dataSize, fSize, weight, index, false);
 	return true;
 }
 
-bool SFont::fromFile(const char *filename, u32 size, u32 lspacing, u32 w, u32 idx)
+bool SFont::fromFile(const char *path, u32 size, u32 lspacing, u32 w, u32 idx, const char *fontname)
 {
-	size = min(max(6u, size), 1000u);
+	fSize = min(max(6u, size), 1000u);
 	weight = min(w, 32u);
 	index = idx = 0;
 
 	lineSpacing = min(max(6u, lspacing), 1000u);
 
-	FILE *file = fopen(filename, "rb");
-	if (file == NULL) return false;
-	fseek(file, 0, SEEK_END);
-	u32 fileSize = ftell(file);
-	fseek(file, 0, SEEK_SET);
-	if (fileSize == 0) return false;
-
 	if(data != NULL)
 		free(data);
-	data = (u8*)MEM2_alloc(fileSize);
-	if (!data)
-	{
-		fclose(file);
+	data = fsop_ReadFile(path, &dataSize);
+	if(data == NULL)
 		return false;
-	}
-		
-	fread(data, 1, fileSize, file);
-	dataSize = fileSize;
+
 	DCFlushRange(data, dataSize);
 
+	memcpy(name, fontname, 127);
 	font = new FreeTypeGX();
-	font->loadFont(data, dataSize, size, weight, index, false);
+	font->loadFont(data, dataSize, fSize, weight, index, false);
 	return true;
 }
 
@@ -445,6 +436,20 @@ string rtrim(string s)
 }
 
 bool wchar_cmp(const wchar_t *first, const wchar_t *second, u32 first_len, u32 second_len)
+{
+	u32 i = 0;
+	while((i < first_len) && (i < second_len))
+	{
+		if(tolower(first[i]) < tolower(second[i]))
+			return true;
+		else if(tolower(first[i]) > tolower(second[i]))
+			return false;
+		++i;
+	}
+	return first_len < second_len;
+}
+
+bool char_cmp(const char *first, const char *second, u32 first_len, u32 second_len)
 {
 	u32 i = 0;
 	while((i < first_len) && (i < second_len))

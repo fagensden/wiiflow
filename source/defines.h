@@ -1,5 +1,5 @@
 #define APP_NAME				"WiiFlow"
-#define APP_VERSION				"4.1.3"
+#define APP_VERSION				"4.2"
 
 #define APPDATA_DIR				"wiiflow"
 #define APPDATA_DIR2			"apps/wiiflow"
@@ -26,6 +26,7 @@
 #define PLUGIN_DOMAIN			"EMULATOR"
 #define HOMEBREW_DOMAIN			"HOMEBREW"
 #define MUSIC_DOMAIN			"MUSIC"
+#define FTP_DOMAIN				"FTP"
 
 #define AGE_LOCK_DEFAULT		13
 
@@ -38,7 +39,7 @@
 "Lustar, CedWii, Benjay, Domi78, Oops, \
 Celtiore, Jiiwah, FluffyKiwi, Roku93, Yardape8000, \
 Spayrosam, Bluescreen81, Chappy23, Fledge68, \
-BlindDude, Bubba, DJTaz, OggZee, entropy, \
+BlindDude, Bubba, DJTaz, OggZee, entropy, Ayatus, \
 Usptactical, WiiPower, Hermes, Spidy1000, megazig, \
 Dimok, Kovani, Drexyl, DvZ, Etheboss, stfour, \
 GaiaKnight, nibb, NJ7, Plasma, Pakatus, giantpune, \

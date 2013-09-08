@@ -272,7 +272,7 @@ void CMenu::_initGameInfoMenu()
 	_addUserLabels(m_gameinfoLblUser, 1, 1, "GAMEINFO");
 	_addUserLabels(m_gameinfoLblUser, 3, 2, "GAMEINFO");
 
-	m_gameinfoLblTitle = _addLabel("GAMEINFO/TITLE", theme.titleFont, L"", 20, 30, 600, 60, theme.titleFontColor, FTGX_JUSTIFY_CENTER | FTGX_ALIGN_MIDDLE);
+	m_gameinfoLblTitle = _addTitle("GAMEINFO/TITLE", theme.titleFont, L"", 20, 30, 600, 60, theme.titleFontColor, FTGX_JUSTIFY_CENTER | FTGX_ALIGN_MIDDLE);
 
 	for(u8 i = 0; i < ARRAY_SIZE(m_gameinfoLblControlsReq); ++i)
 	{
@@ -320,7 +320,7 @@ void CMenu::_textGameInfo(void)
 		if(gametdb.GetTitle(GameID, TMP_Char))
 		{
 			gameinfo_Title_w.fromUTF8(TMP_Char);
-			m_btnMgr.setText(m_gameinfoLblTitle, gameinfo_Title_w, true);
+			m_btnMgr.setText(m_gameinfoLblTitle, gameinfo_Title_w);
 		}
 		if(gametdb.GetSynopsis(GameID, TMP_Char))
 		{

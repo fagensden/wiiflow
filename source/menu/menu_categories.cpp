@@ -163,7 +163,12 @@ void CMenu::_CategorySettings(bool fromGameSet)
 	curPage = 1;
 	gameSet = fromGameSet;
 	
+	if(m_source.loaded() && m_catStartPage > 0)
+		curPage = m_catStartPage;
+	
 	m_max_categories = m_cat.getInt("GENERAL", "numcategories", 6);
+	if(curPage < 1 || curPage > (((m_max_categories - 2)/ 10) + 1))
+		curPage = 1;
 	m_categories.resize(m_max_categories, '0');
 	m_categories.assign(m_max_categories, '0');
 

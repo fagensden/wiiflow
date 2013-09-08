@@ -39,8 +39,8 @@
 #include "gui/Gekko.h"
 #include "gui/text.hpp"
 #include "memory/mem2.hpp"
+#include "menu/menu.hpp"
 #include "defines.h"
-
 using namespace std;
 
 static u8 *FSTable ATTRIBUTE_ALIGN(32);
@@ -86,9 +86,9 @@ s32 GCDump::__DiscReadRaw(void *outbuf, u64 offset, u32 length)
 					gc_retry = 0;
 					waitonerror = false;
 					if(FSTTotal > FSTSize)
-						message(4, Disc+1, minfo, u_data);
+						mainMenu.GC_Messenger(4, Disc+1, minfo);
 					else
-						message(3, 0, minfo, u_data);
+						mainMenu.GC_Messenger(3, 0, minfo);
 				}
 				if(gc_retry >= gc_nbrretry)
 				{
@@ -109,9 +109,9 @@ s32 GCDump::__DiscReadRaw(void *outbuf, u64 offset, u32 length)
 			{
 				__WaitForDisc(Disc, 11);
 				if(FSTTotal > FSTSize)
-					message(4, Disc+1, minfo, u_data);
+					mainMenu.GC_Messenger(4, Disc+1, minfo);
 				else
-					message(3, 0, minfo, u_data);
+					mainMenu.GC_Messenger(3, 0, minfo);
 			}
 			else
 			{
@@ -128,7 +128,7 @@ s32 GCDump::__DiscReadRaw(void *outbuf, u64 offset, u32 length)
 		}
 	}
 	wiiLightOff();
-	return -1;		
+	return -1;
 }
 
 s32 GCDump::__DiscWrite(char * path, u64 offset, u32 length, u8 *ReadBuffer)
@@ -161,8 +161,7 @@ s32 GCDump::__DiscWriteFile(FILE *f, u64 offset, u32 length, u8 *ReadBuffer)
 		offset += toread;
 		length -= toread;
 		gc_done += toread;
-		if(spinner)
-			spinner(gc_done/1024, DiscSizeCalculated, u_data);
+		mainMenu.update_pThread(toread);
 	}
 	return wrote;
 }
@@ -177,7 +176,7 @@ bool GCDump::__WaitForDisc(u8 dsc, u32 msg)
 	bool done = false;
 	while(!done)
 	{
-		message(msg, dsc+1, minfo, u_data);
+		mainMenu.GC_Messenger(msg, dsc+1, minfo);
 		while(1)
 		{
 			wiiLightSetLevel(255);
@@ -225,26 +224,26 @@ bool GCDump::__WaitForDisc(u8 dsc, u32 msg)
 				}
 				else if(ID == ID2 && Disc2 != dsc)
 				{
-					message( 7, Disc2+1, NULL, u_data);
+					mainMenu.GC_Messenger( 7, Disc2+1, NULL);
 					usleep( 5000000 );
 					break;
 				}
 				else if(ID != ID2)
 				{
-					message( 8, 0, NULL, u_data);
+					mainMenu.GC_Messenger( 8, 0, NULL);
 					usleep( 5000000 );
 					break;
 				}
 			}
 			else if(Disc_IsWii() == 0)
 			{
-				message( 5, 0, NULL, u_data);
+				mainMenu.GC_Messenger( 5, 0, NULL);
 				usleep( 5000000 );
 				break;
 			}
 			else
 			{
-				message( 6, 0, NULL, u_data);
+				mainMenu.GC_Messenger( 6, 0, NULL);
 				usleep( 5000000 );
 				break;
 				
@@ -268,6 +267,7 @@ bool GCDump::__CheckMDHack(u32 ID)
 		case 0x474b42: /*** Baten Kaitos: Eternal Wings and the Lost Ocean ***/
 		case 0x473341: /*** The Lord of the Rings: The Third Age ***/
 		case 0x473554: /*** Tiger Woods PGA Tour 2005 ***/
+		case 0x473442: /*** Resident Evil 4 ***/
 			return true;
 		break;
 		default:
@@ -297,6 +297,9 @@ s32 GCDump::DumpGame()
 	memset(folder, 0, MAX_FAT_PATH);
 	char gamepath[MAX_FAT_PATH];
 	memset(gamepath, 0, MAX_FAT_PATH);
+	char basedir[MAX_FAT_PATH];
+	memset(basedir, 0, MAX_FAT_PATH);
+	strncpy(basedir, fmt((strncmp(gamepartition, "sd", 2) != 0) ? usb_dml_game_dir : DML_DIR, gamepartition), MAX_FAT_PATH);
 
 	while(!gamedone)
 	{
@@ -314,26 +317,17 @@ s32 GCDump::DumpGame()
 		}
 		Asciify2(gc_hdr.title);
 
-		if(!Disc)
+		snprintf(folder, sizeof(folder), basedir);
+		fsop_MakeFolder(folder);
+
+		memset(folder, 0, sizeof(folder));
+		snprintf(folder, sizeof(folder), "%s/%s [%.06s]", basedir, gc_hdr.title, gc_hdr.id);
+		if(!fsop_FolderExist(folder))
+			fsop_MakeFolder(folder);
+		else if(!Disc)
 		{
-			snprintf(folder, sizeof(folder), fmt((strncmp(gamepartition, "sd", 2) != 0) ? usb_dml_game_dir : DML_DIR, gamepartition));
-			if(!fsop_DirExist(folder))
-			{
-				gprintf("Creating directory: %s\n", folder);
-				fsop_MakeFolder(folder);
-			}
-			memset(folder, 0, sizeof(folder));
-			snprintf(folder, sizeof(folder), "%s/%s [%.06s]", fmt((strncmp(gamepartition, "sd", 2) != 0) ? usb_dml_game_dir : DML_DIR, gamepartition), gc_hdr.title, gc_hdr.id);
-			if(!fsop_DirExist(folder))
-			{
-				gprintf("Creating directory: %s\n", folder);
-				fsop_MakeFolder(folder);
-			}
-			else
-			{
-				gprintf("Skipping game: %s (Already installed)(%d)\n", gc_hdr.title, Gamesize[MultiGameDump]);
-				break;
-			}
+			gprintf("Skipping game: %s (Already installed)(%d)\n", gc_hdr.title, Gamesize[MultiGameDump]);
+			break;
 		}
 
 		ret = __DiscReadRaw(ReadBuffer, NextOffset, 0x440);
@@ -379,9 +373,9 @@ s32 GCDump::DumpGame()
 		snprintf(minfo, sizeof(minfo), "[%.06s] %s", gc_hdr.id, gc_hdr.title);
 
 		if(FSTTotal > FSTSize)
-			message(4, Disc+1, minfo, u_data);
+			mainMenu.GC_Messenger(4, Disc+1, minfo);
 		else
-			message(3, 0, minfo, u_data);
+			mainMenu.GC_Messenger(3, 0, minfo);
 
 		gprintf("Dumping: %s %s\n", gc_hdr.title, compressed ? "compressed" : "full");
 
@@ -397,12 +391,8 @@ s32 GCDump::DumpGame()
 		if(writeexfiles && !Disc)
 		{
 			memset(folder, 0, sizeof(folder));
-			snprintf(folder, sizeof(folder), "%s/%s [%.06s]/sys", fmt((strncmp(gamepartition, "sd", 2) != 0) ? usb_dml_game_dir : DML_DIR, gamepartition), gc_hdr.title, gc_hdr.id);
-			if(!fsop_DirExist(folder))
-			{
-				gprintf("Creating directory: %s\n", folder);
-				fsop_MakeFolder(folder);
-			}
+			snprintf(folder, sizeof(folder), "%s/%s [%.06s]/sys", basedir, gc_hdr.title, gc_hdr.id);
+			fsop_MakeFolder(folder);
 
 			gprintf("Writing %s/boot.bin\n", folder);
 			snprintf(gamepath, sizeof(gamepath), "%s/boot.bin", folder);
@@ -417,7 +407,7 @@ s32 GCDump::DumpGame()
 			gc_done += __DiscWrite(gamepath, 0x2440+NextOffset, ApploaderSize, ReadBuffer);
 		}
 
-		snprintf(gamepath, sizeof(gamepath), "%s/%s [%.06s]/game.iso", fmt((strncmp(gamepartition, "sd", 2) != 0) ? usb_dml_game_dir : DML_DIR, gamepartition), gc_hdr.title, gc_hdr.id);
+		snprintf(gamepath, sizeof(gamepath), "%s/%s [%.06s]/game.iso", basedir, gc_hdr.title, gc_hdr.id);
 		if(Disc)
 		{
 			char *ptz = strstr(gamepath, "game.iso");
@@ -431,8 +421,7 @@ s32 GCDump::DumpGame()
 			u32 correction;
 			u32 toread;
 
-			FILE *f;
-			f = fopen(gamepath, "wb");
+			FILE *f = fopen(gamepath, "wb");
 
 			ret = __DiscWriteFile(f, NextOffset, (FSTOffset + FSTSize), ReadBuffer);
 			wrote += (FSTOffset + FSTSize);
@@ -586,7 +575,7 @@ s32 GCDump::CheckSpace(u32 *needed, bool comp)
 
 		snprintf(minfo, sizeof(minfo), "[%.06s] %s", gc_hdr.id, gc_hdr.title);
 
-		message( 2, 0, minfo, u_data);
+		mainMenu.GC_Messenger(2, 0, minfo);
 
 		if(writeexfiles)
 		{
@@ -677,6 +666,7 @@ s32 GCDump::CheckSpace(u32 *needed, bool comp)
 			gamedone = true;
 	}
 	MEM2_free(ReadBuffer);
+	mainMenu.m_thrdTotal = size;
 	DiscSizeCalculated = size/0x400;
 	*needed = (size/0x8000) >> 2;
 	gprintf("Free space needed: %d Mb (%d blocks)\n", size/0x100000, (size/0x8000) >> 2);
