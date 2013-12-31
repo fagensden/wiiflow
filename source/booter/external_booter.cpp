@@ -20,10 +20,10 @@
 #include <ogc/lwp_threads.h>
 #include <ogc/cache.h>
 #include "external_booter.hpp"
-#include "booter.h"
 #include "Config.h"
 #include "channel/nand.hpp"
 #include "devicemounter/DeviceHandler.hpp"
+#include "fileOps/fileOps.h"
 #include "gecko/wifi_gecko.hpp"
 #include "gui/text.hpp"
 #include "loader/fst.h"
@@ -38,8 +38,8 @@
 
 /* External WiiFlow Game Booter */
 static the_CFG *BooterConfig = (the_CFG*)0x93100000;
-#define EXT_ADDR	((u8*)0x80B00000)
-#define EXT_ENTRY	((entry)EXT_ADDR)
+#define EXT_ADDR		((u8*)0x80B00000)
+#define EXT_ENTRY		((entry)EXT_ADDR)
 
 extern "C" {
 u8 configbytes[2];
@@ -53,7 +53,10 @@ extern u8 *codelistend;
 extern u32 gameconfsize;
 extern u32 *gameconf;
 
+u8 *booter_ptr = NULL;
+size_t booter_size = 0;
 the_CFG normalCFG;
+
 void WiiFlow_ExternalBooter(u8 vidMode, bool vipatch, bool countryString, u8 patchVidMode, 
 	int aspectRatio, u32 returnTo, u8 BootType, bool use_led)
 {
@@ -78,18 +81,32 @@ void WiiFlow_ExternalBooter(u8 vidMode, bool vipatch, bool countryString, u8 pat
 	normalCFG.use_led = use_led;
 	normalCFG.wip_list = get_wip_list();
 	normalCFG.wip_count = get_wip_count();
-
+	/* Unmount devices etc */
 	ShutdownBeforeExit();
+	/* Copy in booter */
+	memcpy(EXT_ADDR, booter_ptr, booter_size);
+	DCFlushRange(EXT_ADDR, booter_size);
 	/* Copy CFG into new memory region */
 	memcpy(BooterConfig, &normalCFG, sizeof(the_CFG));
 	DCFlushRange(BooterConfig, sizeof(the_CFG));
-	/* Copy in booter */
-	memcpy(EXT_ADDR, booter, booter_size);
-	DCFlushRange(EXT_ADDR, booter_size);
 	/* Wii Games will need it */
 	net_wc24cleanup();
+	/* Set proper time */
+	settime(secs_to_ticks(time(NULL) - 946684800));
 	/* Boot it */
 	JumpToEntry(EXT_ENTRY);
+}
+
+bool ExternalBooter_LoadBooter(const char *booter_path)
+{
+	fsop_GetFileSizeBytes(booter_path, &booter_size);
+	if(booter_size > 0)
+	{
+		booter_ptr = fsop_ReadFile(booter_path, &booter_size);
+		if(booter_ptr != NULL)
+			return true;
+	}
+	return false;
 }
 
 extern FragList *frag_list;

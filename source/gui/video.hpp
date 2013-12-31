@@ -54,6 +54,7 @@ public:
 	void renderToTexture(TexData &tex, bool clear);
 	void cleanup(void);
 	void setup2DProjection(bool setViewPort = true, bool noScale = false);
+	void screensaver(u32 no_input, u32 max_no_input);
 	u32 width(void) const { return m_rmode->fbWidth; }
 	u32 height(void) const { return m_rmode->efbHeight; }
 	GXRModeObj *vid_mode(void) const { return m_rmode; }
@@ -62,7 +63,7 @@ public:
 	bool wide(void) const { return m_wide; }
 	bool vid_50hz(void) const { return m_50hz; }
 	u8 getAA(void) const { return m_aa; }
-	bool showingWaitMessage() { return m_showingWaitMessages || m_showWaitMessage; }
+	bool showingWaitMessage() { return m_WaitThreadRunning; }
 	void set2DViewport(u32 w, u32 h, int x, int y);
 	void prepareStencil(void);
 	void renderStencil(void);
@@ -93,12 +94,14 @@ private:
 	int m_aaHeight;
 	u8 *m_aaBuffer[8];
 	u32 m_aaBufferSize[8];
+	u8 m_screensaver_alpha;
 	float m_vpX;
 	float m_vpY;
 	float m_vpW;
 	float m_vpH;
 	float m_waitMessageDelay;
 	volatile bool m_showWaitMessage;
+	volatile bool m_WaitThreadRunning;
 	volatile bool m_showingWaitMessages;
 	vector<TexData> m_waitMessages;
 	// 

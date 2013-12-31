@@ -32,6 +32,7 @@ enum
 /* Prototypes */
 void Sys_Init(void);
 bool Sys_DolphinMode(void);
+bool Sys_HW_Access(void);
 bool Sys_Exiting(void);
 void Sys_Exit(void);
 void Sys_ExitTo(int);
@@ -42,6 +43,7 @@ void Open_Inputs(void);
 void Close_Inputs(void);
 
 bool AHBRPOT_Patched(void);
+bool IsOnWiiU(void);
 
 /* All our extern C stuff */
 extern void __exception_setreload(int t);

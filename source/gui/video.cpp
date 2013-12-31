@@ -2,11 +2,13 @@
 #include <string.h>
 #include <unistd.h>
 #include <malloc.h>
+#include <ogc/machine/processor.h>
 #include "memory/mem2.hpp"
 #include "video.hpp"
 #include "pngu.h"
-#include "Gekko.h"
+#include "hw/Gekko.h"
 #include "gecko/gecko.hpp"
+#include "loader/sys.h"
 #include "loader/utils.h"
 
 #define DEFAULT_FIFO_SIZE	(256 * 1024)
@@ -86,7 +88,8 @@ CVideo::CVideo(void) :
 	m_rmode(NULL), m_frameBuf(), m_curFB(0), m_fifo(NULL),
 	m_yScale(0.0f), m_xfbHeight(0), m_wide(false),
 	m_width2D(640), m_height2D(480), m_x2D(0), m_y2D(0), m_aa(0), m_aaAlpha(false),
-	m_aaWidth(0), m_aaHeight(0), m_showWaitMessage(false), m_showingWaitMessages(false)
+	m_aaWidth(0), m_aaHeight(0), m_screensaver_alpha(0), m_showWaitMessage(false), 
+	m_WaitThreadRunning(false), m_showingWaitMessages(false)
 {
 	memset(m_frameBuf, 0, sizeof m_frameBuf);
 }
@@ -153,11 +156,18 @@ void CVideo::init(void)
 	if(CONF_GetDisplayOffsetH(&hoffset) == 0)
 		m_rmode->viXOrigin += hoffset;
 
+	/* Widescreen Fix by tueidj, WiiU Check by crediar, thanks alot */
+	if(m_wide && AHBRPOT_Patched() && IsOnWiiU())
+	{
+		write32(0xd8006a0, 0x30000004);
+		mask32(0xd8006a8, 0, 2);
+	}
+
 	/* GX Init */
-	m_frameBuf[0] = MEM_K0_TO_K1(SYS_AllocateFramebuffer(m_rmode));
-	m_frameBuf[1] = MEM_K0_TO_K1(SYS_AllocateFramebuffer(m_rmode));
+	m_frameBuf[0] = MEM_K0_TO_K1(MEM1_memalign(32, VIDEO_GetFrameBufferSize(m_rmode)));
+	m_frameBuf[1] = MEM_K0_TO_K1(MEM1_memalign(32, VIDEO_GetFrameBufferSize(m_rmode)));
 	m_curFB = 0;
-	m_fifo = memalign(32, DEFAULT_FIFO_SIZE);
+	m_fifo = MEM1_memalign(32, DEFAULT_FIFO_SIZE);
 	memset(m_fifo, 0, DEFAULT_FIFO_SIZE);
 	GX_Init(m_fifo, DEFAULT_FIFO_SIZE);
 	GX_SetCopyClear(CColor(0), 0x00FFFFFF);
@@ -187,7 +197,7 @@ void CVideo::init(void)
 	GX_SetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_CLR_RGBA, GX_RGBA8, 0);
 	for(u32 i = 0; i < 8; i++)
 		GX_SetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0+i, GX_TEX_ST, GX_F32, 0);
-	m_stencil = memalign(32, CVideo::_stencilWidth * CVideo::_stencilHeight);
+	m_stencil = MEM1_memalign(32, CVideo::_stencilWidth * CVideo::_stencilHeight);
 	memset(m_stencil, 0, CVideo::_stencilWidth * CVideo::_stencilHeight);
 
 	/* Configure Video */
@@ -285,13 +295,13 @@ void CVideo::cleanup(void)
 			free(m_defaultWaitMessages[i].data);
 		m_defaultWaitMessages[i].data = NULL;
 	}
-	free(MEM_K1_TO_K0(m_frameBuf[0]));
+	MEM1_free(MEM_K1_TO_K0(m_frameBuf[0]));
 	m_frameBuf[0] = NULL;
-	free(MEM_K1_TO_K0(m_frameBuf[1]));
+	MEM1_free(MEM_K1_TO_K0(m_frameBuf[1]));
 	m_frameBuf[1] = NULL;
-	free(m_stencil);
+	MEM1_free(m_stencil);
 	m_stencil = NULL;
-	free(m_fifo);
+	MEM1_free(m_fifo);
 	m_fifo = NULL;
 }
 
@@ -516,8 +526,6 @@ void CVideo::_showWaitMessages(CVideo *m)
 
 	m->prepare();
 	m->setup2DProjection();
-	wiiLightSetLevel(0);
-	wiiLightOn();
 
 	//gprintf("Wait Message Thread: Start\nDelay: %d, Images: %d\n", waitFrames, m->m_waitMessages.size());
 	while(m->m_showWaitMessage)
@@ -548,21 +556,30 @@ void CVideo::_showWaitMessages(CVideo *m)
 			VIDEO_WaitVSync();
 		waitFrames--;
 	}
-	wiiLightOff();
 	//gprintf("Wait Message Thread: End\n");
 	m->m_showingWaitMessages = false;
 }
+
+u32 waitMessageStackSize = 1024;
+u8 *waitMessageStack = NULL;
 
 void CVideo::hideWaitMessage()
 {
 	m_showWaitMessage = false;
 	if(waitThread != LWP_THREAD_NULL)
 	{
+		/* end animation */
 		if(LWP_ThreadIsSuspended(waitThread))
 			LWP_ResumeThread(waitThread);
 		while(m_showingWaitMessages)
 			usleep(50);
 		LWP_JoinThread(waitThread, NULL);
+		if(waitMessageStack != NULL)
+			MEM2_free(waitMessageStack);
+		waitMessageStack = NULL;
+		/* end light thread */
+		wiiLightEndThread();
+		m_WaitThreadRunning = false;
 	}
 	waitThread = LWP_THREAD_NULL;
 }
@@ -589,6 +606,8 @@ void CVideo::waitMessage(float delay)
 void CVideo::waitMessage(const vector<TexData> &tex, float delay)
 {
 	hideWaitMessage();
+	m_WaitThreadRunning = true;
+
 	if(tex.size() == 0)
 	{
 		m_waitMessages = m_defaultWaitMessages;
@@ -604,8 +623,15 @@ void CVideo::waitMessage(const vector<TexData> &tex, float delay)
 		waitMessage(m_waitMessages[0]);
 	else if(m_waitMessages.size() > 1)
 	{
+		/* changing light */
+		wiiLightSetLevel(0);
+		wiiLightStartThread();
+		/* onscreen animation */
 		m_showWaitMessage = true;
-		LWP_CreateThread(&waitThread, (void *(*)(void *))_showWaitMessages, (void *)this, NULL, 0, LWP_PRIO_HIGHEST);
+		if(waitMessageStack == NULL)
+			waitMessageStack = (u8*)MEM2_memalign(32, waitMessageStackSize);
+		LWP_CreateThread(&waitThread, (void *(*)(void *))_showWaitMessages, 
+					(void*)this, waitMessageStack, waitMessageStackSize, LWP_PRIO_HIGHEST);
 	}
 }
 
@@ -723,4 +749,19 @@ void DrawRectangle(f32 x, f32 y, f32 width, f32 height, GXColor color)
 	}
 	GX_End();
 	GX_SetTevOp(GX_TEVSTAGE0, GX_MODULATE);
+}
+
+void CVideo::screensaver(u32 no_input, u32 max_no_input)
+{
+	if(no_input == 0)
+	{
+		m_screensaver_alpha = 0;
+		return;
+	}
+	if(no_input > max_no_input)
+	{
+		DrawRectangle(0, 0, 640, 480, (GXColor){0,0,0,m_screensaver_alpha});
+		if(m_screensaver_alpha < 150)
+			m_screensaver_alpha+=2;
+	}
 }

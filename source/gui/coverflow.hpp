@@ -23,9 +23,9 @@ using namespace std;
 enum Sorting
 {
 	SORT_ALPHA,
-	SORT_GAMEID,
 	SORT_PLAYCOUNT,
 	SORT_LASTPLAYED,
+	SORT_GAMEID,
 	SORT_WIFIPLAYERS,
 	SORT_PLAYERS,
 	SORT_MAX,
@@ -48,7 +48,7 @@ public:
 	bool empty(void) const { return m_items.empty(); }
 	u32 size(void) const { return m_items.size(); }
 	// 
-	bool start();
+	bool start(const string &m_imgsDir);
 	void stopCoverLoader(bool empty = false);
 	void startCoverLoader(void);
 	void defaultLoad(void);
@@ -248,7 +248,6 @@ private:
 	volatile bool m_renderTex;
 	TexData *m_renderingTex;
 	//
-	volatile int m_hqCover;
 	bool m_selected;
 	int m_tickCount;
 	TexData *m_loadingTexture;

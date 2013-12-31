@@ -93,11 +93,12 @@ void CMenu::_showAbout(void)
 
 void CMenu::_initAboutMenu()
 {
-	_addUserLabels(m_aboutLblUser, ARRAY_SIZE(m_aboutLblUser), "ABOUT");
+	_addUserLabels(m_aboutLblUser, 0, 2, "ABOUT");
 	m_aboutBg = _texture("ABOUT/BG", "texture", theme.bg, false);
-	m_aboutLblTitle = _addTitle("ABOUT/TITLE", theme.titleFont, L"", 20, 30, 600, 60, theme.titleFontColor, FTGX_JUSTIFY_CENTER | FTGX_ALIGN_MIDDLE);
-	m_aboutLblInfo = _addText("ABOUT/INFO", theme.txtFont, L"", 40, 115, 560, 270, theme.txtFontColor, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_TOP);
-	m_aboutLblIOS = _addLabel("ABOUT/IOS", theme.txtFont, L"", 240, 400, 360, 56, theme.txtFontColor, FTGX_JUSTIFY_RIGHT | FTGX_ALIGN_MIDDLE);
+	m_aboutLblInfo = _addText("ABOUT/INFO", theme.txtFont, L"", 40, 100, 560, 300, theme.txtFontColor, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_TOP);
+	_addUserLabels(m_aboutLblUser, 2, 2, "ABOUT");
+	m_aboutLblTitle = _addTitle("ABOUT/TITLE", theme.titleFont, L"", 0, 10, 640, 60, theme.titleFontColor, FTGX_JUSTIFY_CENTER | FTGX_ALIGN_MIDDLE);
+	m_aboutLblIOS = _addLabel("ABOUT/IOS", theme.lblFont, L"", 240, 400, 360, 56, theme.lblFontColor, FTGX_JUSTIFY_RIGHT | FTGX_ALIGN_MIDDLE);
 
 	_setHideAnim(m_aboutLblTitle, "ABOUT/TITLE", 0, 0, -2.f, 0.f);
 	_setHideAnim(m_aboutLblInfo, "ABOUT/INFO", 0, 100, 0.f, 0.f);

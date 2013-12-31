@@ -21,7 +21,6 @@
 #include "gc/gcdisc.hpp"
 #include "gui/WiiMovie.hpp"
 #include "gui/GameTDB.hpp"
-#include "gui/Gekko.h"
 #include "homebrew/homebrew.h"
 #include "loader/alt_ios.h"
 #include "loader/wdvd.h"
@@ -36,20 +35,6 @@
 #include "memory/memory.h"
 #include "network/http.h"
 #include "network/gcard.h"
-
-extern const u8 btngamecfg_png[];
-extern const u8 btngamecfgs_png[];
-extern const u8 stopkidon_png[];
-extern const u8 stopkidons_png[];
-extern const u8 stopkidoff_png[];
-extern const u8 stopkidoffs_png[];
-extern const u8 favoriteson_png[];
-extern const u8 favoritesons_png[];
-extern const u8 favoritesoff_png[];
-extern const u8 favoritesoffs_png[];
-extern const u8 delete_png[];
-extern const u8 deletes_png[];
-extern const u8 blank_png[];
 
 //sounds
 extern const u8 gc_ogg[];
@@ -173,15 +158,17 @@ const CMenu::SOption CMenu::_NoDVD[3] = {
 	{ "NoDVDon", L"Enabled" },
 };
 
-const CMenu::SOption CMenu::_GlobalGCLoaders[2] = {
+const CMenu::SOption CMenu::_GlobalGCLoaders[3] = {
 	{ "GC_Auto", L"Auto MIOS" },
-	{ "GC_Devo", L"Devolution" }
+	{ "GC_Devo", L"Devolution" },
+	{ "GC_Nindnt", L"Nintendont" },
 };
 
-const CMenu::SOption CMenu::_GCLoader[3] = {
+const CMenu::SOption CMenu::_GCLoader[4] = {
 	{ "GC_Def", L"Default" },
 	{ "GC_Auto", L"Auto MIOS" },
-	{ "GC_Devo", L"Devolution" }
+	{ "GC_Devo", L"Devolution" },
+	{ "GC_Nindnt", L"Nintendont" },
 };
 
 const CMenu::SOption CMenu::_vidModePatch[4] = {
@@ -249,7 +236,7 @@ static void _extractBnr(const dir_discHdr *hdr)
 		void *bnr = NULL;
 		size = wbfs_extract_file(disc, (char*)"opening.bnr", &bnr);
 		if(size > 0)
-			CurrentBanner.SetBanner((u8*)bnr, size);
+			CurrentBanner.SetBanner((u8*)bnr, size, false, true);
 		WBFS_CloseDisc(disc);
 	}
 	WBFS_Close();
@@ -428,10 +415,8 @@ void CMenu::_game(bool launch)
 		else if(BTN_MINUS_PRESSED)
 		{
 			const char *videoPath = fmt("%s/%.3s.thp", m_videoDir.c_str(), CoverFlow.getId());
-			FILE *file = fopen(videoPath, "r");
-			if(file)
+			if(fsop_FileExist(videoPath))
 			{
-				fclose(file);
 				MusicPlayer.Stop();
 				m_gameSound.Stop();
 				m_banner.SetShowBanner(false);
@@ -548,6 +533,7 @@ void CMenu::_game(bool launch)
 				m_gcfg2.load(fmt("%s/" GAME_SETTINGS2_FILENAME, m_settingsDir.c_str()));
 				// change to current games partition and set last_view for recall later
 				m_cfg.setInt("GENERAL", "last_view", m_current_view);
+				m_cfg.setInt("GENERAL", "cat_startpage", m_catStartPage);
 				switch(hdr->type)
 				{
 					case TYPE_CHANNEL:
@@ -832,15 +818,30 @@ void CMenu::_launch(const dir_discHdr *hdr)
 	Sys_Exit();
 }
 // taken from Postloader by Stfour
-#define QFIDN 6
-static const char *qfid[QFIDN] = {
+#define QFIDN 9
+static const char qfid[QFIDN][7] = {
+"RELSAB", //Sample Header?
 "GGPE01", //Mario Kart Arcade GP
+"MKAGP1", //Mario Kart Arcade GP (Alt ID)
 "GGPE02", //Mario Kart Arcade GP 2
+"MKAGP2", //Mario Kart Arcade GP 2 (Alt ID)
 "GFZJ8P", //F-Zero AX
-"GVSJ8P", // Virtua Striker 4
-"GVS46E", // Virtua Striker 4 Ver.2006
-"GVS46J", // Virtua Striker 4 Ver.2006
+"GVSJ8P", // Virtua Striker 4 Ver.2006 (PAL)
+"GVS46E", // Virtua Striker 4 Ver.2006 (NTSC)
+"GVS46J", // Virtua Striker 4 Ver.2006 (JAP)
 };
+
+bool CMenu::_QF_Game(const char *game_id)
+{
+	if(game_id == NULL)
+		return false;
+	for(u8 i = 0; i < QFIDN; i++)
+	{
+		if(memcmp(game_id, qfid[i], 7) == 0)
+			return true;
+	}
+	return false;
+}
 
 void CMenu::_launchGC(dir_discHdr *hdr, bool disc)
 {
@@ -875,29 +876,26 @@ void CMenu::_launchGC(dir_discHdr *hdr, bool disc)
 	bool memcard_emu = m_gcfg2.getBool(id, "devo_memcard_emu", false);
 	bool widescreen = m_gcfg2.getBool(id, "dm_widescreen", false);
 	bool activity_led = m_gcfg2.getBool(id, "led", false);
+
+	u8 NMM = min((u32)m_gcfg2.getInt(id, "dml_nmm", 0), ARRAY_SIZE(CMenu::_NMM) - 1u);
+	NMM = (NMM == 0) ? m_cfg.getInt(GC_DOMAIN, "dml_nmm", 0) : NMM-1;
+
 	//if GC disc use DIOS MIOS to launch it
 	if(disc)
 	{
 		loader = 0;
 		gprintf("Booting GC Disc: %s\n", id);
-		DML_New_SetBootDiscOption(m_new_dm_cfg);
 	}
 	else
 		m_cfg.setString(GC_DOMAIN, "current_item", id);
 
-	bool isqf = false;
 	const char *mios_wad = NULL;
 
 	if(loader == 0) //auto selected
 	{
 		gprintf("Auto installing MIOS\n");
 		_showWaitMessage();
-		for(u8 i = 0; i < QFIDN; i++)
-		{
-			if(strncmp(id, qfid[i], strlen(qfid[i])) == 0)
-				isqf = true;
-		}
-		if(isqf == true)
+		if(_QF_Game(id) == true)
 		{
 			if(currentPartition == SD && (m_mios_ver != 2 || m_sd_dm == false))
 				mios_wad = fmt("%s/qfsd.wad", m_miosDir.c_str());
@@ -958,15 +956,11 @@ void CMenu::_launchGC(dir_discHdr *hdr, bool disc)
 		currentPartition = SD;
 	}
 	_launchShutdown();
-	bool DIOSMIOS = false;
 	if(disc == true)
-		DIOSMIOS = true;
-	else if(loader == 0 || strcasestr(path, "boot.bin") != NULL)
+		DML_New_SetBootDiscOption(m_new_dm_cfg);
+	else if(loader == 0)
 	{
-		DIOSMIOS = true;
 		char CheatPath[256];
-		u8 NMM = min((u32)m_gcfg2.getInt(id, "dml_nmm", 0), ARRAY_SIZE(CMenu::_NMM) - 1u);
-		NMM = (NMM == 0) ? m_cfg.getInt(GC_DOMAIN, "dml_nmm", 0) : NMM-1;
 		u8 nodisc = min((u32)m_gcfg2.getInt(id, "no_disc_patch", 0), ARRAY_SIZE(CMenu::_NoDVD) - 1u);
 		nodisc = (nodisc == 0) ? m_cfg.getInt(GC_DOMAIN, "no_disc_patch", 0) : nodisc-1;
 		bool cheats = m_gcfg2.testOptBool(id, "cheat", m_cfg.getBool(GC_DOMAIN, "cheat", false));
@@ -995,8 +989,10 @@ void CMenu::_launchGC(dir_discHdr *hdr, bool disc)
 		if(!nodisc || !m_new_dml)
 			WDVD_StopMotor();
 	}
-	else
+	else if(loader == 1)
 		DEVO_GetLoader(m_dataDir.c_str());
+	else if(loader == 2)
+		Nintendont_SetOptions(path, NMM, videoSetting, widescreen);
 
 	m_gcfg1.save(true);
 	m_gcfg2.save(true);
@@ -1004,20 +1000,20 @@ void CMenu::_launchGC(dir_discHdr *hdr, bool disc)
 	m_cfg.save(true);
 	cleanup();
 
-	GC_SetVideoMode(videoMode, (disc ? 1 : videoSetting), DIOSMIOS);
+	GC_SetVideoMode(videoMode, (disc ? 1 : videoSetting), loader);
 	GC_SetLanguage(GClanguage);
 	/* NTSC-J Patch by FIX94 */
 	if(id[3] == 'J')
 		*HW_PPCSPEED = 0x0002A9E0;
 
-	if(DIOSMIOS)
+	if(loader == 0)
 	{
 		DML_New_WriteOptions();
 		ShutdownBeforeExit();
 		WII_Initialize();
 		WII_LaunchTitle(0x100000100LL);
 	}
-	else
+	else if(loader == 1)
 	{
 		if(AHBRPOT_Patched())
 			loadIOS(58, false);
@@ -1027,6 +1023,17 @@ void CMenu::_launchGC(dir_discHdr *hdr, bool disc)
 		DEVO_SetOptions(path, id, memcard_emu, 
 			widescreen, activity_led, m_use_wifi_gecko);
 		DEVO_Boot();
+	}
+	else
+	{
+		Nintendont_WriteOptions();
+		bool ret = (Nintendont_GetLoader() && LoadAppBooter(fmt("%s/app_booter.bin", m_binsDir.c_str())));
+		ShutdownBeforeExit();
+		if(ret == true)
+		{
+			loadIOS(58, false); //nintendont NEEDS ios58
+			BootHomebrew(); //regular dol
+		}
 	}
 	Sys_Exit();
 }
@@ -1042,20 +1049,22 @@ void CMenu::_launchHomebrew(const char *filepath, vector<string> arguments)
 	Playlog_Delete();
 	cleanup(); // wifi and sd gecko doesnt work anymore after cleanup
 
-	if(LoadHomebrew(filepath) == 1)
+	bool ret = (LoadHomebrew(filepath) && LoadAppBooter(fmt("%s/app_booter.bin", m_binsDir.c_str())));
+
+	AddBootArgument(filepath);
+	for(u32 i = 0; i < arguments.size(); ++i)
 	{
-		AddBootArgument(filepath);
-		for(u32 i = 0; i < arguments.size(); ++i)
-		{
-			gprintf("Argument: %s\n", arguments[i].c_str());
-			AddBootArgument(arguments[i].c_str());
-		}
+		gprintf("Argument: %s\n", arguments[i].c_str());
+		AddBootArgument(arguments[i].c_str());
+	}
+
+	ShutdownBeforeExit();
+	if(ret == true)
+	{
 		loadIOS(58, false);
-		ShutdownBeforeExit();
 		BootHomebrew();
 	}
-	else
-		Sys_Exit();
+	Sys_Exit();
 }
 
 int CMenu::_loadIOS(u8 gameIOS, int userIOS, string id, bool RealNAND_Channels)
@@ -1211,8 +1220,11 @@ void CMenu::_launchChannel(dir_discHdr *hdr)
 			while(1) usleep(500);
 		}
 	}
+	if(WII_Launch == false && ExternalBooter_LoadBooter(fmt("%s/ext_booter.bin", m_binsDir.c_str())) == false)
+		Sys_Exit();
 	if(_loadIOS(gameIOS, userIOS, id, !NAND_Emu) == LOAD_IOS_FAILED)
 		Sys_Exit();
+
 	if((CurrentIOS.Type == IOS_TYPE_D2X || neek2o()) && returnTo != 0)
 	{
 		if(D2X_PatchReturnTo(returnTo) >= 0)
@@ -1247,6 +1259,7 @@ void CMenu::_launchChannel(dir_discHdr *hdr)
 		NandHandle.Patch_AHB(); /* Identify may takes it */
 		PatchIOS(true); /* Patch for everything */
 		Identify(gameTitle);
+
 		ExternalBooter_ChannelSetup(gameTitle, use_dol);
 		WiiFlow_ExternalBooter(videoMode, vipatch, countryPatch, patchVidMode, aspectRatio, 0, TYPE_CHANNEL, use_led);
 	}
@@ -1437,11 +1450,14 @@ void CMenu::_launchGame(dir_discHdr *hdr, bool dvd)
 	m_cfg.save(true);
 	cleanup(); // wifi and sd gecko doesnt work anymore after cleanup
 
+	if(ExternalBooter_LoadBooter(fmt("%s/ext_booter.bin", m_binsDir.c_str())) == false)
+		Sys_Exit();
 	if((!dvd || neek2o()) && !Sys_DolphinMode())
 	{
 		if(_loadIOS(gameIOS, userIOS, id) == LOAD_IOS_FAILED)
 			Sys_Exit();
 	}
+
 	if(CurrentIOS.Type == IOS_TYPE_D2X)
 	{
 		if(returnTo != 0 && !m_directLaunch && D2X_PatchReturnTo(returnTo) >= 0)
@@ -1484,17 +1500,20 @@ void CMenu::_launchGame(dir_discHdr *hdr, bool dvd)
 		app_gameconfig_load(id.c_str(), gameconfig, gameconfigSize);
 		free(gameconfig);
 	}
+
 	ExternalBooter_WiiGameSetup(wbfs_partition, dvd, id.c_str());
 	WiiFlow_ExternalBooter(videoMode, vipatch, countryPatch, patchVidMode, aspectRatio, returnTo, TYPE_WII_GAME, use_led);
+
+	Sys_Exit();
 }
 
 void CMenu::_initGameMenu()
 {
 	CColor fontColor(0xD0BFDFFF);
-	TexData texFavOn;
-	TexData texFavOnSel;
-	TexData texFavOff;
-	TexData texFavOffSel;
+	TexData texGameFavOn;
+	TexData texGameFavOnSel;
+	TexData texGameFavOff;
+	TexData texGameFavOffSel;
 	TexData texAdultOn;
 	TexData texAdultOnSel;
 	TexData texAdultOff;
@@ -1503,40 +1522,40 @@ void CMenu::_initGameMenu()
 	TexData texDeleteSel;
 	TexData texSettings;
 	TexData texSettingsSel;
-	TexData texToogleBanner;
+	TexData texToggleBanner;
 	TexData bgLQ;
 
-	TexHandle.fromPNG(texFavOn, favoriteson_png);
-	TexHandle.fromPNG(texFavOnSel, favoritesons_png);
-	TexHandle.fromPNG(texFavOff, favoritesoff_png);
-	TexHandle.fromPNG(texFavOffSel, favoritesoffs_png);
-	TexHandle.fromPNG(texAdultOn, stopkidon_png);
-	TexHandle.fromPNG(texAdultOnSel, stopkidons_png);
-	TexHandle.fromPNG(texAdultOff, stopkidoff_png);
-	TexHandle.fromPNG(texAdultOffSel, stopkidoffs_png);
-	TexHandle.fromPNG(texDelete, delete_png);
-	TexHandle.fromPNG(texDeleteSel, deletes_png);
-	TexHandle.fromPNG(texSettings, btngamecfg_png);
-	TexHandle.fromPNG(texSettingsSel, btngamecfgs_png);
-	TexHandle.fromPNG(texToogleBanner, blank_png);
+	TexHandle.fromImageFile(texGameFavOn, fmt("%s/gamefavon.png", m_imgsDir.c_str()));
+	TexHandle.fromImageFile(texGameFavOnSel, fmt("%s/gamefavons.png", m_imgsDir.c_str()));
+	TexHandle.fromImageFile(texGameFavOff, fmt("%s/gamefavoff.png", m_imgsDir.c_str()));
+	TexHandle.fromImageFile(texGameFavOffSel, fmt("%s/gamefavoffs.png", m_imgsDir.c_str()));
+	TexHandle.fromImageFile(texAdultOn, fmt("%s/stopkidon.png", m_imgsDir.c_str()));
+	TexHandle.fromImageFile(texAdultOnSel, fmt("%s/stopkidons.png", m_imgsDir.c_str()));
+	TexHandle.fromImageFile(texAdultOff, fmt("%s/stopkidoff.png", m_imgsDir.c_str()));
+	TexHandle.fromImageFile(texAdultOffSel, fmt("%s/stopkidoffs.png", m_imgsDir.c_str()));
+	TexHandle.fromImageFile(texDelete, fmt("%s/delete.png", m_imgsDir.c_str()));
+	TexHandle.fromImageFile(texDeleteSel, fmt("%s/deletes.png", m_imgsDir.c_str()));
+	TexHandle.fromImageFile(texSettings, fmt("%s/btngamecfg.png", m_imgsDir.c_str()));
+	TexHandle.fromImageFile(texSettingsSel, fmt("%s/btngamecfgs.png", m_imgsDir.c_str()));
+	TexHandle.fromImageFile(texToggleBanner, fmt("%s/blank.png", m_imgsDir.c_str()));
 
 	_addUserLabels(m_gameLblUser, ARRAY_SIZE(m_gameLblUser), "GAME");
 	m_gameBg = _texture("GAME/BG", "texture", theme.bg, false);
 	if(m_theme.loaded() && TexHandle.fromImageFile(bgLQ, fmt("%s/%s", m_themeDataDir.c_str(), m_theme.getString("GAME/BG", "texture").c_str()), GX_TF_CMPR, 64, 64) == TE_OK)
 		m_gameBgLQ = bgLQ;
 
-	m_gameBtnPlay = _addButton("GAME/PLAY_BTN", theme.btnFont, L"", 420, 344, 200, 56, theme.btnFontColor);
-	m_gameBtnBack = _addButton("GAME/BACK_BTN", theme.btnFont, L"", 420, 400, 200, 56, theme.btnFontColor);
-	m_gameBtnFavoriteOn = _addPicButton("GAME/FAVORITE_ON", texFavOn, texFavOnSel, 460, 200, 48, 48);
-	m_gameBtnFavoriteOff = _addPicButton("GAME/FAVORITE_OFF", texFavOff, texFavOffSel, 460, 200, 48, 48);
+	m_gameBtnPlay = _addButton("GAME/PLAY_BTN", theme.btnFont, L"", 420, 344, 200, 48, theme.btnFontColor);
+	m_gameBtnBack = _addButton("GAME/BACK_BTN", theme.btnFont, L"", 420, 400, 200, 48, theme.btnFontColor);
+	m_gameBtnFavoriteOn = _addPicButton("GAME/FAVORITE_ON", texGameFavOn, texGameFavOnSel, 460, 200, 48, 48);
+	m_gameBtnFavoriteOff = _addPicButton("GAME/FAVORITE_OFF", texGameFavOff, texGameFavOffSel, 460, 200, 48, 48);
 	m_gameBtnAdultOn = _addPicButton("GAME/ADULTONLY_ON", texAdultOn, texAdultOnSel, 532, 200, 48, 48);
 	m_gameBtnAdultOff = _addPicButton("GAME/ADULTONLY_OFF", texAdultOff, texAdultOffSel, 532, 200, 48, 48);
 	m_gameBtnSettings = _addPicButton("GAME/SETTINGS_BTN", texSettings, texSettingsSel, 460, 272, 48, 48);
 	m_gameBtnDelete = _addPicButton("GAME/DELETE_BTN", texDelete, texDeleteSel, 532, 272, 48, 48);
 	m_gameBtnBackFull = _addButton("GAME/BACK_FULL_BTN", theme.btnFont, L"", 100, 390, 200, 56, theme.btnFontColor);
 	m_gameBtnPlayFull = _addButton("GAME/PLAY_FULL_BTN", theme.btnFont, L"", 340, 390, 200, 56, theme.btnFontColor);
-	m_gameBtnToogle = _addPicButton("GAME/TOOGLE_BTN", texToogleBanner, texToogleBanner, 385, 31, 236, 127);
-	m_gameBtnToogleFull = _addPicButton("GAME/TOOGLE_FULL_BTN", texToogleBanner, texToogleBanner, 20, 12, 608, 344);
+	m_gameBtnToogle = _addPicButton("GAME/TOOGLE_BTN", texToggleBanner, texToggleBanner, 385, 31, 236, 127);
+	m_gameBtnToogleFull = _addPicButton("GAME/TOOGLE_FULL_BTN", texToggleBanner, texToggleBanner, 20, 12, 608, 344);
 
 	m_gameButtonsZone.x = m_theme.getInt("GAME/ZONES", "buttons_x", 0);
 	m_gameButtonsZone.y = m_theme.getInt("GAME/ZONES", "buttons_y", 0);
@@ -1544,14 +1563,14 @@ void CMenu::_initGameMenu()
 	m_gameButtonsZone.h = m_theme.getInt("GAME/ZONES", "buttons_h", 480);
 	m_gameButtonsZone.hide = m_theme.getBool("GAME/ZONES", "buttons_hide", true);
 
-	_setHideAnim(m_gameBtnPlay, "GAME/PLAY_BTN", 200, 0, 1.f, 0.f);
-	_setHideAnim(m_gameBtnBack, "GAME/BACK_BTN", 200, 0, 1.f, 0.f);
-	_setHideAnim(m_gameBtnFavoriteOn, "GAME/FAVORITE_ON", 0, 0, -1.5f, -1.5f);
-	_setHideAnim(m_gameBtnFavoriteOff, "GAME/FAVORITE_OFF", 0, 0, -1.5f, -1.5f);
-	_setHideAnim(m_gameBtnAdultOn, "GAME/ADULTONLY_ON", 0, 0, -1.5f, -1.5f);
-	_setHideAnim(m_gameBtnAdultOff, "GAME/ADULTONLY_OFF", 0, 0, -1.5f, -1.5f);
-	_setHideAnim(m_gameBtnSettings, "GAME/SETTINGS_BTN", 0, 0, -1.5f, -1.5f);
-	_setHideAnim(m_gameBtnDelete, "GAME/DELETE_BTN", 0, 0, -1.5f, -1.5f);
+	_setHideAnim(m_gameBtnPlay, "GAME/PLAY_BTN", 0, 0, 1.f, -1.f);
+	_setHideAnim(m_gameBtnBack, "GAME/BACK_BTN", 0, 0, 1.f, -1.f);
+	_setHideAnim(m_gameBtnFavoriteOn, "GAME/FAVORITE_ON", 0, 0, 1.f, -1.f);
+	_setHideAnim(m_gameBtnFavoriteOff, "GAME/FAVORITE_OFF", 0, 0, 1.f, -1.f);
+	_setHideAnim(m_gameBtnAdultOn, "GAME/ADULTONLY_ON", 0, 0, 1.f, -1.f);
+	_setHideAnim(m_gameBtnAdultOff, "GAME/ADULTONLY_OFF", 0, 0, 1.f, -1.f);
+	_setHideAnim(m_gameBtnSettings, "GAME/SETTINGS_BTN", 0, 0, 1.f, -1.f);
+	_setHideAnim(m_gameBtnDelete, "GAME/DELETE_BTN", 0, 0, 1.f, -1.f);
 	_setHideAnim(m_gameBtnPlayFull, "GAME/PLAY_FULL_BTN", 0, 0, 1.f, 0.f);
 	_setHideAnim(m_gameBtnBackFull, "GAME/BACK_FULL_BTN", 0, 0, 1.f, 0.f);
 	_setHideAnim(m_gameBtnToogle, "GAME/TOOGLE_BTN", 200, 0, 1.f, 0.f);
@@ -1575,6 +1594,9 @@ struct IMD5Header
 	u8 zeroes[8];
 	u8 crypto[16];
 } ATTRIBUTE_PACKED;
+
+static const u32 BNR_MAX_SIZE = 0x00200000; /* 2MB */
+static u8 *BNR_LOC = (u8*)0x90000000;
 
 void CMenu::_gameSoundThread(CMenu *m)
 {
@@ -1600,42 +1622,57 @@ void CMenu::_gameSoundThread(CMenu *m)
 
 	char cached_banner[256];
 	cached_banner[255] = '\0';
-	strncpy(cached_banner, fmt("%s/%.6s.bnr", m->m_bnrCacheDir.c_str(), GameHdr->id), 255);
-	cached_bnr_file = fsop_ReadFile(cached_banner, &cached_bnr_size);
-	if(cached_bnr_file == NULL)
+	char custom_banner[256];
+	custom_banner[255] = '\0';
+	/* check custom ID6 first */
+	strncpy(custom_banner, fmt("%s/%s.bnr", m->m_customBnrDir.c_str(), GameHdr->id), 255);
+	fsop_GetFileSizeBytes(custom_banner, &custom_bnr_size);
+	if(custom_bnr_size > 0 && custom_bnr_size < BNR_MAX_SIZE)
 	{
-		char custom_banner[256];
-		custom_banner[255] = '\0';
-		strncpy(custom_banner, fmt("%s/%.6s.bnr", m->m_customBnrDir.c_str(), GameHdr->id), 255);
-		custom_bnr_file = fsop_ReadFile(custom_banner, &custom_bnr_size);
-		if(custom_bnr_file == NULL)
+		custom_bnr_file = BNR_LOC;
+		fsop_ReadFileLoc(custom_banner, custom_bnr_size, BNR_LOC);
+	}
+	else /* no custom ID6 or too big, try ID3 */
+	{
+		strncpy(custom_banner, fmt("%s/%.3s.bnr", m->m_customBnrDir.c_str(), GameHdr->id), 255);
+		fsop_GetFileSizeBytes(custom_banner, &custom_bnr_size);
+		if(custom_bnr_size > 0 && custom_bnr_size < BNR_MAX_SIZE)
 		{
-			strncpy(custom_banner, fmt("%s/%.3s.bnr", m->m_customBnrDir.c_str(), GameHdr->id), 255);
-			custom_bnr_file = fsop_ReadFile(custom_banner, &custom_bnr_size);
+			custom_bnr_file = BNR_LOC;
+			fsop_ReadFileLoc(custom_banner, custom_bnr_size, BNR_LOC);
 		}
-		if(custom_bnr_file == NULL && GameHdr->type == TYPE_GC_GAME)
+	}
+	if(custom_bnr_file == NULL && GameHdr->type == TYPE_GC_GAME)
+	{
+		if(m->_QF_Game(GameHdr->id) == false)
 		{
-			GC_Disc disc;
-			disc.init(GameHdr->path);
-			u8 *opening_bnr = disc.GetGameCubeBanner();
+			GC_Disc_Reader.init(GameHdr->path);
+			u8 *opening_bnr = GC_Disc_Reader.GetGameCubeBanner();
 			if(opening_bnr != NULL)
 				m_banner.CreateGCBanner(opening_bnr, m->m_wbf1_font, m->m_wbf2_font, GameHdr->title);
-			disc.clear();
-
-			m->m_gameSound.Load(gc_ogg, gc_ogg_size, false);
-			if(m->m_gameSound.IsLoaded())
-				m->m_gamesound_changed = true;
-			m->m_soundThrdBusy = false;
-			return;
+			GC_Disc_Reader.clear();
+		}
+		m->m_gameSound.Load(gc_ogg, gc_ogg_size, false);
+		if(m->m_gameSound.IsLoaded())
+			m->m_gamesound_changed = true;
+		m->m_soundThrdBusy = false;
+		return;
+	}
+	if(custom_bnr_file == NULL)/* no custom and not GC game try cached banner*/
+	{
+		strncpy(cached_banner, fmt("%s/%s.bnr", m->m_bnrCacheDir.c_str(), GameHdr->id), 255);
+		fsop_GetFileSizeBytes(cached_banner, &cached_bnr_size);
+		if(cached_bnr_size > 0 && cached_bnr_size < BNR_MAX_SIZE)
+		{
+			cached_bnr_file = BNR_LOC;
+			fsop_ReadFileLoc(cached_banner, cached_bnr_size, BNR_LOC);
 		}
 	}
 
-	u32 sndSize = 0;
-	u8 *soundBin = NULL;
-	if(cached_bnr_file != NULL)
+	if(custom_bnr_file != NULL)
+		CurrentBanner.SetBanner(custom_bnr_file, custom_bnr_size, true);
+	else if(cached_bnr_file != NULL)
 		CurrentBanner.SetBanner(cached_bnr_file, cached_bnr_size);
-	else if(custom_bnr_file != NULL)
-		CurrentBanner.SetBanner(custom_bnr_file, custom_bnr_size, 0, true);
 	else if(GameHdr->type == TYPE_WII_GAME)
 		_extractBnr(GameHdr);
 	else if(GameHdr->type == TYPE_CHANNEL)
@@ -1652,8 +1689,9 @@ void CMenu::_gameSoundThread(CMenu *m)
 	if(cached_bnr_file == NULL && custom_bnr_file == NULL)
 		fsop_WriteFile(cached_banner, CurrentBanner.GetBannerFile(), CurrentBanner.GetBannerFileSize());
 
+	u32 sndSize = 0;
 	m_banner.LoadBanner(m->m_wbf1_font, m->m_wbf2_font);
-	soundBin = CurrentBanner.GetFile("sound.bin", &sndSize);
+	u8 *soundBin = CurrentBanner.GetFile("sound.bin", &sndSize);
 	CurrentBanner.ClearBanner();
 
 	if(soundBin != NULL)
@@ -1664,6 +1702,7 @@ void CMenu::_gameSoundThread(CMenu *m)
 			u8 *newSound = DecompressCopy(soundBin, sndSize, &newSize);
 			if(newSound == NULL || newSize == 0 || !m->m_gameSound.Load(newSound, newSize))
 			{
+				free(soundBin);
 				m->m_gameSound.FreeMemory();
 				m_banner.DeleteBanner();
 				m->m_soundThrdBusy = false;

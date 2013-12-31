@@ -145,11 +145,11 @@ int CMenu::_gameInstaller(void *obj)
 		ret = WBFS_AddGame(_addDiscProgress, obj);
 		LWP_MutexLock(m.m_mutex);
 		if (ret == 0)
-			m._setThrdMsg(m._t("wbfsop8", L"Game installed"), 1.f);
+			m._setThrdMsg(m._t("wbfsop8", L"Game installed, press B to exit."), 1.f);
 		else
 			m._setThrdMsg(m._t("wbfsop9", L"An error has occurred"), 1.f);
 		LWP_MutexUnlock(m.m_mutex);
-		slotLight(true);
+		slotLight(false);
 	}
 	WBFS_Close();
 	m.m_thrdWorking = false;
@@ -342,6 +342,7 @@ bool CMenu::_wbfsOp(CMenu::WBFS_OP op)
 								out = true;
 								break;
 							}
+							CoverFlow.clear();
 							strncpy(cfPos, GameID, 6);
 							m_btnMgr.setText(m_wbfsLblDialog, wfmt(_fmt("wbfsop6", L"Installing [%s] %s..."), GameID, wii_hdr.title));
 							done = true;
@@ -508,6 +509,7 @@ bool CMenu::_wbfsOp(CMenu::WBFS_OP op)
 	if(done && (op == WO_REMOVE_GAME || op == WO_ADD_GAME))
 	{
 		//m_gameList.SetLanguage(m_loc.getString(m_curLanguage, "gametdb_code", "EN").c_str());	
+		_showWaitMessage();
 		if(upd_dml)
 			UpdateCache(COVERFLOW_DML);
 		if(upd_usb)
@@ -517,8 +519,13 @@ bool CMenu::_wbfsOp(CMenu::WBFS_OP op)
 		if(upd_chan)
 			UpdateCache(COVERFLOW_CHANNEL);
 		_loadList();
+		_hideWaitMessage();
 		_initCF();
 		CoverFlow.findId(cfPos, true);
+		Close_Inputs();
+		Open_Inputs();
+		for(int chan = WPAD_MAX_WIIMOTES-1; chan >= 0; chan--)
+					WPAD_SetVRes(chan, m_vid.width() + m_cursor[chan].width(), m_vid.height() + m_cursor[chan].height());
 	}
 	else 
 	{
@@ -538,17 +545,17 @@ void CMenu::_initWBFSMenu()
 {
 	_addUserLabels(m_wbfsLblUser, ARRAY_SIZE(m_wbfsLblUser), "WBFS");
 	m_wbfsBg = _texture("WBFS/BG", "texture", theme.bg, false);
-	m_wbfsLblTitle = _addTitle("WBFS/TITLE", theme.titleFont, L"", 20, 30, 600, 60, theme.titleFontColor, FTGX_JUSTIFY_CENTER | FTGX_ALIGN_MIDDLE);
-	m_wbfsLblDialog = _addLabel("WBFS/DIALOG", theme.lblFont, L"", 40, 90, 560, 200, theme.lblFontColor, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_MIDDLE);
-	m_wbfsLblMessage = _addLabel("WBFS/MESSAGE", theme.lblFont, L"", 40, 300, 560, 100, theme.lblFontColor, FTGX_JUSTIFY_CENTER | FTGX_ALIGN_TOP);
-	m_wbfsPBar = _addProgressBar("WBFS/PROGRESS_BAR", 40, 270, 560, 20);
-	m_wbfsBtnGo = _addButton("WBFS/GO_BTN", theme.btnFont, L"", 420, 400, 200, 56, theme.btnFontColor);
+	m_wbfsLblTitle = _addTitle("WBFS/TITLE", theme.titleFont, L"", 0, 10, 640, 60, theme.titleFontColor, FTGX_JUSTIFY_CENTER | FTGX_ALIGN_MIDDLE);
+	m_wbfsLblDialog = _addLabel("WBFS/DIALOG", theme.lblFont, L"", 20, 75, 600, 200, theme.lblFontColor, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_MIDDLE);
+	m_wbfsLblMessage = _addLabel("WBFS/MESSAGE", theme.lblFont, L"", 20, 300, 600, 100, theme.lblFontColor, FTGX_JUSTIFY_CENTER | FTGX_ALIGN_TOP);
+	m_wbfsPBar = _addProgressBar("WBFS/PROGRESS_BAR", 40, 200, 560, 20);
+	m_wbfsBtnGo = _addButton("WBFS/GO_BTN", theme.btnFont, L"", 420, 400, 200, 48, theme.btnFontColor);
 
 	_setHideAnim(m_wbfsLblTitle, "WBFS/TITLE", 0, 0, -2.f, 0.f);
 	_setHideAnim(m_wbfsLblDialog, "WBFS/DIALOG", 0, 0, -2.f, 0.f);
 	_setHideAnim(m_wbfsLblMessage, "WBFS/MESSAGE", 0, 0, -2.f, 0.f);
 	_setHideAnim(m_wbfsPBar, "WBFS/PROGRESS_BAR", 0, 0, -2.f, 0.f);
-	_setHideAnim(m_wbfsBtnGo, "WBFS/GO_BTN", 0, 0, -2.f, 0.f);
+	_setHideAnim(m_wbfsBtnGo, "WBFS/GO_BTN", 0, 0, 1.f, -1.f);
 	_hideWBFS(true);
 	_textWBFS();
 }

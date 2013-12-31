@@ -7,7 +7,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "sha1.h"
 #include "fs.h"
 #include "mload.h"
 #include "sys.h"
@@ -141,6 +140,17 @@ bool AHBRPOT_Patched(void)
 	return (*HW_AHBPROT == 0xFFFFFFFF);
 }
 
+/* WiiU Check by crediar, thanks */
+bool IsOnWiiU(void)
+{
+	if((*HW_PROCESSOR >> 16) == 0xCAFE)
+	{
+		gprintf("vWii Mode\n");
+		return true;
+	}
+	return false;
+}
+
 void Sys_SetNeekPath(const char *Path)
 {
 	NeekPath = Path;
@@ -193,6 +203,19 @@ bool Sys_DolphinMode(void)
 	}
 	ModeChecked = true;
 	return DolphinMode;
+}
+
+bool hw_check = false;
+bool on_hw = false;
+bool Sys_HW_Access(void)
+{
+	if(hw_check == true)
+		return on_hw;
+
+	check_neek2o();
+	on_hw = AHBRPOT_Patched() && (!Sys_DolphinMode() && !neek2o());
+	hw_check = true;
+	return on_hw;
 }
 
 /* KILL IT */

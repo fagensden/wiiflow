@@ -88,16 +88,21 @@ private:
 	bool m_favorites;
 	bool m_music_info;
 	bool m_use_source;
+	bool m_allow_random;
 	bool m_multisource;
 	bool m_load_view;
+	bool m_sourceflow;
 	s16 m_showtimer;
 	string m_curLanguage;
 
 	u8 m_numCFVersions;
 
+	string m_sourceDir;
 	string m_miosDir;
 	string m_themeDataDir;
 	string m_appDir;
+	string m_imgsDir;
+	string m_binsDir;
 	string m_dataDir;
 	string m_pluginsDir;
 	string m_customBnrDir;
@@ -628,11 +633,13 @@ private:
 	s32   right_stick_skip[WPAD_MAX_WIIMOTES];
 	s32	  wmote_roll_skip[WPAD_MAX_WIIMOTES];
 	bool  enable_wmote_roll;
+	time_t no_input_time;
 
 	bool m_cfNeedsUpdate;
 
 	void SetupInput(bool reset_pos = false);
 	void ScanInput(void);
+	u32 NoInputTime(void);
 
 	void ButtonsPressed(void);
 	void ButtonsHeld(void);
@@ -849,6 +856,7 @@ private:
 	void _initCheatSettingsMenu();
 	void _initCheatButtons();
 	void _initSourceMenu();
+	void _initCfgSrc();
 	void _initPluginSettingsMenu();
 	void _initCategorySettingsMenu();
 	void _initSystemMenu();
@@ -862,6 +870,7 @@ private:
 	void _initFTP();
 	//
 	void _textSource(void);
+	void _textCfgSrc(void);
 	void _textPluginSettings(void);
 	void _textCategorySettings(void);
 	void _textCheatSettings(void);
@@ -893,6 +902,7 @@ private:
 	void _textFTP(void);
 	//
 	void _refreshBoot();
+	void _refreshCfgSrc();
 	void _refreshExplorer(s8 direction = 0);
 	void _refreshLangSettings();
 	//
@@ -1017,6 +1027,7 @@ private:
 	void _Wad(const char *wad_path = NULL, bool autoInstall = false);
 	void _CheatSettings();
 	bool _Source();
+	void _CfgSrc();
 	void _PluginSettings();
 	void _CategorySettings(bool fromGameSet = false);
 	bool _Home();
@@ -1025,10 +1036,14 @@ private:
 	bool _ExitTo();
 	bool _Boot();
 	void _Paths();
+	void _sourceFlow();
+	void _createSFList();
 	void _mainLoopCommon(bool withCF = false, bool adjusting = false);
 public:
 	void directlaunch(const char *GameID);
 private:
+	dir_discHdr m_autoboot_hdr;
+	bool m_source_autoboot;
 	bool m_use_wifi_gecko;
 	bool m_use_sd_logging;
 	bool init_network;
@@ -1037,6 +1052,7 @@ private:
 	void _netInit();
 	bool _loadFile(u8 * &buffer, u32 &size, const char *path, const char *file);
 	int _loadIOS(u8 ios, int userIOS, string id, bool RealNAND_Channels = false);
+	bool _QF_Game(const char *game_id);
 	void _launch(const dir_discHdr *hdr);
 	void _launchGame(dir_discHdr *hdr, bool dvd);
 	void _launchChannel(dir_discHdr *hdr);
@@ -1162,8 +1178,8 @@ private:
 	static const SOption _AspectRatio[3];
 	static const SOption _NMM[4];
 	static const SOption _NoDVD[3];
-	static const SOption _GlobalGCLoaders[2];
-	static const SOption _GCLoader[3];
+	static const SOption _GlobalGCLoaders[3];
+	static const SOption _GCLoader[4];
 	static const SOption _vidModePatch[4];
 	static const SOption _debugger[3];
 	static const SOption _hooktype[8];

@@ -358,7 +358,7 @@ void decrypt(char *buff)
 	return;
 }
 
-void aes_set_key(u8 *key)
+void aes_set_key(const u8 *key)
 {
 	gentables();
 	gkey(4, 4, (char*) key);

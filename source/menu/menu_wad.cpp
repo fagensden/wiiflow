@@ -19,10 +19,8 @@
 #include "channel/nand.hpp"
 
 extern "C" {
-#include "loader/sha1.h"
-extern void aes_set_key(u8 *key);
-extern void aes_decrypt_partial(u8 *inbuf, u8 *outbuf, u8 block[16], 
-								u8 *ctext_ptr, u32 tmp_blockno);
+#include "hw/sha1.h"
+#include "hw/aes.h"
 };
 
 #define WAD_BUF 0x10000
@@ -94,7 +92,6 @@ int installWad(const char *path)
 	gprintf("Decrypting key\n");
 	u8 tik_key[16];
 	decrypt_title_key(tik_buf, tik_key);
-	aes_set_key(tik_key);
 
 	gprintf("Reading tmd\n");
 	signed_blob *tmd_buf = (signed_blob*)MEM2_alloc(hdr.tmd_len);
@@ -145,6 +142,7 @@ int installWad(const char *path)
 			new_uid_file[chans].TitleID = tid;
 			new_uid_file[chans].uid = 0x1000+chans;
 			fsop_WriteFile(fmt("%s/sys/uid.sys", EmuNAND), new_uid_file, new_uid_size);
+			MEM2_free(new_uid_buf);
 		}
 		/* clear old tik */
 		fsop_deleteFile(fmt("%s/ticket/%08x/%08x.tik", EmuNAND, (u32)(tid>>32), (u32)tid&0xFFFFFFFF));
@@ -162,15 +160,15 @@ int installWad(const char *path)
 		fsop_MakeFolder(fmt("%s/title/%08x/%08x/data", EmuNAND, (u32)(tid>>32), (u32)tid&0xFFFFFFFF));
 	}
 	int hash_errors = 0;
-
+	u8 *AES_WAD_Buf = (u8*)MEM2_alloc(WAD_BUF);
 	/* decrypt and write app files */
 	for(u16 cnt = 0; cnt < tmd_ptr->num_contents; cnt++)
 	{
-		u8 iv[16];
+		u8 aes_iv[16];
+		memset(aes_iv, 0, 16);
 		const tmd_content *content = &tmd_ptr->contents[cnt];
 		u16 content_index = content->index;
-		memset(iv, 0, 16);
-		memcpy(iv, &content_index, 2);
+		memcpy(aes_iv, &content_index, 2);
 		/* longass filename */
 		FILE *app_file = NULL;
 		s32 fd = -1;
@@ -195,16 +193,10 @@ int installWad(const char *path)
 				gprintf("Writing Real NAND File %s\n", ISFS_Path);
 		}
 		u64 read = 0;
-		u8 *encBuf = (u8*)MEM2_alloc(WAD_BUF);
-		u8 *decBuf = (u8*)MEM2_alloc(WAD_BUF);
-
-		u8 block[16];
-		u8 prev_block[16];
-		u8 *ctext_ptr = iv;
 
 		SHA1_CTX ctx;
 		SHA1Init(&ctx);
-
+		AES_ResetEngine();
 		u32 size_enc_full = ALIGN(16, content->size);
 		while(read < size_enc_full)
 		{
@@ -212,27 +204,20 @@ int installWad(const char *path)
 			if (size_enc > WAD_BUF)
 				size_enc = WAD_BUF;
 
-			memset(encBuf, 0, WAD_BUF);
-			fread(encBuf, size_enc, 1, wad_file);
+			u16 num_blocks = (size_enc / 16);
+			fread(AES_WAD_Buf, size_enc, 1, wad_file);
+			AES_EnableDecrypt(tik_key, aes_iv); //ISFS seems to reset it?
+			memcpy(aes_iv, AES_WAD_Buf+(size_enc-16), 16); //last block for cbc
+			AES_Decrypt(AES_WAD_Buf, AES_WAD_Buf, num_blocks);
 
-			u32 partnr = 0;
-			u32 lastnr = (size_enc / sizeof(block));
-
-			for(partnr = 0; partnr < lastnr; partnr++)
-			{
-				aes_decrypt_partial(encBuf, decBuf, block, ctext_ptr, partnr);
-				memcpy(prev_block, encBuf + (partnr * 16), 16);
-				ctext_ptr = prev_block;
-			}
-			/* we need to work with the real size here */
 			u64 size_dec = (content->size - read);
 			if(size_dec > WAD_BUF)
 				size_dec = WAD_BUF;
-			SHA1Update(&ctx, decBuf, size_dec);
+			SHA1Update(&ctx, AES_WAD_Buf, size_dec);
 			if(mios == false)
-				fwrite(decBuf, size_dec, 1, app_file);
+				fwrite(AES_WAD_Buf, size_dec, 1, app_file);
 			else if(fd >= 0)
-				ISFS_Write(fd, decBuf, size_dec);
+				ISFS_Write(fd, AES_WAD_Buf, size_dec);
 			/* dont forget to increase the read size */
 			read += size_enc;
 			mainMenu.update_pThread(size_enc);
@@ -254,6 +239,8 @@ int installWad(const char *path)
 			hash_errors++;
 		}
 	}
+	MEM2_free(AES_WAD_Buf);
+
 	if(mios == false)
 	{
 		fsop_WriteFile(fmt("%s/ticket/%08x/%08x.tik", EmuNAND, (u32)(tid>>32), (u32)tid&0xFFFFFFFF), tik_buf, hdr.tik_len);
@@ -513,13 +500,13 @@ void CMenu::_initWad()
 	_addUserLabels(m_wadLblUser, ARRAY_SIZE(m_wadLblUser), "WAD");
 
 	m_wadBg = _texture("WAD/BG", "texture", theme.bg, false);
-	m_wadLblTitle = _addTitle("WAD/TITLE", theme.titleFont, L"", 20, 30, 600, 60, theme.titleFontColor, FTGX_JUSTIFY_CENTER | FTGX_ALIGN_MIDDLE);
-	m_wadLblDialog = _addLabel("WAD/DIALOG", theme.lblFont, L"", 40, 90, 560, 200, theme.lblFontColor, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_MIDDLE);
-	m_wadBtnInstall = _addButton("WAD/INSTALL_BTN", theme.btnFont, L"", 420, 400, 200, 56, theme.btnFontColor);
+	m_wadLblTitle = _addTitle("WAD/TITLE", theme.titleFont, L"", 0, 10, 640, 60, theme.titleFontColor, FTGX_JUSTIFY_CENTER | FTGX_ALIGN_MIDDLE);
+	m_wadLblDialog = _addLabel("WAD/DIALOG", theme.lblFont, L"", 20, 75, 600, 200, theme.lblFontColor, FTGX_JUSTIFY_LEFT | FTGX_ALIGN_MIDDLE);
+	m_wadBtnInstall = _addButton("WAD/INSTALL_BTN", theme.btnFont, L"", 420, 400, 200, 48, theme.btnFontColor);
 
 	_setHideAnim(m_wadLblTitle, "WAD/TITLE", 0, 0, -2.f, 0.f);
 	_setHideAnim(m_wadLblDialog, "WAD/DIALOG", 0, 0, -2.f, 0.f);
-	_setHideAnim(m_wadBtnInstall, "WAD/INSTALL_BTN", 0, 0, -2.f, 0.f);
+	_setHideAnim(m_wadBtnInstall, "WAD/INSTALL_BTN", 0, 0, 1.f, -1.f);
 
 	_hideWad(true);
 	_textWad();
